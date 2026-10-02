@@ -45,7 +45,9 @@ Version 0.2 hardens the bridge and build path:
 - the primary camera/gimbal status now includes camera mode/activity, SD/internal storage capacity and main-gimbal attitude without exposing camera or gimbal control actions;
 - dedicated Aircraft, RC, Energy, RTK and Camera/Gimbal pages provide a structured device view;
 - a local diagnostic/event log records state transitions and warnings (up to 500 entries) and can be exported as CSV without logging every 1 Hz telemetry sample;
-- the media workspace includes an image viewer for aircraft and local files, fit/1:1 viewing, standard EXIF/GPS metadata, file hashes and DJI-specific XMP metadata when present.
+- the media workspace includes an image viewer for aircraft and local files, fit/1:1 viewing, standard EXIF/GPS metadata, file hashes and DJI-specific XMP metadata when present;
+- DJI DNG/RAW files are supported with WIC preview when a Windows RAW codec is available and metadata-only fallback otherwise;
+- a photogrammetry summary highlights DJI XMP fields such as GPS/altitude, aircraft and gimbal attitude, RTK flag/standard deviations, calibrated focal length, optical center and dewarp calibration data.
 
 ## Versions pinned by this project
 

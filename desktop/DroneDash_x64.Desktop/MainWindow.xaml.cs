@@ -361,7 +361,7 @@ public partial class MainWindow : Window
         using var dialog = new WinForms.OpenFileDialog
         {
             Title = "Bild für Vorschau und Metadaten öffnen",
-            Filter = "Bilddateien|*.jpg;*.jpeg;*.png;*.tif;*.tiff;*.bmp;*.gif|Alle Dateien|*.*",
+            Filter = "Bild- und DNG-Dateien|*.jpg;*.jpeg;*.png;*.tif;*.tiff;*.bmp;*.gif;*.dng|DNG RAW|*.dng|Alle Dateien|*.*",
             Multiselect = false,
             CheckFileExists = true
         };
@@ -399,11 +399,25 @@ public partial class MainWindow : Window
             _imageMetadata.Add(entry);
 
         MediaPreviewImage.Source = inspection.Preview;
-        MediaPreviewPlaceholder.Visibility = Visibility.Collapsed;
         MediaPreviewTitle.Text = remoteItem?.Name ?? Path.GetFileName(path);
-        MediaPreviewSummary.Text =
-            $"{inspection.Preview.PixelWidth} × {inspection.Preview.PixelHeight} px · {_imageMetadata.Count} Metadatenfelder";
-        FitPreview();
+        PhotogrammetrySummaryText.Text = inspection.PhotogrammetrySummary;
+
+        if (inspection.Preview is not null)
+        {
+            MediaPreviewPlaceholder.Visibility = Visibility.Collapsed;
+            MediaPreviewSummary.Text =
+                $"{inspection.PixelWidth} × {inspection.PixelHeight} px · {_imageMetadata.Count} Metadatenfelder · {inspection.PreviewStatus}";
+            FitPreview();
+        }
+        else
+        {
+            MediaPreviewImage.Source = null;
+            MediaPreviewPlaceholder.Text =
+                "DNG/RAW-Metadaten geladen. Für die Bildvorschau ist auf diesem Windows-System kein passender WIC-RAW-Decoder verfügbar.";
+            MediaPreviewPlaceholder.Visibility = Visibility.Visible;
+            MediaPreviewSummary.Text =
+                $"{_imageMetadata.Count} Metadatenfelder · {inspection.PreviewStatus}";
+        }
     }
 
     private void FitPreview_Click(object sender, RoutedEventArgs e) => FitPreview();
@@ -440,7 +454,8 @@ public partial class MainWindow : Window
                extension.Equals(".tif", StringComparison.OrdinalIgnoreCase) ||
                extension.Equals(".tiff", StringComparison.OrdinalIgnoreCase) ||
                extension.Equals(".bmp", StringComparison.OrdinalIgnoreCase) ||
-               extension.Equals(".gif", StringComparison.OrdinalIgnoreCase);
+               extension.Equals(".gif", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".dng", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string PreviewCachePath(MediaItemDto item)

@@ -9,38 +9,43 @@ using DroneDash_x64.Desktop.Models;
 namespace DroneDash_x64.Desktop.Imaging;
 
 public sealed record ImageInspectionResult(
-    BitmapSource Preview,
-    IReadOnlyList<ImageMetadataEntryDto> Metadata);
+    BitmapSource? Preview,
+    IReadOnlyList<ImageMetadataEntryDto> Metadata,
+    string PreviewStatus,
+    string PhotogrammetrySummary,
+    int? PixelWidth,
+    int? PixelHeight);
 
 public static class ImageMetadataReader
 {
-    private const int MaxXmpScanBytes = 8 * 1024 * 1024;
+    private const int MaxXmpScanBytes = 32 * 1024 * 1024;
+
+    private static readonly string[] PhotogrammetryFields =
+    [
+        "GPSLatitude",
+        "GPSLongitude",
+        "AbsoluteAltitude",
+        "RelativeAltitude",
+        "FlightYawDegree",
+        "FlightPitchDegree",
+        "FlightRollDegree",
+        "GimbalYawDegree",
+        "GimbalPitchDegree",
+        "GimbalRollDegree",
+        "RtkFlag",
+        "RtkStdLon",
+        "RtkStdLat",
+        "RtkStdHgt",
+        "CalibratedFocalLength",
+        "CalibratedOpticalCenterX",
+        "CalibratedOpticalCenterY",
+        "DewarpData"
+    ];
 
     public static ImageInspectionResult Load(string path)
     {
         var metadata = new List<ImageMetadataEntryDto>();
         var fileInfo = new FileInfo(path);
-
-        using var stream = new FileStream(
-            path,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            1024 * 1024,
-            FileOptions.SequentialScan);
-
-        var decoder = BitmapDecoder.Create(
-            stream,
-            BitmapCreateOptions.PreservePixelFormat,
-            BitmapCacheOption.OnLoad);
-
-        if (decoder.Frames.Count == 0)
-        {
-            throw new InvalidDataException("Die Datei enthält kein darstellbares Bild.");
-        }
-
-        var frame = decoder.Frames[0];
-        frame.Freeze();
 
         Add(metadata, "Datei", "Dateiname", fileInfo.Name);
         Add(metadata, "Datei", "Pfad", fileInfo.FullName);
@@ -48,20 +53,65 @@ public static class ImageMetadataReader
         Add(metadata, "Datei", "Letzte Änderung", fileInfo.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss"));
         Add(metadata, "Datei", "SHA-256", ComputeSha256(path));
 
-        Add(metadata, "Bild", "Codec", decoder.CodecInfo?.FriendlyName);
-        Add(metadata, "Bild", "Pixel", $"{frame.PixelWidth} × {frame.PixelHeight}");
-        Add(metadata, "Bild", "DPI", $"{frame.DpiX:F1} × {frame.DpiY:F1}");
-        Add(metadata, "Bild", "Pixelformat", frame.Format.ToString());
+        BitmapSource? frame = null;
+        string previewStatus;
+        int? pixelWidth = null;
+        int? pixelHeight = null;
 
-        if (frame.Metadata is BitmapMetadata bitmapMetadata)
+        try
         {
-            AddStandardMetadata(metadata, bitmapMetadata);
-            AddExifQueries(metadata, bitmapMetadata);
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                1024 * 1024,
+                FileOptions.SequentialScan);
+
+            var decoder = BitmapDecoder.Create(
+                stream,
+                BitmapCreateOptions.PreservePixelFormat,
+                BitmapCacheOption.OnLoad);
+
+            if (decoder.Frames.Count == 0)
+                throw new InvalidDataException("Die Datei enthält keinen dekodierbaren Bild-Frame.");
+
+            frame = decoder.Frames[0];
+            frame.Freeze();
+            pixelWidth = frame.PixelWidth;
+            pixelHeight = frame.PixelHeight;
+            previewStatus = "Vorschau dekodiert";
+
+            Add(metadata, "Bild", "Codec", decoder.CodecInfo?.FriendlyName);
+            Add(metadata, "Bild", "Pixel", $"{frame.PixelWidth} × {frame.PixelHeight}");
+            Add(metadata, "Bild", "DPI", $"{frame.DpiX:F1} × {frame.DpiY:F1}");
+            Add(metadata, "Bild", "Pixelformat", frame.Format.ToString());
+
+            if (frame.Metadata is BitmapMetadata bitmapMetadata)
+            {
+                AddStandardMetadata(metadata, bitmapMetadata);
+                AddExifQueries(metadata, bitmapMetadata);
+            }
+        }
+        catch (Exception ex) when (IsRawFile(path))
+        {
+            previewStatus = $"RAW/DNG Metadatenmodus · keine WIC-Vorschau ({ex.GetType().Name})";
+            Add(metadata, "RAW/DNG", "Vorschau", "Kein geeigneter Windows-WIC-Decoder verfügbar; Metadaten werden trotzdem gelesen.");
         }
 
-        AddDjiXmp(metadata, path);
+        var xmpFields = AddXmpMetadata(metadata, path);
+        var summary = AddPhotogrammetryHighlights(metadata, xmpFields);
 
-        return new ImageInspectionResult(frame, metadata);
+        if (frame is null && !IsRawFile(path))
+            throw new InvalidDataException("Die Datei konnte nicht als Bild dekodiert werden.");
+
+        return new ImageInspectionResult(
+            frame,
+            metadata,
+            previewStatus,
+            summary,
+            pixelWidth,
+            pixelHeight);
     }
 
     private static void AddStandardMetadata(
@@ -129,13 +179,14 @@ public static class ImageMetadataReader
         }
     }
 
-    private static void AddDjiXmp(
+    private static Dictionary<string, string> AddXmpMetadata(
         ICollection<ImageMetadataEntryDto> target,
         string path)
     {
+        var fields = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var xmp = TryReadXmp(path);
         if (string.IsNullOrWhiteSpace(xmp))
-            return;
+            return fields;
 
         XDocument document;
         try
@@ -145,7 +196,7 @@ public static class ImageMetadataReader
         catch
         {
             Add(target, "XMP", "Status", "XMP vorhanden, aber XML konnte nicht geparst werden.");
-            return;
+            return fields;
         }
 
         var namespacePrefixes = (document.Root?.DescendantsAndSelf() ?? Enumerable.Empty<XElement>())
@@ -162,26 +213,98 @@ public static class ImageMetadataReader
         {
             foreach (var attribute in element.Attributes().Where(attribute => !attribute.IsNamespaceDeclaration))
             {
-                var key = QualifiedName(attribute.Name, namespacePrefixes);
-                var value = attribute.Value.Trim();
-                if (value.Length == 0 || !seen.Add(key + "\0" + value))
-                    continue;
-
-                Add(target, IsDji(attribute.Name.NamespaceName) ? "DJI XMP" : "XMP", key, value);
+                AddXmpValue(target, fields, seen, attribute.Name, attribute.Value, namespacePrefixes);
             }
 
             if (!element.HasElements)
-            {
-                var value = element.Value.Trim();
-                if (value.Length == 0)
-                    continue;
+                AddXmpValue(target, fields, seen, element.Name, element.Value, namespacePrefixes);
+        }
 
-                var key = QualifiedName(element.Name, namespacePrefixes);
-                if (seen.Add(key + "\0" + value))
-                    Add(target, IsDji(element.Name.NamespaceName) ? "DJI XMP" : "XMP", key, value);
+        return fields;
+    }
+
+    private static void AddXmpValue(
+        ICollection<ImageMetadataEntryDto> target,
+        IDictionary<string, string> fields,
+        ISet<string> seen,
+        XName name,
+        string rawValue,
+        IReadOnlyDictionary<string, string> namespacePrefixes)
+    {
+        var value = rawValue.Trim();
+        if (value.Length == 0)
+            return;
+
+        var key = QualifiedName(name, namespacePrefixes);
+        if (!seen.Add(key + "\0" + value))
+            return;
+
+        Add(target, IsDji(name.NamespaceName) ? "DJI XMP" : "XMP", key, value);
+        fields.TryAdd(name.LocalName, value);
+    }
+
+    private static string AddPhotogrammetryHighlights(
+        ICollection<ImageMetadataEntryDto> target,
+        IReadOnlyDictionary<string, string> fields)
+    {
+        var highlights = new List<string>();
+
+        foreach (var field in PhotogrammetryFields)
+        {
+            if (!fields.TryGetValue(field, out var value) || string.IsNullOrWhiteSpace(value))
+                continue;
+
+            Add(target, "Photogrammetrie", FriendlyPhotogrammetryName(field), value);
+
+            if (field is "RtkFlag" or "AbsoluteAltitude" or "RelativeAltitude" or
+                "GimbalPitchDegree" or "GimbalYawDegree" or "CalibratedFocalLength")
+            {
+                highlights.Add($"{FriendlyPhotogrammetryName(field)} {value}");
             }
         }
+
+        fields.TryGetValue("RtkStdLon", out var stdLon);
+        fields.TryGetValue("RtkStdLat", out var stdLat);
+        fields.TryGetValue("RtkStdHgt", out var stdHgt);
+        if (!string.IsNullOrWhiteSpace(stdLon) ||
+            !string.IsNullOrWhiteSpace(stdLat) ||
+            !string.IsNullOrWhiteSpace(stdHgt))
+        {
+            highlights.Add(
+                $"RTK Std Längs/Quer/Höhe {DisplayValue(stdLon)} / {DisplayValue(stdLat)} / {DisplayValue(stdHgt)}");
+        }
+
+        return highlights.Count > 0
+            ? string.Join(" · ", highlights)
+            : "Keine DJI-Photogrammetrie-XMP-Felder erkannt.";
     }
+
+    private static string FriendlyPhotogrammetryName(string field) =>
+        field switch
+        {
+            "GPSLatitude" => "GPS Latitude",
+            "GPSLongitude" => "GPS Longitude",
+            "AbsoluteAltitude" => "Absolute Höhe",
+            "RelativeAltitude" => "Relative Höhe",
+            "FlightYawDegree" => "Flight Yaw",
+            "FlightPitchDegree" => "Flight Pitch",
+            "FlightRollDegree" => "Flight Roll",
+            "GimbalYawDegree" => "Gimbal Yaw",
+            "GimbalPitchDegree" => "Gimbal Pitch",
+            "GimbalRollDegree" => "Gimbal Roll",
+            "RtkFlag" => "RTK Flag",
+            "RtkStdLon" => "RTK Std Longitude",
+            "RtkStdLat" => "RTK Std Latitude",
+            "RtkStdHgt" => "RTK Std Höhe",
+            "CalibratedFocalLength" => "Kalibrierte Brennweite",
+            "CalibratedOpticalCenterX" => "Optisches Zentrum X",
+            "CalibratedOpticalCenterY" => "Optisches Zentrum Y",
+            "DewarpData" => "Dewarp / Kalibrierdaten",
+            _ => field
+        };
+
+    private static string DisplayValue(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "—" : value;
 
     private static string? TryReadXmp(string path)
     {
@@ -216,6 +339,9 @@ public static class ImageMetadataReader
         end += endTag.Length;
         return text[start..end];
     }
+
+    private static bool IsRawFile(string path) =>
+        Path.GetExtension(path).Equals(".dng", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsDji(string namespaceName) =>
         namespaceName.Contains("dji", StringComparison.OrdinalIgnoreCase);
