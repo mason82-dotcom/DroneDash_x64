@@ -311,3 +311,16 @@ The module also documents agriculture workflows for crop-stress scouting, variab
 stand/emergence uniformity, weed scouting, drainage/soil-variability investigation and repeated
 RTK monitoring. See `docs/SMART_FARMING_M3M.md` for the DJI technical basis and the Avary Drone,
 NineTenths and Talos Drones practice references supplied for this module.
+
+
+### Local Smart Farming image-processing toolchain
+
+Smart Farming can probe optional local GDAL, Orfeo ToolBox and Python/OpenCV installs.
+The repository does not bundle those native distributions. A selected complete M3M capture can be
+turned into a reviewable processing workspace:
+
+OpenCV ECC registration -> OTB DJI-DN compensation -> GDAL 4-band VRT -> OTB NDVI/NDRE/GNDVI.
+
+The generated PowerShell pipeline is review-first and is not started automatically. Environment
+overrides are DRONEDASH_GDAL_BIN, DRONEDASH_OTB_BIN and DRONEDASH_PYTHON. See
+docs/SMART_FARMING_M3M.md for details and processing limitations.

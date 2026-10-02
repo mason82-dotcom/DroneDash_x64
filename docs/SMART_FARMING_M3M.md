@@ -51,3 +51,38 @@ These are agronomic use cases, not automatic diagnoses.
 - Talos Drones: https://talosdrones.com/blogs/blog/top-5-uses-of-multispectral-drones-in-agriculture-a-deep-dive-into-dji-mavic-3m
 
 The third-party articles are used as workflow/use-case references. Sensor facts and processing constraints are grounded in DJI's own specifications and image-processing guide.
+
+
+## Local open-source processing toolchain
+
+DroneDash can probe and stage a local processing workspace around three optional external
+engines. None of their native binaries are committed to the repository.
+
+- GDAL: gdalinfo is used for probing and gdalbuildvrt -separate builds the corrected
+  Green/Red/Red-Edge/NIR stack.
+- Orfeo ToolBox (OTB): otbcli_BandMath applies the per-band DJI DN compensation and
+  otbcli_BandMathX calculates NDVI, NDRE and GNDVI from the corrected four-band stack.
+- Python + OpenCV: the bundled opencv_m3m.py worker uses ECC affine registration to align
+  Green, Red and Red Edge to the NIR band. It writes both the registered TIFF and a JSON file
+  containing the ECC score and transform matrix.
+
+The worker is copied into the Windows output as smart-farming/opencv_m3m.py. It requires a local
+Python environment with opencv-python and numpy; DroneDash does not download packages or modify
+the user's Python installation.
+
+Optional environment overrides:
+
+- DRONEDASH_GDAL_BIN — directory containing GDAL command-line programs.
+- DRONEDASH_OTB_BIN — directory containing OTB CLI applications.
+- DRONEDASH_PYTHON — full path to the desired Python executable.
+
+The Smart Farming UI has a Lokales Processing tab that probes all three engines and, for a
+selected complete M3M capture, creates a self-contained workspace with
+local-processing-plan.json, run-smart-farming-processing.ps1, registration transforms,
+registered-band outputs, corrected-band outputs and an indices directory.
+
+The generated script is intentionally not executed automatically. The operator can inspect it
+before running native third-party tools. This first toolchain remains a pixel-space,
+single-capture processing workflow, not a georeferenced field product. OpenCV intermediate TIFFs
+must not be treated as orthorectified survey rasters. ODM/photogrammetry is the next stage for
+full-field orthomosaics and map products.

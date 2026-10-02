@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media.Imaging;
+using DroneDash_x64.Desktop.SmartFarming.LocalProcessing;
 using WinForms = System.Windows.Forms;
 
 namespace DroneDash_x64.Desktop.SmartFarming;
@@ -10,15 +11,18 @@ namespace DroneDash_x64.Desktop.SmartFarming;
 public partial class SmartFarmingView : System.Windows.Controls.UserControl
 {
     private readonly ObservableCollection<M3mCaptureGroup> _captures = [];
+    private readonly ObservableCollection<LocalImageToolStatus> _toolStatuses = [];
     private string? _sourceFolder;
     private M3mDatasetResult? _dataset;
     private VegetationIndexResult? _currentIndex;
     private BitmapSource? _currentIndexBitmap;
+    private LocalImageToolchainStatus? _toolchain;
 
     public SmartFarmingView()
     {
         InitializeComponent();
         CaptureGrid.ItemsSource = _captures;
+        ToolGrid.ItemsSource = _toolStatuses;
     }
 
     private void SelectFolder_Click(object sender, RoutedEventArgs e)
@@ -91,6 +95,10 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         IndexImage.Source = null;
         IndexPlaceholder.Visibility = Visibility.Visible;
         ExportQuicklookButton.IsEnabled = false;
+        CreateLocalPlanButton.IsEnabled =
+            _toolchain?.IsReady == true &&
+            CaptureGrid.SelectedItem is M3mCaptureGroup selectedForProcessing &&
+            selectedForProcessing.IsQuicklookReady;
 
         if (CaptureGrid.SelectedItem is not M3mCaptureGroup capture)
         {
@@ -230,6 +238,110 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         }
     }
 
+    private async void CheckTools_Click(object sender, RoutedEventArgs e)
+    {
+        ToolchainSummaryText.Text = "Lokale Processing-Tools werden geprüft …";
+        CreateLocalPlanButton.IsEnabled = false;
+
+        try
+        {
+            _toolchain = await LocalImageToolchain.ProbeAsync();
+
+            _toolStatuses.Clear();
+            foreach (var tool in _toolchain.Tools)
+                _toolStatuses.Add(tool);
+
+            ToolchainSummaryText.Text = _toolchain.IsReady
+                ? "Toolchain bereit: OpenCV-ECC → OTB-Radiometrie → GDAL-VRT → OTB NDVI/NDRE/GNDVI."
+                : "Toolchain unvollständig. Fehlende Pfade installieren bzw. über DRONEDASH_GDAL_BIN, DRONEDASH_OTB_BIN oder DRONEDASH_PYTHON setzen.";
+
+            CreateLocalPlanButton.IsEnabled =
+                _toolchain.IsReady &&
+                CaptureGrid.SelectedItem is M3mCaptureGroup capture &&
+                capture.IsQuicklookReady;
+        }
+        catch (Exception ex)
+        {
+            ToolchainSummaryText.Text = $"Toolchain-Prüfung fehlgeschlagen: {ex.Message}";
+        }
+    }
+
+    private async void CreateLocalPlan_Click(object sender, RoutedEventArgs e)
+    {
+        if (CaptureGrid.SelectedItem is not M3mCaptureGroup capture)
+        {
+            System.Windows.MessageBox.Show(
+                "Zuerst eine M3M-Aufnahme auswählen.",
+                "Lokales Processing",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        if (!capture.IsQuicklookReady)
+        {
+            System.Windows.MessageBox.Show(
+                "Die ausgewählte Aufnahme ist nicht Quicklook-bereit.",
+                "Lokales Processing",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        _toolchain ??= await LocalImageToolchain.ProbeAsync();
+        if (!_toolchain.IsReady)
+        {
+            System.Windows.MessageBox.Show(
+                "GDAL, Orfeo ToolBox und Python/OpenCV müssen zuerst vollständig verfügbar sein.",
+                "Lokales Processing",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        using var dialog = new WinForms.FolderBrowserDialog
+        {
+            Description = "Zielordner für lokalen Smart-Farming-Processing-Workspace auswählen",
+            ShowNewFolderButton = true
+        };
+
+        if (dialog.ShowDialog() != WinForms.DialogResult.OK)
+            return;
+
+        try
+        {
+            var workspace = Path.Combine(dialog.SelectedPath, capture.CaptureKey);
+            var plan = LocalProcessingPlanBuilder.Build(capture, workspace, _toolchain);
+            var output = LocalProcessingPlanExporter.Export(plan);
+
+            PlanPreviewText.Text =
+                string.Join(
+                    Environment.NewLine,
+                    plan.Steps.Select((step, index) =>
+                        $"{index + 1:00}. [{step.Tool}] {step.Description}" +
+                        Environment.NewLine +
+                        $"    → {step.OutputPath ?? "kein Dateioutput"}")) +
+                Environment.NewLine +
+                Environment.NewLine +
+                "Hinweise:" +
+                Environment.NewLine +
+                string.Join(
+                    Environment.NewLine,
+                    plan.Warnings.Select(warning => "• " + warning));
+
+            StatusText.Text =
+                $"Lokaler Processing-Workspace erzeugt: {output.JsonPath} · {output.ScriptPath}";
+        }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show(
+                ex.Message,
+                "Lokales Processing",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
     private void SetBusy(bool busy)
     {
         Progress.IsIndeterminate = busy;
@@ -249,5 +361,7 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         StatusText.Text = "Bereit.";
         ExportDatasetButton.IsEnabled = false;
         ExportQuicklookButton.IsEnabled = false;
+        CreateLocalPlanButton.IsEnabled = false;
+        PlanPreviewText.Text = "Noch kein lokaler Processing-Plan erzeugt.";
     }
 }
