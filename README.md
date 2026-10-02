@@ -349,3 +349,18 @@ DroneDash can then generate georeferenced NDVI, NDRE and GNDVI GeoTIFFs plus a c
 five-class NDVI scouting-zone GeoTIFF through OTB. The defaults are 0.20 / 0.40 / 0.60 / 0.80,
 and the UI explicitly treats these as scouting classes rather than agronomic diagnosis or
 machine-ready application rates.
+
+## Unified DroneDash project workspace
+
+The Windows client now starts with a **Projekt** workspace. A versioned `.ddproj` file links the
+previously independent planning, photogrammetry, PV and Smart Farming artifacts into one portable
+project without copying raw imagery or processing outputs.
+
+Artifacts inside the project directory use relative paths; external resources remain absolute.
+The workspace can add files or source-data folders, discover known DroneDash manifests/exports
+below the project directory, rebase references during **Speichern unter**, and verify whether
+referenced files are unchanged, modified or missing. Normal files are snapshot with SHA-256;
+automatic hashing is skipped for files above 256 MiB in favor of size/time metadata.
+
+Removing an artifact from `.ddproj` never deletes the underlying file. See
+`docs/PROJECT_WORKSPACE.md` for the project schema behavior and integrity model.

@@ -5,6 +5,7 @@
         xmlns:photo="clr-namespace:DroneDash_x64.Desktop.Photogrammetry"
         xmlns:pv="clr-namespace:DroneDash_x64.Desktop.PvAnalysis"
         xmlns:farming="clr-namespace:DroneDash_x64.Desktop.SmartFarming"
+        xmlns:project="clr-namespace:DroneDash_x64.Desktop.Project"
         Title="DroneDash_x64"
         Height="940" Width="1280"
         MinHeight="650" MinWidth="980"
@@ -40,6 +41,10 @@
     </StatusBar>
 
     <TabControl Margin="12">
+      <TabItem Header="Projekt">
+        <project:ProjectWorkspaceView/>
+      </TabItem>
+
       <TabItem Header="Status">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
           <Grid Margin="18">

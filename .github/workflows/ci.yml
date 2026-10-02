@@ -47,6 +47,9 @@ jobs:
       - name: Restore Smart Farming smoke tool
         run: dotnet restore desktop/DroneDash_x64.SmartFarmingSmoke/DroneDash_x64.SmartFarmingSmoke.csproj
 
+      - name: Restore project smoke tool
+        run: dotnet restore desktop/DroneDash_x64.ProjectSmoke/DroneDash_x64.ProjectSmoke.csproj
+
       - name: Build desktop
         run: dotnet build desktop/DroneDash_x64.Desktop/DroneDash_x64.Desktop.csproj --configuration Release --no-restore
 
@@ -73,6 +76,12 @@ jobs:
 
       - name: Run Smart Farming smoke test
         run: dotnet run --project desktop/DroneDash_x64.SmartFarmingSmoke/DroneDash_x64.SmartFarmingSmoke.csproj --configuration Release --no-build
+
+      - name: Build project smoke tool
+        run: dotnet build desktop/DroneDash_x64.ProjectSmoke/DroneDash_x64.ProjectSmoke.csproj --configuration Release --no-restore
+
+      - name: Run project smoke test
+        run: dotnet run --project desktop/DroneDash_x64.ProjectSmoke/DroneDash_x64.ProjectSmoke.csproj --configuration Release --no-build
 
   rc-agent:
     name: Android RC agent
