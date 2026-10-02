@@ -1,10 +1,14 @@
 package com.example.m3ebridge
 
 import dji.sdk.keyvalue.key.BatteryKey
+import dji.sdk.keyvalue.key.CameraKey
 import dji.sdk.keyvalue.key.FlightControllerKey
+import dji.sdk.keyvalue.key.GimbalKey
 import dji.sdk.keyvalue.key.KeyTools
 import dji.sdk.keyvalue.key.ProductKey
 import dji.sdk.keyvalue.key.RemoteControllerKey
+import dji.sdk.keyvalue.value.camera.CameraStorageLocation
+import dji.sdk.keyvalue.value.common.ComponentIndexType
 import dji.v5.common.callback.CommonCallbacks
 import dji.v5.common.error.IDJIError
 import dji.v5.manager.KeyManager
@@ -45,6 +49,19 @@ class DjiGateway {
 
         val windSpeedDmPs = keys.getValue(KeyTools.createKey(FlightControllerKey.KeyWindSpeed))
         val rtk = RtkTelemetrySource.snapshot
+
+        val mainComponent = ComponentIndexType.LEFT_OR_MAIN
+        val cameraType = keys.getValue(KeyTools.createKey(CameraKey.KeyCameraType, mainComponent))
+        val cameraFirmware = keys.getValue(KeyTools.createKey(CameraKey.KeyFirmwareVersion, mainComponent))
+        val cameraMode = keys.getValue(KeyTools.createKey(CameraKey.KeyCameraMode, mainComponent))
+        val cameraIsShootingPhoto = keys.getValue(KeyTools.createKey(CameraKey.KeyIsShootingPhoto, mainComponent))
+        val cameraIsRecording = keys.getValue(KeyTools.createKey(CameraKey.KeyIsRecording, mainComponent))
+        val cameraStorageInfos = keys.getValue(KeyTools.createKey(CameraKey.KeyCameraStorageInfos, mainComponent))
+        val sdStorage = cameraStorageInfos?.getCameraStorageInfoByLocation(CameraStorageLocation.SDCARD)
+        val internalStorage = cameraStorageInfos?.getCameraStorageInfoByLocation(CameraStorageLocation.INTERNAL)
+
+        val gimbalAttitude = keys.getValue(KeyTools.createKey(GimbalKey.KeyGimbalAttitude, mainComponent))
+        val gimbalMode = keys.getValue(KeyTools.createKey(GimbalKey.KeyGimbalMode, mainComponent))
 
         return JSONObject()
             .put("sdkPhase", runtime.phase.get())
@@ -104,6 +121,26 @@ class DjiGateway {
             .putNullable("rtkRealHeading", rtk.realHeading)
             .put("rtkSatelliteCounts", JSONObject(rtk.satelliteCounts))
             .putNullable("rtkError", rtk.error)
+            .put("cameraType", enumText(cameraType))
+            .put("cameraFirmware", stringOrBlank(cameraFirmware))
+            .put("cameraMode", enumText(cameraMode))
+            .putNullable("cameraIsShootingPhoto", cameraIsShootingPhoto)
+            .putNullable("cameraIsRecording", cameraIsRecording)
+            .put("cameraCurrentStorage", enumText(cameraStorageInfos?.currentStorageType))
+            .put("sdStorageState", enumText(sdStorage?.storageState))
+            .putNullable("sdStorageCapacityMb", sdStorage?.storageCapacity)
+            .putNullable("sdStorageLeftMb", sdStorage?.storageLeftCapacity)
+            .putNullable("sdAvailablePhotoCount", sdStorage?.availablePhotoCount)
+            .putNullable("sdAvailableVideoSeconds", sdStorage?.availableVideoDuration)
+            .put("internalStorageState", enumText(internalStorage?.storageState))
+            .putNullable("internalStorageCapacityMb", internalStorage?.storageCapacity)
+            .putNullable("internalStorageLeftMb", internalStorage?.storageLeftCapacity)
+            .putNullable("internalAvailablePhotoCount", internalStorage?.availablePhotoCount)
+            .putNullable("internalAvailableVideoSeconds", internalStorage?.availableVideoDuration)
+            .put("gimbalMode", enumText(gimbalMode))
+            .putNullable("gimbalPitchDegrees", gimbalAttitude?.pitch)
+            .putNullable("gimbalRollDegrees", gimbalAttitude?.roll)
+            .putNullable("gimbalYawDegrees", gimbalAttitude?.yaw)
             .put("timestamp", isoNow())
     }
 

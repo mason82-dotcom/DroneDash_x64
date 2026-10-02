@@ -138,6 +138,22 @@ public partial class MainWindow : Window
         RtkSatellitesText.Text = FormatRtkSatellites(s.RtkSatelliteCounts);
         RtkErrorText.Text = string.IsNullOrWhiteSpace(s.RtkError) ? "—" : s.RtkError;
 
+        CameraIdentityText.Text =
+            $"{Display(s.CameraType)} · FW {Display(s.CameraFirmware)} · Speicher {Display(s.CameraCurrentStorage)}";
+        CameraActivityText.Text =
+            $"{Display(s.CameraMode)} · Foto {BoolText(s.CameraIsShootingPhoto)} · REC {BoolText(s.CameraIsRecording)}";
+        SdStorageText.Text =
+            $"{Display(s.SdStorageState)} · {StorageCapacity(s.SdStorageLeftMb, s.SdStorageCapacityMb)}";
+        SdRemainingText.Text =
+            $"{CountText(s.SdAvailablePhotoCount, "Fotos")} · {DurationText(s.SdAvailableVideoSeconds)}";
+        InternalStorageText.Text =
+            $"{Display(s.InternalStorageState)} · {StorageCapacity(s.InternalStorageLeftMb, s.InternalStorageCapacityMb)}";
+        InternalRemainingText.Text =
+            $"{CountText(s.InternalAvailablePhotoCount, "Fotos")} · {DurationText(s.InternalAvailableVideoSeconds)}";
+        GimbalModeText.Text = Display(s.GimbalMode);
+        GimbalAttitudeText.Text =
+            $"P {Degrees(s.GimbalPitchDegrees)} · R {Degrees(s.GimbalRollDegrees)} · Y {Degrees(s.GimbalYawDegrees)}";
+
         TimestampText.Text = s.Timestamp.ToLocalTime().ToString("HH:mm:ss");
         FooterText.Text = s.ProductConnected ? "Live-Telemetrie aktiv" : "RC-Agent erreichbar; Aircraft nicht verbunden";
     }
@@ -333,4 +349,22 @@ public partial class MainWindow : Window
 
         return string.Join(" · ", counts.OrderBy(x => x.Key).Select(x => $"{x.Key}: {x.Value}"));
     }
+
+    private static string StorageCapacity(int? leftMb, int? totalMb)
+    {
+        if (leftMb is not int left)
+        {
+            return "—";
+        }
+
+        return totalMb is int total && total > 0
+            ? $"{left / 1024d:F1} / {total / 1024d:F1} GB frei/gesamt"
+            : $"{left / 1024d:F1} GB frei";
+    }
+
+    private static string CountText(int? value, string unit) =>
+        value is int count ? $"{count:N0} {unit}" : "—";
+
+    private static string DurationText(int? seconds) =>
+        seconds is int s && s >= 0 ? $"Video {TimeSpan.FromSeconds(s):hh\\:mm\\:ss}" : "Video —";
 }

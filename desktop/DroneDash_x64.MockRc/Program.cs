@@ -117,6 +117,26 @@ app.MapGet("/api/v1/status", () =>
             ["base.GALILEO"] = 9
         },
         rtkError = (string?)null,
+        cameraType = "MAVIC_3_ENTERPRISE_CAMERA",
+        cameraFirmware = "mock-camera-fw",
+        cameraMode = "PHOTO_NORMAL",
+        cameraIsShootingPhoto = false,
+        cameraIsRecording = seconds % 45 > 30,
+        cameraCurrentStorage = "SDCARD",
+        sdStorageState = "NORMAL",
+        sdStorageCapacityMb = 122880,
+        sdStorageLeftMb = 86420,
+        sdAvailablePhotoCount = 4210,
+        sdAvailableVideoSeconds = 11240,
+        internalStorageState = "NORMAL",
+        internalStorageCapacityMb = 8192,
+        internalStorageLeftMb = 6144,
+        internalAvailablePhotoCount = 280,
+        internalAvailableVideoSeconds = 920,
+        gimbalMode = "YAW_FOLLOW",
+        gimbalPitchDegrees = -35.0 + Math.Sin(seconds / 5d) * 8,
+        gimbalRollDegrees = Math.Sin(seconds / 8d),
+        gimbalYawDegrees = Math.Sin(seconds / 12d) * 12,
         timestamp = DateTimeOffset.UtcNow
     });
 });

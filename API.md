@@ -61,3 +61,13 @@ This interlock is enforced in the RC agent, so it cannot be bypassed by a deskto
 
 The RTK integration is **read-only**. DroneDash registers DJI RTK listeners but does not enable/disable
 RTK, change the RTK source, configure NTRIP credentials, or modify base-station settings.
+
+## Camera, gimbal and storage telemetry
+
+The primary payload is read from DJI component index `LEFT_OR_MAIN`. The status response includes
+camera type/firmware/mode, photo/recording activity, current storage location, SD/internal storage
+state, capacity/free space, remaining photo count/video duration, and main-gimbal mode plus
+pitch/roll/yaw attitude.
+
+These fields are observational only. DroneDash does not start/stop recording, trigger photos,
+rotate the gimbal, format storage, or change camera settings through this status path.
