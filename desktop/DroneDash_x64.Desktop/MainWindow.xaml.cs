@@ -1,5 +1,6 @@
 using System.Linq;
 using System.IO;
+using System.Text;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Windows;
@@ -15,13 +16,21 @@ public partial class MainWindow : Window
 {
     private readonly RcApiClient _api = new();
     private readonly ObservableCollection<MediaItemDto> _media = [];
+    private readonly ObservableCollection<DiagnosticEventDto> _events = [];
     private readonly DispatcherTimer _pollTimer;
     private bool _statusRequestRunning;
+    private StatusDto? _lastStatus;
+    private string? _lastPollError;
+    private int _lastAircraftBatteryBand = -1;
+    private int _lastRcBatteryBand = -1;
 
     public MainWindow()
     {
         InitializeComponent();
         MediaGrid.ItemsSource = _media;
+        EventGrid.ItemsSource = _events;
+
+        AddEvent("INFO", "App", "DroneDash_x64 gestartet.");
 
         _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _pollTimer.Tick += async (_, _) => await PollStatusAsync();
@@ -40,6 +49,9 @@ public partial class MainWindow : Window
                 ? $"Online · {health.SdkVersion}"
                 : $"Agent online · {health.SdkPhase}");
 
+            AddEvent("INFO", "Bridge",
+                $"Verbunden · SDK {health.SdkVersion} · Phase {health.SdkPhase} · Registered {health.Registered}.");
+
             _pollTimer.Start();
             await PollStatusAsync();
         }
@@ -47,6 +59,7 @@ public partial class MainWindow : Window
         {
             _pollTimer.Stop();
             SetConnected(false, "Offline");
+            AddEvent("ERROR", "Bridge", $"Verbindung fehlgeschlagen: {ex.Message}");
             ShowError("Verbindung fehlgeschlagen", ex);
         }
     }
@@ -66,12 +79,19 @@ public partial class MainWindow : Window
             ConfigureApi();
             var s = await _api.GetStatusAsync();
             RenderStatus(s);
+            LogStatusChanges(s);
+            _lastPollError = null;
             SetConnected(true, s.ProductConnected ? "Aircraft verbunden" : $"RC-Agent · {s.SdkPhase}");
         }
         catch (Exception ex)
         {
             SetConnected(false, "Statusfehler");
             FooterText.Text = ex.Message;
+            if (!string.Equals(_lastPollError, ex.Message, StringComparison.Ordinal))
+            {
+                AddEvent("ERROR", "Telemetry", ex.Message);
+                _lastPollError = ex.Message;
+            }
         }
         finally
         {
@@ -154,6 +174,55 @@ public partial class MainWindow : Window
         GimbalAttitudeText.Text =
             $"P {Degrees(s.GimbalPitchDegrees)} · R {Degrees(s.GimbalRollDegrees)} · Y {Degrees(s.GimbalYawDegrees)}";
 
+        AircraftIdentityDetailText.Text =
+            $"{Display(s.ProductType)}\nFirmware: {Display(s.AircraftFirmware)}";
+        AircraftFlightDetailText.Text =
+            $"Mode: {Display(s.FlightMode)}\nFlying: {BoolText(s.IsFlying)}\nMotoren: {BoolText(s.AreMotorsOn)}\nTakeoff Alt: {(s.TakeoffAltitudeMeters is double takeoffAlt ? $"{takeoffAlt:F1} m" : "—")}";
+        AircraftPositionDetailText.Text =
+            $"Aircraft: {Coordinate3D(s.Latitude, s.Longitude, s.AltitudeMeters)}\nHome: {Coordinate3D(s.HomeLatitude, s.HomeLongitude, null)}\nHome gesetzt: {BoolText(s.HomeLocationSet)}";
+        AircraftMotionDetailText.Text =
+            $"Ground: {Speed(s.GroundSpeedMs)}\nVertikal: {SignedSpeed(s.VerticalSpeedMs)}\nN/E/D: {SignedSpeed(s.VelocityNorthMs)} / {SignedSpeed(s.VelocityEastMs)} / {SignedSpeed(s.VelocityDownMs)}\nWind: {Speed(s.WindSpeedMs)} · {Display(s.WindDirection)} · {Display(s.WindWarning)}";
+        AircraftAttitudeDetailText.Text =
+            $"Pitch {Degrees(s.PitchDegrees)}\nRoll {Degrees(s.RollDegrees)}\nYaw {Degrees(s.YawDegrees)}";
+        AircraftNavDetailText.Text =
+            $"GPS: {Display(s.GpsSignalLevel)} · {s.SatelliteCount?.ToString(CultureInfo.InvariantCulture) ?? "—"} Satelliten\nKompass: {Degrees(s.CompassHeadingDegrees)} · {(s.CompassHasError == true ? "FEHLER" : "OK")}";
+
+        RcIdentityDetailText.Text =
+            $"{Display(s.RemoteControllerType)}\nFirmware: {Display(s.RemoteControllerFirmware)}";
+        RcBatteryDetailText.Text = $"Akku: {Percent(s.RemoteControllerBatteryPercent)}";
+        RcBridgeDetailText.Text = $"SDK: {Display(s.SdkVersion)}\nPhase: {Display(s.SdkPhase)}";
+        RcConnectionDetailText.Text =
+            $"Aircraft verbunden: {BoolText(s.ProductConnected)}\nLetztes Paket: {s.Timestamp.ToLocalTime():HH:mm:ss}";
+
+        EnergyAircraftDetailText.Text =
+            $"{Percent(s.AircraftBatteryPercent)}\n{Voltage(s.AircraftBatteryVoltageMv)} · {Current(s.AircraftBatteryCurrentMa)} · {Temperature(s.AircraftBatteryTemperatureC)}";
+        EnergyCapacityDetailText.Text =
+            s.AircraftBatteryRemainingMah is int capRemaining && s.AircraftBatteryFullChargeMah is int capFull
+                ? $"{capRemaining} / {capFull} mAh · {capRemaining * 100d / Math.Max(1, capFull):F1} % rechnerisch"
+                : "—";
+        EnergyRcDetailText.Text = Percent(s.RemoteControllerBatteryPercent);
+        EnergyHealthDetailText.Text =
+            $"Aircraft: {BatteryBandText(BatteryBand(s.AircraftBatteryPercent, 30, 15))}\nRC: {BatteryBandText(BatteryBand(s.RemoteControllerBatteryPercent, 20, 10))}";
+
+        RtkDetailStatusText.Text =
+            $"Enabled {BoolText(s.RtkEnabled)} · Healthy {BoolText(s.RtkHealthy)}\nMaintain {BoolText(s.RtkMaintainAccuracyEnabled)}\nSolution {Display(s.RtkPositioningSolution)}";
+        RtkDetailSourceText.Text = Display(s.RtkReferenceStationSource);
+        RtkDetailMobileText.Text = Coordinate3D(s.RtkMobileLatitude, s.RtkMobileLongitude, s.RtkMobileAltitudeMeters);
+        RtkDetailBaseText.Text = Coordinate3D(s.RtkBaseLatitude, s.RtkBaseLongitude, s.RtkBaseAltitudeMeters);
+        RtkDetailAccuracyText.Text =
+            $"Lon {Meters(s.RtkStdLongitudeMeters)} · Lat {Meters(s.RtkStdLatitudeMeters)} · Alt {Meters(s.RtkStdAltitudeMeters)}\nRTK Heading {Display(s.RtkHeading)}\nFusion {Display(s.RtkRealHeading)}";
+        RtkDetailSatellitesText.Text =
+            $"{FormatRtkSatellites(s.RtkSatelliteCounts)}\nFehler: {(string.IsNullOrWhiteSpace(s.RtkError) ? "—" : s.RtkError)}";
+
+        CameraDetailIdentityText.Text =
+            $"{Display(s.CameraType)}\nFirmware: {Display(s.CameraFirmware)}\nStorage: {Display(s.CameraCurrentStorage)}";
+        CameraDetailActivityText.Text =
+            $"Mode: {Display(s.CameraMode)}\nFoto: {BoolText(s.CameraIsShootingPhoto)}\nRecording: {BoolText(s.CameraIsRecording)}";
+        CameraDetailStorageText.Text =
+            $"SD: {Display(s.SdStorageState)} · {StorageCapacity(s.SdStorageLeftMb, s.SdStorageCapacityMb)} · {CountText(s.SdAvailablePhotoCount, "Fotos")} · {DurationText(s.SdAvailableVideoSeconds)}\nIntern: {Display(s.InternalStorageState)} · {StorageCapacity(s.InternalStorageLeftMb, s.InternalStorageCapacityMb)}";
+        GimbalDetailText.Text =
+            $"Mode: {Display(s.GimbalMode)}\nPitch {Degrees(s.GimbalPitchDegrees)} · Roll {Degrees(s.GimbalRollDegrees)} · Yaw {Degrees(s.GimbalYawDegrees)}";
+
         TimestampText.Text = s.Timestamp.ToLocalTime().ToString("HH:mm:ss");
         FooterText.Text = s.ProductConnected ? "Live-Telemetrie aktiv" : "RC-Agent erreichbar; Aircraft nicht verbunden";
     }
@@ -166,6 +235,7 @@ public partial class MainWindow : Window
             var config = await _api.GetConfigurationAsync();
             RenderConfiguration(config);
             FooterText.Text = "Konfiguration gelesen.";
+            AddEvent("INFO", "Config", "Flugkonfiguration gelesen.");
         }
         catch (Exception ex)
         {
@@ -189,6 +259,8 @@ public partial class MainWindow : Window
             var result = await _api.UpdateConfigurationAsync(new ConfigurationUpdateDto(height, rth));
             RenderConfiguration(result);
             FooterText.Text = "Konfiguration gespeichert und erneut gelesen.";
+            AddEvent("WARNING", "Config",
+                $"Konfiguration geschrieben · Max Höhe {height?.ToString() ?? "unverändert"} m · RTH {rth?.ToString() ?? "unverändert"} m.");
         }
         catch (Exception ex)
         {
@@ -218,6 +290,7 @@ public partial class MainWindow : Window
 
             MediaInfoText.Text = $"{_media.Count} Datei(en)";
             FooterText.Text = "Medienliste aktualisiert.";
+            AddEvent("INFO", "Media", $"Medienliste aktualisiert · {_media.Count} Datei(en).");
         }
         catch (Exception ex)
         {
@@ -269,11 +342,132 @@ public partial class MainWindow : Window
             DownloadProgress.Value = 100;
             MediaInfoText.Text = $"{selected.Count} Datei(en) heruntergeladen.";
             FooterText.Text = $"Download abgeschlossen: {dialog.SelectedPath}";
+            AddEvent("INFO", "Media", $"{selected.Count} Datei(en) heruntergeladen nach {dialog.SelectedPath}.");
         }
         catch (Exception ex)
         {
             ShowError("Download fehlgeschlagen", ex);
         }
+    }
+
+    private void LogStatusChanges(StatusDto current)
+    {
+        if (_lastStatus is null)
+        {
+            AddEvent("INFO", "Telemetry",
+                $"Live-Telemetrie gestartet · Aircraft {(current.ProductConnected ? "verbunden" : "nicht verbunden")}.");
+            _lastAircraftBatteryBand = BatteryBand(current.AircraftBatteryPercent, 30, 15);
+            _lastRcBatteryBand = BatteryBand(current.RemoteControllerBatteryPercent, 20, 10);
+            _lastStatus = current;
+            return;
+        }
+
+        var previous = _lastStatus;
+
+        if (previous.ProductConnected != current.ProductConnected)
+            AddEvent(current.ProductConnected ? "INFO" : "WARNING", "Aircraft",
+                current.ProductConnected ? "Aircraft verbunden." : "Aircraft getrennt.");
+
+        if (previous.AreMotorsOn != current.AreMotorsOn && current.AreMotorsOn is bool motors)
+            AddEvent(motors ? "WARNING" : "INFO", "Aircraft", motors ? "Motoren eingeschaltet." : "Motoren ausgeschaltet.");
+
+        if (previous.IsFlying != current.IsFlying && current.IsFlying is bool flying)
+            AddEvent(flying ? "WARNING" : "INFO", "Flight", flying ? "Flugzustand aktiv." : "Aircraft am Boden.");
+
+        if (!string.Equals(previous.FlightMode, current.FlightMode, StringComparison.Ordinal))
+            AddEvent("INFO", "Flight", $"Flugmodus: {Display(previous.FlightMode)} → {Display(current.FlightMode)}.");
+
+        if (previous.CompassHasError != current.CompassHasError && current.CompassHasError == true)
+            AddEvent("ERROR", "Compass", "Kompassfehler gemeldet.");
+
+        if (!string.Equals(previous.RtkPositioningSolution, current.RtkPositioningSolution, StringComparison.Ordinal))
+            AddEvent("INFO", "RTK",
+                $"Positioning Solution: {Display(previous.RtkPositioningSolution)} → {Display(current.RtkPositioningSolution)}.");
+
+        if (previous.RtkHealthy != current.RtkHealthy && current.RtkEnabled == true)
+            AddEvent(current.RtkHealthy == true ? "INFO" : "WARNING", "RTK",
+                current.RtkHealthy == true ? "RTK ist healthy." : "RTK ist nicht healthy.");
+
+        if (!string.IsNullOrWhiteSpace(current.RtkError) &&
+            !string.Equals(previous.RtkError, current.RtkError, StringComparison.Ordinal))
+            AddEvent("ERROR", "RTK", current.RtkError);
+
+        if (previous.CameraIsRecording != current.CameraIsRecording && current.CameraIsRecording is bool recording)
+            AddEvent("INFO", "Camera", recording ? "Videoaufnahme aktiv." : "Videoaufnahme beendet.");
+
+        if (!string.Equals(previous.SdStorageState, current.SdStorageState, StringComparison.Ordinal))
+            AddEvent(IsNormalState(current.SdStorageState) ? "INFO" : "WARNING", "Storage",
+                $"SD-Status: {Display(previous.SdStorageState)} → {Display(current.SdStorageState)}.");
+
+        var aircraftBand = BatteryBand(current.AircraftBatteryPercent, 30, 15);
+        if (aircraftBand != _lastAircraftBatteryBand)
+        {
+            AddBatteryEvent("Aircraft Battery", current.AircraftBatteryPercent, aircraftBand);
+            _lastAircraftBatteryBand = aircraftBand;
+        }
+
+        var rcBand = BatteryBand(current.RemoteControllerBatteryPercent, 20, 10);
+        if (rcBand != _lastRcBatteryBand)
+        {
+            AddBatteryEvent("RC Battery", current.RemoteControllerBatteryPercent, rcBand);
+            _lastRcBatteryBand = rcBand;
+        }
+
+        _lastStatus = current;
+    }
+
+    private void AddBatteryEvent(string source, int? percent, int band)
+    {
+        var level = band switch { 2 => "ERROR", 1 => "WARNING", _ => "INFO" };
+        AddEvent(level, source, $"Ladezustand {Percent(percent)} · {BatteryBandText(band)}.");
+    }
+
+    private void AddEvent(string level, string source, string message)
+    {
+        _events.Insert(0, new DiagnosticEventDto(DateTimeOffset.Now, level, source, message));
+        while (_events.Count > 500)
+            _events.RemoveAt(_events.Count - 1);
+
+        EventCountText.Text = $"{_events.Count} Ereignis{(_events.Count == 1 ? "" : "se")}";
+    }
+
+    private void ClearEvents_Click(object sender, RoutedEventArgs e)
+    {
+        _events.Clear();
+        EventCountText.Text = "0 Ereignisse";
+        AddEvent("INFO", "App", "Diagnoselog geleert.");
+    }
+
+    private void ExportEvents_Click(object sender, RoutedEventArgs e)
+    {
+        using var dialog = new WinForms.SaveFileDialog
+        {
+            Title = "Diagnoselog exportieren",
+            Filter = "CSV-Datei (*.csv)|*.csv",
+            DefaultExt = "csv",
+            AddExtension = true,
+            FileName = $"DroneDash_Diagnostics_{DateTime.Now:yyyyMMdd_HHmmss}.csv"
+        };
+
+        if (dialog.ShowDialog() != WinForms.DialogResult.OK)
+            return;
+
+        var csv = new StringBuilder();
+        csv.AppendLine("timestamp,level,source,message");
+        foreach (var item in _events.Reverse())
+        {
+            csv.Append(Csv(item.Timestamp.ToString("O")));
+            csv.Append(',');
+            csv.Append(Csv(item.Level));
+            csv.Append(',');
+            csv.Append(Csv(item.Source));
+            csv.Append(',');
+            csv.AppendLine(Csv(item.Message));
+        }
+
+        File.WriteAllText(dialog.FileName, csv.ToString(), new UTF8Encoding(true));
+        FooterText.Text = $"Diagnoselog exportiert: {dialog.FileName}";
+        AddEvent("INFO", "App", $"Diagnoselog exportiert: {dialog.FileName}");
     }
 
     private static int? ParseOptionalInt(string raw, string label)
@@ -367,4 +561,25 @@ public partial class MainWindow : Window
 
     private static string DurationText(int? seconds) =>
         seconds is int s && s >= 0 ? $"Video {TimeSpan.FromSeconds(s):hh\\:mm\\:ss}" : "Video —";
+
+    private static int BatteryBand(int? percent, int warningThreshold, int criticalThreshold)
+    {
+        if (percent is not int value)
+            return -1;
+        if (value <= criticalThreshold)
+            return 2;
+        if (value <= warningThreshold)
+            return 1;
+        return 0;
+    }
+
+    private static string BatteryBandText(int band) =>
+        band switch { 2 => "kritisch", 1 => "niedrig", 0 => "normal", _ => "unbekannt" };
+
+    private static bool IsNormalState(string? value) =>
+        string.IsNullOrWhiteSpace(value) ||
+        value.Equals("NORMAL", StringComparison.OrdinalIgnoreCase) ||
+        value.Equals("READY", StringComparison.OrdinalIgnoreCase);
+
+    private static string Csv(string value) => $"\"{value.Replace("\"", "\"\"")}\"";
 }

@@ -42,7 +42,9 @@ Version 0.2 hardens the bridge and build path:
 - Android Gradle compatibility flags are aligned with DJI's current MSDK integration guidance;
 - GitHub Actions now builds the Windows projects and assembles the Android debug APK on every push/PR;
 - live status includes velocity, Home Point, GPS/compass/wind, detailed battery telemetry and read-only RTK telemetry including FIX/FLOAT state, precision and satellite counts;
-- the primary camera/gimbal status now includes camera mode/activity, SD/internal storage capacity and main-gimbal attitude without exposing camera or gimbal control actions.
+- the primary camera/gimbal status now includes camera mode/activity, SD/internal storage capacity and main-gimbal attitude without exposing camera or gimbal control actions;
+- dedicated Aircraft, RC, Energy, RTK and Camera/Gimbal pages provide a structured device view;
+- a local diagnostic/event log records state transitions and warnings (up to 500 entries) and can be exported as CSV without logging every 1 Hz telemetry sample.
 
 ## Versions pinned by this project
 

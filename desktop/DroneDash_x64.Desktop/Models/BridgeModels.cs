@@ -113,3 +113,13 @@ public sealed record MediaItemDto(
         _ => $"{SizeBytes} B"
     };
 }
+
+
+public sealed record DiagnosticEventDto(
+    DateTimeOffset Timestamp,
+    string Level,
+    string Source,
+    string Message)
+{
+    public string TimeText => Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+}

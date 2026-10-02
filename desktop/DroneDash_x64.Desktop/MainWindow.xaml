@@ -243,6 +243,139 @@
         </ScrollViewer>
       </TabItem>
 
+      <TabItem Header="Geräte">
+        <TabControl Margin="8">
+          <TabItem Header="Aircraft">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <UniformGrid Columns="2" Margin="14">
+                <GroupBox Header="Identität" Margin="6">
+                  <TextBlock x:Name="AircraftIdentityDetailText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                </GroupBox>
+                <GroupBox Header="Flugzustand" Margin="6">
+                  <TextBlock x:Name="AircraftFlightDetailText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                </GroupBox>
+                <GroupBox Header="Position &amp; Home Point" Margin="6">
+                  <TextBlock x:Name="AircraftPositionDetailText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                </GroupBox>
+                <GroupBox Header="Bewegung &amp; Wind" Margin="6">
+                  <TextBlock x:Name="AircraftMotionDetailText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                </GroupBox>
+                <GroupBox Header="Attitude" Margin="6">
+                  <TextBlock x:Name="AircraftAttitudeDetailText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                </GroupBox>
+                <GroupBox Header="GNSS &amp; Kompass" Margin="6">
+                  <TextBlock x:Name="AircraftNavDetailText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                </GroupBox>
+              </UniformGrid>
+            </ScrollViewer>
+          </TabItem>
+
+          <TabItem Header="RC">
+            <UniformGrid Columns="2" Margin="18">
+              <GroupBox Header="Remote Controller" Margin="6">
+                <TextBlock x:Name="RcIdentityDetailText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+              </GroupBox>
+              <GroupBox Header="RC Energie" Margin="6">
+                <TextBlock x:Name="RcBatteryDetailText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+              </GroupBox>
+              <GroupBox Header="Bridge / SDK" Margin="6">
+                <TextBlock x:Name="RcBridgeDetailText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+              </GroupBox>
+              <GroupBox Header="Verbindungszustand" Margin="6">
+                <TextBlock x:Name="RcConnectionDetailText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+              </GroupBox>
+            </UniformGrid>
+          </TabItem>
+
+          <TabItem Header="Energie">
+            <UniformGrid Columns="2" Margin="18">
+              <GroupBox Header="Aircraft Akku" Margin="6">
+                <TextBlock x:Name="EnergyAircraftDetailText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+              </GroupBox>
+              <GroupBox Header="Kapazität" Margin="6">
+                <TextBlock x:Name="EnergyCapacityDetailText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+              </GroupBox>
+              <GroupBox Header="Remote Controller" Margin="6">
+                <TextBlock x:Name="EnergyRcDetailText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+              </GroupBox>
+              <GroupBox Header="Bewertung" Margin="6">
+                <TextBlock x:Name="EnergyHealthDetailText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+              </GroupBox>
+            </UniformGrid>
+          </TabItem>
+
+          <TabItem Header="RTK">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <UniformGrid Columns="2" Margin="14">
+                <GroupBox Header="Status" Margin="6">
+                  <TextBlock x:Name="RtkDetailStatusText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                </GroupBox>
+                <GroupBox Header="Referenz" Margin="6">
+                  <TextBlock x:Name="RtkDetailSourceText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                </GroupBox>
+                <GroupBox Header="Mobile Station" Margin="6">
+                  <TextBlock x:Name="RtkDetailMobileText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                </GroupBox>
+                <GroupBox Header="Base Station" Margin="6">
+                  <TextBlock x:Name="RtkDetailBaseText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                </GroupBox>
+                <GroupBox Header="Genauigkeit &amp; Heading" Margin="6">
+                  <TextBlock x:Name="RtkDetailAccuracyText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                </GroupBox>
+                <GroupBox Header="Satelliten / Fehler" Margin="6">
+                  <TextBlock x:Name="RtkDetailSatellitesText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                </GroupBox>
+              </UniformGrid>
+            </ScrollViewer>
+          </TabItem>
+
+          <TabItem Header="Kamera / Gimbal">
+            <UniformGrid Columns="2" Margin="18">
+              <GroupBox Header="Kamera" Margin="6">
+                <TextBlock x:Name="CameraDetailIdentityText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+              </GroupBox>
+              <GroupBox Header="Aktivität" Margin="6">
+                <TextBlock x:Name="CameraDetailActivityText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+              </GroupBox>
+              <GroupBox Header="SD / interner Speicher" Margin="6">
+                <TextBlock x:Name="CameraDetailStorageText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+              </GroupBox>
+              <GroupBox Header="Gimbal" Margin="6">
+                <TextBlock x:Name="GimbalDetailText" Margin="14" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+              </GroupBox>
+            </UniformGrid>
+          </TabItem>
+        </TabControl>
+      </TabItem>
+
+      <TabItem Header="Diagnose">
+        <DockPanel Margin="16">
+          <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
+            <Button Content="Log leeren" Click="ClearEvents_Click"/>
+            <Button Content="CSV exportieren" Click="ExportEvents_Click"/>
+            <TextBlock x:Name="EventCountText" Margin="14,0,0,0" VerticalAlignment="Center" Text="0 Ereignisse"/>
+          </StackPanel>
+
+          <Border DockPanel.Dock="Top" Margin="4,8" Padding="10" Background="#FFF8D8">
+            <TextBlock TextWrapping="Wrap"
+                       Text="Das Eventlog protokolliert Zustandswechsel und Warnungen lokal in der Windows-App. Die 1-Hz-Live-Telemetrie wird nicht vollständig mitgeschrieben."/>
+          </Border>
+
+          <DataGrid x:Name="EventGrid"
+                    Margin="4"
+                    AutoGenerateColumns="False"
+                    IsReadOnly="True"
+                    SelectionMode="Single">
+            <DataGrid.Columns>
+              <DataGridTextColumn Header="Zeit" Binding="{Binding TimeText}" Width="165"/>
+              <DataGridTextColumn Header="Level" Binding="{Binding Level}" Width="90"/>
+              <DataGridTextColumn Header="Quelle" Binding="{Binding Source}" Width="140"/>
+              <DataGridTextColumn Header="Ereignis" Binding="{Binding Message}" Width="*"/>
+            </DataGrid.Columns>
+          </DataGrid>
+        </DockPanel>
+      </TabItem>
+
       <TabItem Header="Konfiguration">
         <Grid Margin="24">
           <Grid.ColumnDefinitions>
