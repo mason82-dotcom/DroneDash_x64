@@ -81,7 +81,7 @@ BRIDGE_BIND_ADDRESS=127.0.0.1
 ```
 
 For deliberate LAN operation, set `BRIDGE_BIND_ADDRESS=0.0.0.0` and configure a strong
-`BRIDGE_TOKEN`. The agent refuses a non-loopback bind when the default token is still active.
+`BRIDGE_TOKEN`. The agent refuses a non-loopback bind when the token is still the default value or shorter than 24 characters.
 
 3. Install Android SDK Platform 35, Build Tools 35.x, Java 17 and Gradle 8.12. Generate the wrapper once:
    `cd rc-agent && gradle wrapper --gradle-version 8.12`
@@ -110,7 +110,7 @@ The aircraft SDK does not expose arbitrary upload back into camera storage throu
 
 This project deliberately does not expose motor start, takeoff, landing, RTH execution,
 virtual-stick control or mission execution over HTTP. Configuration writes are limited to max
-altitude and RTH altitude and are sent through DJI's typed KeyManager API.
+altitude and RTH altitude, are sent through DJI's typed KeyManager API, and are rejected while the aircraft is flying.
 
 For wireless LAN operation, never use the default token and do not expose TCP/49152 to an untrusted
 network. USB + `adb forward` remains the recommended deployment because the RC bridge then listens

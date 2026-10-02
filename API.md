@@ -40,5 +40,11 @@ Relevant HTTP responses:
 - `400 Bad Request`: malformed JSON, invalid parameter type, or value outside the supported range.
 - `401 Unauthorized`: missing or invalid bridge token.
 - `404 Not Found`: unknown route/media index.
-- `409 Conflict`: operation requires an aircraft connection.
+- `409 Conflict`: operation requires an aircraft connection, or a configuration write was requested while the aircraft is flying.
 - `500 Internal Server Error`: DJI SDK failure, timeout, or unexpected bridge error.
+
+## Flight-state write interlock
+
+`PUT /api/v1/config` is rejected with `409 Conflict` while DJI reports
+`KeyIsFlying=true`. Reading status/configuration and downloading media remain separate operations.
+This interlock is enforced in the RC agent, so it cannot be bypassed by a desktop UI mistake.

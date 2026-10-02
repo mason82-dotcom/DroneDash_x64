@@ -51,6 +51,9 @@ class DjiGateway {
             .putNullable("heightLimitMeters", keys.getValue(KeyTools.createKey(FlightControllerKey.KeyHeightLimit)))
             .putNullable("goHomeHeightMeters", keys.getValue(KeyTools.createKey(FlightControllerKey.KeyGoHomeHeight)))
 
+    fun isFlying(): Boolean =
+        keys.getValue(KeyTools.createKey(FlightControllerKey.KeyIsFlying)) == true
+
     fun updateConfiguration(payload: JSONObject): JSONObject {
         // Validate the complete request before the first write. This avoids a partial
         // configuration update when one of two supplied values is invalid.

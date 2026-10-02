@@ -37,8 +37,8 @@ class BridgeServer(
                 return
             }
 
-        if (token == "change-me-now" && !address.isLoopbackAddress) {
-            lastError.set("Unsichere LAN-Freigabe verweigert: BRIDGE_TOKEN ist noch der Standardwert.")
+        if (!address.isLoopbackAddress && (token == "change-me-now" || token.length < 24)) {
+            lastError.set("Unsichere LAN-Freigabe verweigert: BRIDGE_TOKEN muss mindestens 24 Zeichen lang sein.")
             return
         }
 
@@ -138,6 +138,10 @@ class BridgeServer(
             request.method == "PUT" && request.path == "/api/v1/config" -> {
                 if (!djiRuntime.productConnected.get()) {
                     writeJson(output, 409, JSONObject().put("error", "aircraft not connected"))
+                    return
+                }
+                if (djiRuntime.gateway.isFlying()) {
+                    writeJson(output, 409, JSONObject().put("error", "configuration writes are disabled while aircraft is flying"))
                     return
                 }
                 val payload = JSONObject(request.body.toString(StandardCharsets.UTF_8))
