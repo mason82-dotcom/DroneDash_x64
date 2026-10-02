@@ -270,3 +270,22 @@ can be linked to a \`.ddplan\` flight plan. Export creates:
 The PV CI smoke test uses a synthetic temperature matrix with a known connected hotspot and verifies
 the local-contrast detector, cluster severity and JSON/CSV export without requiring proprietary DJI
 native binaries.
+
+
+### PV inspection workspace
+
+PV analysis now has three result views:
+
+- **Übersicht** for the batch QA table;
+- **Thermal-Detail** which reloads only the selected R-JPEG, renders the DJI pseudo-color image and
+  overlays every detected anomaly cluster with its bounding box and peak position;
+- **Anlagenkarte** which plots every georeferenced thermal image and exposes file, severity, maximum
+  delta-T, candidate count and planned-route assignment.
+
+The batch stage intentionally does not retain hundreds of 640×512 FLOAT32 temperature matrices.
+A selected image is re-opened through DJI TSDK only when detailed inspection is requested.
+
+In addition to JSON and CSV, export now creates \`pv-inspection-report.html\`. The report contains
+the analysis parameters, dataset summary, per-image QA table and one row for every anomaly
+candidate. It repeats the important limitation that thermal candidates require expert verification
+and are not automatic electrical defect diagnoses.

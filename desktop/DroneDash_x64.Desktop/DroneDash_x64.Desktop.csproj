@@ -19,6 +19,12 @@
              Link="planning\route-editor.html" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="PvAnalysis\pv-map.html"
+             CopyToOutputDirectory="PreserveNewest"
+             Link="pv\pv-map.html" />
+  </ItemGroup>
+
   <ItemGroup Condition="Exists('third_party\dji-tsdk\runtime\libdirp.dll')">
     <Content Include="third_party\dji-tsdk\runtime\*.dll"
              CopyToOutputDirectory="PreserveNewest"

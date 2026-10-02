@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+html,body,#map{height:100%;margin:0}
+body{background:#101318;font-family:Segoe UI,Arial,sans-serif}
+#banner{position:absolute;z-index:1000;top:10px;left:50%;transform:translateX(-50%);
+background:rgba(20,24,30,.9);color:#fff;padding:7px 12px;border-radius:5px;font-size:13px}
+</style>
+</head>
+<body>
+<div id="map"></div><div id="banner">PV-Karte bereit</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map=L.map('map',{zoomControl:true}).setView([51.1657,10.4515],6);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  maxZoom:20,
+  attribution:'&copy; OpenStreetMap contributors'
+}).addTo(map);
+const layer=L.layerGroup().addTo(map);
+
+function esc(v){
+  return String(v??'').replace(/[&<>"']/g,c=>({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[c]);
+}
+function markerColor(severity){
+  if(severity==='Critical') return '#d32f2f';
+  if(severity==='Warning') return '#ef8c00';
+  return '#2e7d32';
+}
+function render(data){
+  layer.clearLayers();
+  const points=(data.points||[]).filter(p=>Number.isFinite(p.lat)&&Number.isFinite(p.lon));
+  points.forEach(p=>{
+    const color=markerColor(p.severity);
+    L.circleMarker([p.lat,p.lon],{
+      radius:p.severity==='Critical'?8:6,
+      color:color,
+      fillColor:color,
+      fillOpacity:.82,
+      weight:2
+    }).bindPopup(
+      '<b>'+esc(p.file)+'</b><br>'+
+      'Stufe: '+esc(p.severity)+'<br>'+
+      'max ΔT: '+esc(p.delta)+'<br>'+
+      'Kandidaten: '+esc(p.candidates)+'<br>'+
+      'Route: '+esc(p.route)
+    ).addTo(layer);
+  });
+  if(points.length){
+    const group=L.featureGroup(layer.getLayers());
+    const bounds=group.getBounds();
+    if(bounds.isValid()) map.fitBounds(bounds.pad(.18));
+  }
+  document.getElementById('banner').textContent=
+    points.length+' georeferenzierte Thermalbilder';
+}
+window.chrome.webview.addEventListener('message',e=>{
+  const m=e.data||{};
+  if(m.type==='render') render(m);
+});
+chrome.webview.postMessage({type:'ready'});
+</script>
+</body>
+</html>

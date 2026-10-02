@@ -1,9 +1,12 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
+using System.Text.Json;
 using System.Windows;
+using System.Windows.Controls;
 using DroneDash_x64.Desktop.Planning;
 using DroneDash_x64.Desktop.Thermal;
+using Microsoft.Web.WebView2.Core;
 using WinForms = System.Windows.Forms;
 
 namespace DroneDash_x64.Desktop.PvAnalysis;
@@ -14,15 +17,64 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
     private string? _sourceFolder;
     private string? _flightPlanProjectPath;
     private PvDatasetResult? _dataset;
+    private bool _mapReady;
 
     public PvAnalysisView()
     {
         InitializeComponent();
         ResultGrid.ItemsSource = _results;
+        Loaded += async (_, _) => await InitializeMapAsync();
 
         using var sdk = new DjiThermalSdk();
         ThermalSdkStatusText.Text = sdk.Status;
         AnalyzeButton.IsEnabled = sdk.IsAvailable;
+    }
+
+    private async Task InitializeMapAsync()
+    {
+        if (_mapReady)
+            return;
+
+        try
+        {
+            await PvMap.EnsureCoreWebView2Async();
+            PvMap.CoreWebView2.WebMessageReceived += PvMap_WebMessageReceived;
+
+            var html = Path.Combine(
+                AppContext.BaseDirectory,
+                "pv",
+                "pv-map.html");
+
+            if (!File.Exists(html))
+                throw new FileNotFoundException("PV-Karten-HTML fehlt.", html);
+
+            PvMap.Source = new Uri(html);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text =
+                $"PV-Karte konnte nicht initialisiert werden: {ex.Message}";
+        }
+    }
+
+    private void PvMap_WebMessageReceived(
+        object? sender,
+        CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        try
+        {
+            using var json = JsonDocument.Parse(e.WebMessageAsJson);
+            if (json.RootElement.TryGetProperty("type", out var type) &&
+                type.GetString() == "ready")
+            {
+                _mapReady = true;
+                RenderMap();
+            }
+        }
+        catch
+        {
+            // Invalid map messages are ignored; analysis data remains unaffected.
+        }
     }
 
     private void SelectFolder_Click(object sender, RoutedEventArgs e)
@@ -105,9 +157,7 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
             return;
         }
 
-        AnalyzeButton.IsEnabled = false;
-        ExportButton.IsEnabled = false;
-        AnalysisProgress.IsIndeterminate = true;
+        SetBusy(true);
         StatusText.Text = "Radiometrische M3T-Bilder werden analysiert …";
 
         try
@@ -130,6 +180,7 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
 
             ExportButton.IsEnabled =
                 _dataset.Summary.ThermalImageCount > 0;
+            RenderMap();
         }
         catch (Exception ex)
         {
@@ -142,11 +193,98 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
         }
         finally
         {
-            AnalysisProgress.IsIndeterminate = false;
+            SetBusy(false);
+            RefreshSdkStatus();
+        }
+    }
 
-            using var sdk = new DjiThermalSdk();
-            AnalyzeButton.IsEnabled = sdk.IsAvailable;
-            ThermalSdkStatusText.Text = sdk.Status;
+    private void ResultGrid_SelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        OpenDetailButton.IsEnabled =
+            _dataset is not null &&
+            ResultGrid.SelectedItem is PvImageAnalysisResult selected &&
+            string.IsNullOrWhiteSpace(selected.ProcessingError);
+
+        if (ResultGrid.SelectedItem is PvImageAnalysisResult image)
+        {
+            DetailSummaryText.Text =
+                $"{image.FileName}\n" +
+                $"{image.GpsText} · {image.RtkText}\n" +
+                $"Max {image.MaxTemperatureText} · max ΔT {image.HighestDeltaText} · " +
+                $"{image.Candidates.Count} Kandidat(en)";
+            CandidateGrid.ItemsSource = image.Candidates;
+        }
+    }
+
+    private async void OpenSelectedImage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_dataset is null ||
+            ResultGrid.SelectedItem is not PvImageAnalysisResult selected)
+        {
+            return;
+        }
+
+        var path = Path.Combine(
+            _dataset.SourceFolder,
+            selected.RelativePath);
+
+        if (!File.Exists(path))
+        {
+            System.Windows.MessageBox.Show(
+                $"Thermaldatei nicht gefunden:\n{path}",
+                "PV Thermal-Detail",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        OpenDetailButton.IsEnabled = false;
+        DetailSummaryText.Text = $"{selected.FileName}\nThermalbild wird radiometrisch geladen …";
+
+        try
+        {
+            var thermal = await Task.Run(() =>
+            {
+                using var sdk = new DjiThermalSdk();
+                if (!sdk.IsAvailable)
+                    throw new InvalidOperationException(sdk.Status);
+
+                return sdk.Analyze(path, ThermalPalette.IronRed);
+            });
+
+            DetailImage.Source =
+                PvThermalOverlayRenderer.Render(
+                    thermal,
+                    selected.Candidates);
+
+            DetailPlaceholder.Visibility = Visibility.Collapsed;
+            CandidateGrid.ItemsSource = selected.Candidates;
+            DetailSummaryText.Text =
+                $"{selected.FileName}\n" +
+                $"{thermal.Width} × {thermal.Height} · " +
+                $"Min {thermal.MinimumC:F2} °C · Ø {thermal.AverageC:F2} °C · " +
+                $"Max {thermal.MaximumC:F2} °C\n" +
+                $"Emissivität {thermal.Emissivity:F3} · Messdistanz {thermal.DistanceM:F2} m · " +
+                $"{selected.Candidates.Count} Anomalie-Kandidat(en)";
+
+            PvResultsTabs.SelectedIndex = 1;
+        }
+        catch (Exception ex)
+        {
+            DetailSummaryText.Text = $"Detailanalyse fehlgeschlagen: {ex.Message}";
+            System.Windows.MessageBox.Show(
+                ex.Message,
+                "PV Thermal-Detail",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            OpenDetailButton.IsEnabled =
+                ResultGrid.SelectedItem is PvImageAnalysisResult current &&
+                string.IsNullOrWhiteSpace(current.ProcessingError);
         }
     }
 
@@ -169,10 +307,13 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
             var output = PvAnalysisExporter.Export(
                 dialog.SelectedPath,
                 _dataset);
+            var report = PvInspectionReportExporter.ExportHtml(
+                dialog.SelectedPath,
+                _dataset);
 
             StatusText.Text =
                 $"PV-Analyse exportiert: {output.JsonPath} · " +
-                $"{output.ImagesCsvPath} · {output.CandidatesCsvPath}";
+                $"{output.ImagesCsvPath} · {output.CandidatesCsvPath} · Bericht: {report}";
         }
         catch (Exception ex)
         {
@@ -182,6 +323,35 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }
+    }
+
+    private void RenderMap()
+    {
+        if (!_mapReady)
+            return;
+
+        var points = (_dataset?.Images ?? [])
+            .Where(image =>
+                image.Latitude.HasValue &&
+                image.Longitude.HasValue)
+            .Select(image => new
+            {
+                lat = image.Latitude!.Value,
+                lon = image.Longitude!.Value,
+                file = image.FileName,
+                severity = image.Severity.ToString(),
+                delta = image.HighestDeltaText,
+                candidates = image.Candidates.Count,
+                route = image.RouteText
+            })
+            .ToArray();
+
+        PvMap.CoreWebView2.PostWebMessageAsJson(
+            JsonSerializer.Serialize(new
+            {
+                type = "render",
+                points
+            }));
     }
 
     private PvAnalysisSettings ReadSettings() =>
@@ -228,12 +398,37 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
         throw new FormatException($"{label}: ungültige Ganzzahl.");
     }
 
+    private void SetBusy(bool busy)
+    {
+        AnalysisProgress.IsIndeterminate = busy;
+        AnalyzeButton.IsEnabled = !busy;
+        OpenDetailButton.IsEnabled = false;
+        if (busy)
+            ExportButton.IsEnabled = false;
+    }
+
+    private void RefreshSdkStatus()
+    {
+        using var sdk = new DjiThermalSdk();
+        AnalyzeButton.IsEnabled = sdk.IsAvailable;
+        ThermalSdkStatusText.Text = sdk.Status;
+
+        if (_dataset is not null)
+            ExportButton.IsEnabled = _dataset.Summary.ThermalImageCount > 0;
+    }
+
     private void InvalidateDataset()
     {
         _dataset = null;
         _results.Clear();
+        DetailImage.Source = null;
+        DetailPlaceholder.Visibility = Visibility.Visible;
+        CandidateGrid.ItemsSource = null;
+        DetailSummaryText.Text = "Noch kein Detailbild geladen.";
         SummaryText.Text = "Datensatz geändert · Analyse neu starten.";
         StatusText.Text = "Bereit.";
         ExportButton.IsEnabled = false;
+        OpenDetailButton.IsEnabled = false;
+        RenderMap();
     }
 }

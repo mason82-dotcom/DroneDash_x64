@@ -97,6 +97,20 @@ try
             throw new InvalidDataException($"Missing PV export: {path}");
     }
 
+    var reportPath = PvInspectionReportExporter.ExportHtml(
+        exportRoot,
+        dataset);
+    if (!File.Exists(reportPath) || new FileInfo(reportPath).Length == 0)
+        throw new InvalidDataException("Missing PV HTML inspection report.");
+
+    var reportHtml = File.ReadAllText(reportPath);
+    if (!reportHtml.Contains("Critical", StringComparison.Ordinal) ||
+        !reportHtml.Contains("DJI_TEST_T.JPG", StringComparison.Ordinal) ||
+        !reportHtml.Contains("19.00", StringComparison.Ordinal))
+    {
+        throw new InvalidDataException("PV HTML report content is incomplete.");
+    }
+
     Console.WriteLine(
         $"PASS PV analysis · candidates={candidates.Count} · " +
         $"severity={hotspot.Severity} · delta={hotspot.DeltaC:F2} °C");

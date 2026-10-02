@@ -1,6 +1,7 @@
 <UserControl x:Class="DroneDash_x64.Desktop.PvAnalysis.PvAnalysisView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf">
   <DockPanel Margin="12">
     <StackPanel DockPanel.Dock="Top">
       <TextBlock Text="PV-Analyse"
@@ -29,8 +30,12 @@
         <Button x:Name="AnalyzeButton"
                 Content="PV-Datensatz analysieren"
                 Click="Analyze_Click"/>
+        <Button x:Name="OpenDetailButton"
+                Content="Ausgewähltes Thermalbild öffnen"
+                Click="OpenSelectedImage_Click"
+                IsEnabled="False"/>
         <Button x:Name="ExportButton"
-                Content="PV-Analyse exportieren"
+                Content="PV-Analyse + Bericht exportieren"
                 Click="Export_Click"
                 IsEnabled="False"/>
       </WrapPanel>
@@ -141,40 +146,120 @@
       </Border>
     </StackPanel>
 
-    <DataGrid x:Name="ResultGrid"
-              AutoGenerateColumns="False"
-              IsReadOnly="True"
-              CanUserAddRows="False"
-              SelectionMode="Extended">
-      <DataGrid.Columns>
-        <DataGridTextColumn Header="Datei"
-                            Binding="{Binding FileName}"
-                            Width="220"/>
-        <DataGridTextColumn Header="GPS"
-                            Binding="{Binding GpsText}"
-                            Width="180"/>
-        <DataGridTextColumn Header="RTK"
-                            Binding="{Binding RtkText}"
-                            Width="190"/>
-        <DataGridTextColumn Header="Max"
-                            Binding="{Binding MaxTemperatureText}"
-                            Width="90"/>
-        <DataGridTextColumn Header="max ΔT"
-                            Binding="{Binding HighestDeltaText}"
-                            Width="90"/>
-        <DataGridTextColumn Header="Kandidaten"
-                            Binding="{Binding Candidates.Count}"
-                            Width="80"/>
-        <DataGridTextColumn Header="Stufe"
-                            Binding="{Binding Severity}"
-                            Width="90"/>
-        <DataGridTextColumn Header="Route"
-                            Binding="{Binding RouteText}"
-                            Width="210"/>
-        <DataGridTextColumn Header="Status"
-                            Binding="{Binding StatusText}"
-                            Width="*"/>
-      </DataGrid.Columns>
-    </DataGrid>
+    <TabControl x:Name="PvResultsTabs">
+      <TabItem Header="Übersicht">
+        <DataGrid x:Name="ResultGrid"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="True"
+                  CanUserAddRows="False"
+                  SelectionMode="Single"
+                  SelectionChanged="ResultGrid_SelectionChanged">
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="Datei"
+                                Binding="{Binding FileName}"
+                                Width="220"/>
+            <DataGridTextColumn Header="GPS"
+                                Binding="{Binding GpsText}"
+                                Width="180"/>
+            <DataGridTextColumn Header="RTK"
+                                Binding="{Binding RtkText}"
+                                Width="190"/>
+            <DataGridTextColumn Header="Max"
+                                Binding="{Binding MaxTemperatureText}"
+                                Width="90"/>
+            <DataGridTextColumn Header="max ΔT"
+                                Binding="{Binding HighestDeltaText}"
+                                Width="90"/>
+            <DataGridTextColumn Header="Kandidaten"
+                                Binding="{Binding Candidates.Count}"
+                                Width="80"/>
+            <DataGridTextColumn Header="Stufe"
+                                Binding="{Binding Severity}"
+                                Width="90"/>
+            <DataGridTextColumn Header="Route"
+                                Binding="{Binding RouteText}"
+                                Width="210"/>
+            <DataGridTextColumn Header="Status"
+                                Binding="{Binding StatusText}"
+                                Width="*"/>
+          </DataGrid.Columns>
+        </DataGrid>
+      </TabItem>
+
+      <TabItem Header="Thermal-Detail">
+        <Grid Margin="6">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="2*"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+
+          <Border Grid.Column="0"
+                  Margin="0,0,8,0"
+                  Background="#101318"
+                  BorderBrush="#30363D"
+                  BorderThickness="1">
+            <Grid>
+              <Image x:Name="DetailImage"
+                     Stretch="Uniform"
+                     RenderOptions.BitmapScalingMode="HighQuality"/>
+              <TextBlock x:Name="DetailPlaceholder"
+                         Text="In der Übersicht ein Bild auswählen und „Ausgewähltes Thermalbild öffnen“ klicken."
+                         Foreground="#C7CDD5"
+                         FontSize="15"
+                         TextAlignment="Center"
+                         TextWrapping="Wrap"
+                         HorizontalAlignment="Center"
+                         VerticalAlignment="Center"
+                         Margin="28"/>
+            </Grid>
+          </Border>
+
+          <DockPanel Grid.Column="1">
+            <TextBlock x:Name="DetailSummaryText"
+                       DockPanel.Dock="Top"
+                       Margin="4,0,4,8"
+                       Text="Noch kein Detailbild geladen."
+                       TextWrapping="Wrap"/>
+
+            <DataGrid x:Name="CandidateGrid"
+                      AutoGenerateColumns="False"
+                      IsReadOnly="True"
+                      CanUserAddRows="False">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="#"
+                                    Binding="{Binding Index}"
+                                    Width="35"/>
+                <DataGridTextColumn Header="Stufe"
+                                    Binding="{Binding Severity}"
+                                    Width="75"/>
+                <DataGridTextColumn Header="ΔT"
+                                    Binding="{Binding DeltaC, StringFormat=F2}"
+                                    Width="60"/>
+                <DataGridTextColumn Header="Peak"
+                                    Binding="{Binding PeakTemperatureC, StringFormat=F2}"
+                                    Width="60"/>
+                <DataGridTextColumn Header="Pixel"
+                                    Binding="{Binding PixelCount}"
+                                    Width="55"/>
+                <DataGridTextColumn Header="Peak XY"
+                                    Binding="{Binding PixelText}"
+                                    Width="85"/>
+                <DataGridTextColumn Header="Box"
+                                    Binding="{Binding BoundingBoxText}"
+                                    Width="*"/>
+              </DataGrid.Columns>
+            </DataGrid>
+          </DockPanel>
+        </Grid>
+      </TabItem>
+
+      <TabItem Header="Anlagenkarte">
+        <Border BorderBrush="#30363D"
+                BorderThickness="1"
+                Margin="6">
+          <wv2:WebView2 x:Name="PvMap"/>
+        </Border>
+      </TabItem>
+    </TabControl>
   </DockPanel>
 </UserControl>
