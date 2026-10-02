@@ -413,8 +413,8 @@ public partial class MainWindow : Window
         MediaPreviewImage.Stretch = Stretch.Uniform;
         MediaPreviewImage.Width = double.NaN;
         MediaPreviewImage.Height = double.NaN;
-        MediaPreviewImage.HorizontalAlignment = HorizontalAlignment.Stretch;
-        MediaPreviewImage.VerticalAlignment = VerticalAlignment.Stretch;
+        MediaPreviewImage.HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch;
+        MediaPreviewImage.VerticalAlignment = System.Windows.VerticalAlignment.Stretch;
         MediaPreviewScroll.ScrollToHome();
     }
 
@@ -426,8 +426,8 @@ public partial class MainWindow : Window
         MediaPreviewImage.Stretch = Stretch.None;
         MediaPreviewImage.Width = bitmap.PixelWidth;
         MediaPreviewImage.Height = bitmap.PixelHeight;
-        MediaPreviewImage.HorizontalAlignment = HorizontalAlignment.Left;
-        MediaPreviewImage.VerticalAlignment = VerticalAlignment.Top;
+        MediaPreviewImage.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
+        MediaPreviewImage.VerticalAlignment = System.Windows.VerticalAlignment.Top;
         MediaPreviewScroll.ScrollToHome();
     }
 
