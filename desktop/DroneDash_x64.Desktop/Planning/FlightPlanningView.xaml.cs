@@ -8,7 +8,7 @@ using WinForms = System.Windows.Forms;
 
 namespace DroneDash_x64.Desktop.Planning;
 
-public partial class FlightPlanningView : UserControl
+public partial class FlightPlanningView : System.Windows.Controls.UserControl
 {
     private readonly List<GeoPoint> _polygon = [];
     private FlightPlanResult? _plan;
