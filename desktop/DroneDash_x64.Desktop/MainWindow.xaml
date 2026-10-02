@@ -418,6 +418,7 @@
             <Button Content="Liste aktualisieren" Click="RefreshMedia_Click"/>
             <Button Content="Vorschau + Metadaten" Click="PreviewMedia_Click"/>
             <Button Content="Lokales Bild / DNG öffnen" Click="OpenLocalImage_Click"/>
+            <Button Content="M3T Testbild" Click="OpenM3tFixture_Click"/>
             <Button Content="Auswahl herunterladen" Click="DownloadMedia_Click"/>
             <ProgressBar x:Name="DownloadProgress" Width="190" Height="18" Minimum="0" Maximum="100"
                          Margin="14,0" VerticalAlignment="Center"/>

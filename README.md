@@ -148,3 +148,27 @@ DJI's license/EULA, then stage it with:
 See `desktop/DroneDash_x64.Desktop/third_party/dji-tsdk/README.md` for details. Without the
 native runtime the rest of DroneDash continues to run normally; the Thermal analysis button is
 disabled and the existing image/EXIF/XMP viewer remains available.
+
+
+## Real M3T thermal fixture
+
+The repository root contains `DJI_20261002154302_0001_T.JPG`, a real M3T infrared R-JPEG
+used as a hardware-development fixture. CI validates its JPEG structure, 640×512 thermal
+resolution, DJI/M3T identity, `InfraredCamera` XMP marker and DJI `iirp` radiometric block
+without requiring proprietary TSDK binaries.
+
+Local structural verification:
+
+```powershell
+.\scripts\verify-m3t-thermal-fixture.ps1
+```
+
+After staging DJI Thermal SDK v1.8, run:
+
+```powershell
+.\scripts\test-m3t-thermal-fixture.ps1
+```
+
+Then use **Medien → M3T Testbild**. DroneDash locates the repository fixture, loads its
+EXIF/XMP metadata and, when TSDK is available, immediately performs radiometric analysis.
+The original fixture is never modified.

@@ -365,6 +365,63 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OpenM3tFixture_Click(object sender, RoutedEventArgs e)
+    {
+        var fixture = FindRepositoryFixture("DJI_20261002154302_0001_T.JPG");
+        if (fixture is null)
+        {
+            System.Windows.MessageBox.Show(this,
+                "Das M3T-Testbild wurde nicht gefunden. Die Funktion ist für einen lokalen Clone des DroneDash_x64-Repositories gedacht.",
+                "M3T Testbild",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        try
+        {
+            LoadImagePreview(fixture, null);
+            MediaInfoText.Text = $"M3T Thermal-Fixture geladen · {_imageMetadata.Count} Metadatenfelder";
+            AddEvent("INFO", "Thermal", "Reales M3T-R-JPEG-Fixture aus dem Repository geladen.");
+
+            if (_thermalSdk.IsAvailable)
+            {
+                AnalyzeCurrentThermalImage();
+            }
+            else
+            {
+                ThermalSummaryText.Text =
+                    "Reales M3T-R-JPEG geladen. DJI Thermal SDK v1.8 ist lokal noch nicht verfügbar; Metadatenanalyse ist aktiv.";
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError("M3T-Testbild konnte nicht geöffnet werden", ex);
+        }
+    }
+
+    private static string? FindRepositoryFixture(string fileName)
+    {
+        var roots = new[]
+        {
+            Environment.CurrentDirectory,
+            AppContext.BaseDirectory
+        };
+
+        foreach (var root in roots)
+        {
+            var current = new DirectoryInfo(Path.GetFullPath(root));
+            for (var depth = 0; current is not null && depth < 8; depth++, current = current.Parent)
+            {
+                var candidate = Path.Combine(current.FullName, fileName);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+        }
+
+        return null;
+    }
+
     private void OpenLocalImage_Click(object sender, RoutedEventArgs e)
     {
         using var dialog = new WinForms.OpenFileDialog
@@ -433,6 +490,11 @@ public partial class MainWindow : Window
     }
 
     private void ThermalAnalyze_Click(object sender, RoutedEventArgs e)
+    {
+        AnalyzeCurrentThermalImage();
+    }
+
+    private void AnalyzeCurrentThermalImage()
     {
         if (!_thermalSdk.IsAvailable)
         {

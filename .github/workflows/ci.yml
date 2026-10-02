@@ -25,6 +25,10 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Verify real M3T thermal fixture
+        shell: pwsh
+        run: ./scripts/verify-m3t-thermal-fixture.ps1
+
       - name: Restore desktop
         run: dotnet restore desktop/DroneDash_x64.Desktop/DroneDash_x64.Desktop.csproj
 
