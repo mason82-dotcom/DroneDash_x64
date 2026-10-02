@@ -10,3 +10,6 @@
 *.user
 *.suo
 .DS_Store
+
+# DJI Thermal SDK native binaries are staged locally under DJI's SDK EULA.
+desktop/DroneDash_x64.Desktop/third_party/dji-tsdk/runtime/

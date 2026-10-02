@@ -460,6 +460,7 @@
                 <RowDefinition Height="2.2*"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="1.4*"/>
               </Grid.RowDefinitions>
 
@@ -517,8 +518,53 @@
                 </StackPanel>
               </Border>
 
+              <Border Grid.Row="3"
+                      Margin="4,2"
+                      Padding="10"
+                      BorderBrush="#8A5A00"
+                      BorderThickness="1"
+                      CornerRadius="4"
+                      Background="#FFF4D6">
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                  </Grid.ColumnDefinitions>
+                  <StackPanel Grid.Column="0">
+                    <TextBlock Text="DJI Thermal SDK v1.8" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="ThermalSdkStatusText"
+                               Margin="0,3,0,0"
+                               Text="Thermal SDK wird geprüft …"
+                               TextWrapping="Wrap"/>
+                    <TextBlock x:Name="ThermalSummaryText"
+                               Margin="0,3,0,0"
+                               Text="Noch keine Thermal-Analyse."
+                               TextWrapping="Wrap"/>
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <ComboBox x:Name="ThermalPaletteBox" Width="130" SelectedIndex="2" Margin="4">
+                      <ComboBoxItem Content="White Hot" Tag="WhiteHot"/>
+                      <ComboBoxItem Content="Fulgurite" Tag="Fulgurite"/>
+                      <ComboBoxItem Content="Iron Red" Tag="IronRed"/>
+                      <ComboBoxItem Content="Hot Iron" Tag="HotIron"/>
+                      <ComboBoxItem Content="Medical" Tag="Medical"/>
+                      <ComboBoxItem Content="Arctic" Tag="Arctic"/>
+                      <ComboBoxItem Content="Rainbow 1" Tag="Rainbow1"/>
+                      <ComboBoxItem Content="Rainbow 2" Tag="Rainbow2"/>
+                      <ComboBoxItem Content="Tint" Tag="Tint"/>
+                      <ComboBoxItem Content="Black Hot" Tag="BlackHot"/>
+                    </ComboBox>
+                    <Button x:Name="ThermalAnalyzeButton"
+                            Content="Thermal analysieren"
+                            Click="ThermalAnalyze_Click"/>
+                    <Button Content="Original"
+                            Click="RestoreOriginalPreview_Click"/>
+                  </StackPanel>
+                </Grid>
+              </Border>
+
               <DataGrid x:Name="MetadataGrid"
-                        Grid.Row="3"
+                        Grid.Row="4"
                         Margin="4"
                         AutoGenerateColumns="False"
                         IsReadOnly="True"

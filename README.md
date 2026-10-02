@@ -47,11 +47,13 @@ Version 0.2 hardens the bridge and build path:
 - a local diagnostic/event log records state transitions and warnings (up to 500 entries) and can be exported as CSV without logging every 1 Hz telemetry sample;
 - the media workspace includes an image viewer for aircraft and local files, fit/1:1 viewing, standard EXIF/GPS metadata, file hashes and DJI-specific XMP metadata when present;
 - DJI DNG/RAW files are supported with WIC preview when a Windows RAW codec is available and metadata-only fallback otherwise;
-- a photogrammetry summary highlights DJI XMP fields such as GPS/altitude, aircraft and gimbal attitude, RTK flag/standard deviations, calibrated focal length, optical center and dewarp calibration data.
+- a photogrammetry summary highlights DJI XMP fields such as GPS/altitude, aircraft and gimbal attitude, RTK flag/standard deviations, calibrated focal length, optical center and dewarp calibration data;
+- optional DJI Thermal SDK v1.8 integration analyzes radiometric DJI R-JPEGs locally on Windows x64, including per-pixel temperature measurement, min/max/average/center values and selectable pseudo-color rendering.
 
 ## Versions pinned by this project
 
 - DJI Mobile SDK V5: **5.18.0**
+- DJI Thermal SDK (optional Windows x64 runtime): **1.8**
 - Android compile/target SDK: **35**
 - Android min SDK: **24**
 - Android Gradle Plugin: **8.7.0**
@@ -131,3 +133,18 @@ only on loopback.
 - Android: Java 17 + Gradle 8.12, then `:app:assembleDebug` with CI-only placeholder credentials.
 
 This makes SDK/dependency or compiler regressions visible immediately after a push.
+
+
+## DJI Thermal SDK v1.8
+
+DJI Thermal SDK is an optional local dependency for radiometric R-JPEG analysis. Its native
+binaries are not stored in this repository. Download the Windows v1.8 package from DJI, review
+DJI's license/EULA, then stage it with:
+
+```powershell
+.\scripts\install-dji-thermal-sdk.ps1 -ArchivePath "C:\path\to\dji_thermal_sdk_v1.8_20250829.zip"
+```
+
+See `desktop/DroneDash_x64.Desktop/third_party/dji-tsdk/README.md` for details. Without the
+native runtime the rest of DroneDash continues to run normally; the Thermal analysis button is
+disabled and the existing image/EXIF/XMP viewer remains available.

@@ -9,6 +9,7 @@ using System.Windows.Threading;
 using DroneDash_x64.Desktop.Api;
 using DroneDash_x64.Desktop.Imaging;
 using DroneDash_x64.Desktop.Models;
+using DroneDash_x64.Desktop.Thermal;
 using WinForms = System.Windows.Forms;
 
 namespace DroneDash_x64.Desktop;
@@ -16,6 +17,7 @@ namespace DroneDash_x64.Desktop;
 public partial class MainWindow : Window
 {
     private readonly RcApiClient _api = new();
+    private readonly DjiThermalSdk _thermalSdk = new();
     private readonly ObservableCollection<MediaItemDto> _media = [];
     private readonly ObservableCollection<ImageMetadataEntryDto> _imageMetadata = [];
     private readonly ObservableCollection<DiagnosticEventDto> _events = [];
@@ -25,6 +27,8 @@ public partial class MainWindow : Window
     private string? _lastPollError;
     private int _lastAircraftBatteryBand = -1;
     private int _lastRcBatteryBand = -1;
+    private string? _currentPreviewPath;
+    private System.Windows.Media.Imaging.BitmapSource? _originalPreview;
 
     public MainWindow()
     {
@@ -33,6 +37,10 @@ public partial class MainWindow : Window
         MetadataGrid.ItemsSource = _imageMetadata;
         EventGrid.ItemsSource = _events;
 
+        ThermalSdkStatusText.Text = _thermalSdk.Status;
+        ThermalAnalyzeButton.IsEnabled = _thermalSdk.IsAvailable;
+        AddEvent(_thermalSdk.IsAvailable ? "INFO" : "WARNING", "Thermal",
+            _thermalSdk.IsAvailable ? "DJI Thermal SDK v1.8 verfügbar." : _thermalSdk.Status);
         AddEvent("INFO", "App", "DroneDash_x64 gestartet.");
 
         _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -41,6 +49,7 @@ public partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _api.Dispose();
+            _thermalSdk.Dispose();
             CleanupPreviewCache();
         };
     }
@@ -398,6 +407,9 @@ public partial class MainWindow : Window
         foreach (var entry in inspection.Metadata)
             _imageMetadata.Add(entry);
 
+        _currentPreviewPath = path;
+        _originalPreview = inspection.Preview;
+        ThermalSummaryText.Text = "Noch keine Thermal-Analyse.";
         MediaPreviewImage.Source = inspection.Preview;
         MediaPreviewTitle.Text = remoteItem?.Name ?? Path.GetFileName(path);
         PhotogrammetrySummaryText.Text = inspection.PhotogrammetrySummary;
@@ -417,6 +429,104 @@ public partial class MainWindow : Window
             MediaPreviewPlaceholder.Visibility = Visibility.Visible;
             MediaPreviewSummary.Text =
                 $"{_imageMetadata.Count} Metadatenfelder · {inspection.PreviewStatus}";
+        }
+    }
+
+    private void ThermalAnalyze_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_thermalSdk.IsAvailable)
+        {
+            System.Windows.MessageBox.Show(this,
+                _thermalSdk.Status + "\n\nTSDK v1.8 lokal installieren; siehe third_party/dji-tsdk/README.md.",
+                "DJI Thermal SDK",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_currentPreviewPath) || !File.Exists(_currentPreviewPath))
+        {
+            System.Windows.MessageBox.Show(this,
+                "Zuerst ein DJI R-JPEG im Viewer öffnen.",
+                "Thermal-Analyse",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        try
+        {
+            var palette = SelectedThermalPalette();
+            FooterText.Text = "DJI Thermal SDK analysiert R-JPEG …";
+
+            var result = _thermalSdk.Analyze(_currentPreviewPath, palette);
+
+            RemoveMetadataGroup("Thermal");
+            RemoveMetadataGroup("Thermal Parameter");
+            foreach (var entry in result.ToMetadata())
+                _imageMetadata.Add(entry);
+
+            MediaPreviewImage.Source = result.PseudoColorImage;
+            MediaPreviewPlaceholder.Visibility = Visibility.Collapsed;
+            ThermalSummaryText.Text =
+                $"Min {result.MinimumC:F2} °C @ {result.MinimumX},{result.MinimumY} · " +
+                $"Ø {result.AverageC:F2} °C · Mitte {result.CenterC:F2} °C · " +
+                $"Max {result.MaximumC:F2} °C @ {result.MaximumX},{result.MaximumY} · " +
+                $"ε {result.Emissivity:F3} · Distanz {result.DistanceM:F2} m";
+            MediaPreviewSummary.Text =
+                $"Thermal {result.Width} × {result.Height} px · Palette {palette} · DJI TSDK v{DjiThermalSdk.SupportedSdkVersion}";
+            FitPreview();
+
+            FooterText.Text = "Thermal-Analyse abgeschlossen.";
+            AddEvent("INFO", "Thermal",
+                $"R-JPEG analysiert · Min {result.MinimumC:F2} °C · Max {result.MaximumC:F2} °C · Ø {result.AverageC:F2} °C.");
+        }
+        catch (ThermalSdkException ex) when (ex.Code is -4 or -5 or -6 or -7 or -10)
+        {
+            ThermalSummaryText.Text = "Datei ist kein kompatibles DJI R-JPEG bzw. wird von dieser TSDK-Version nicht erkannt.";
+            AddEvent("WARNING", "Thermal", ex.Message);
+            System.Windows.MessageBox.Show(this,
+                "Die ausgewählte Datei ist kein kompatibles DJI R-JPEG oder wird von TSDK v1.8 nicht erkannt.\n\n" + ex.Message,
+                "Thermal-Analyse",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            AddEvent("ERROR", "Thermal", ex.Message);
+            ShowError("Thermal-Analyse fehlgeschlagen", ex);
+        }
+    }
+
+    private void RestoreOriginalPreview_Click(object sender, RoutedEventArgs e)
+    {
+        if (_originalPreview is null)
+            return;
+
+        MediaPreviewImage.Source = _originalPreview;
+        MediaPreviewPlaceholder.Visibility = Visibility.Collapsed;
+        ThermalSummaryText.Text = "Originaldarstellung aktiv; Thermal-Messdaten bleiben in der Tabelle erhalten.";
+        FitPreview();
+    }
+
+    private ThermalPalette SelectedThermalPalette()
+    {
+        if (ThermalPaletteBox.SelectedItem is System.Windows.Controls.ComboBoxItem item &&
+            item.Tag is string tag &&
+            Enum.TryParse<ThermalPalette>(tag, out var palette))
+        {
+            return palette;
+        }
+
+        return ThermalPalette.IronRed;
+    }
+
+    private void RemoveMetadataGroup(string group)
+    {
+        for (var index = _imageMetadata.Count - 1; index >= 0; index--)
+        {
+            if (string.Equals(_imageMetadata[index].Group, group, StringComparison.OrdinalIgnoreCase))
+                _imageMetadata.RemoveAt(index);
         }
     }
 

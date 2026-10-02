@@ -71,3 +71,11 @@ pitch/roll/yaw attitude.
 
 These fields are observational only. DroneDash does not start/stop recording, trigger photos,
 rotate the gimbal, format storage, or change camera settings through this status path.
+
+
+## Local DJI Thermal SDK
+
+Thermal analysis is implemented only in the Windows desktop client and does not add a new RC bridge
+endpoint. When DJI Thermal SDK v1.8 is staged locally, the media viewer can pass a downloaded DJI
+radiometric JPEG to DIRP for temperature measurement and pseudo-color rendering. The integration
+does not change aircraft or camera parameters.
