@@ -180,10 +180,15 @@ public static class LocalProcessingPlanBuilder
         var divisor = Math.Pow(2d, metadata.BitsPerSample);
         var expSeconds = metadata.ExposureTimeMicroseconds!.Value / 1_000_000d;
 
-        var expression = FormattableString.Invariant(
-            $"max(0,(im1b1/{divisor:R}-{metadata.BlackLevel!.Value:R}/{divisor:R})/" +
-            $"({metadata.SensorGain!.Value:R}*{expSeconds:R})*" +
-            $"{metadata.SensorGainAdjustment!.Value:R}/{metadata.Irradiance!.Value:R})");
+        var expression = string.Format(
+            CultureInfo.InvariantCulture,
+            "max(0,(im1b1/{0:R}-{1:R}/{0:R})/({2:R}*{3:R})*{4:R}/{5:R})",
+            divisor,
+            metadata.BlackLevel!.Value,
+            metadata.SensorGain!.Value,
+            expSeconds,
+            metadata.SensorGainAdjustment!.Value,
+            metadata.Irradiance!.Value);
 
         steps.Add(new(
             id,
