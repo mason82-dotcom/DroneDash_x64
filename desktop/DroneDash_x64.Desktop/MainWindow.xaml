@@ -474,7 +474,9 @@
                            Stretch="Uniform"
                            HorizontalAlignment="Stretch"
                            VerticalAlignment="Stretch"
-                           RenderOptions.BitmapScalingMode="HighQuality"/>
+                           RenderOptions.BitmapScalingMode="HighQuality"
+                           MouseMove="MediaPreviewImage_MouseMove"
+                           MouseLeave="MediaPreviewImage_MouseLeave"/>
                   </ScrollViewer>
                   <TextBlock x:Name="MediaPreviewPlaceholder"
                              Text="Bild auswählen und „Vorschau + Metadaten“ klicken"
@@ -485,6 +487,20 @@
                              TextWrapping="Wrap"
                              TextAlignment="Center"
                              Margin="24"/>
+                  <Border x:Name="ThermalCursorPanel"
+                          Visibility="Collapsed"
+                          IsHitTestVisible="False"
+                          HorizontalAlignment="Left"
+                          VerticalAlignment="Bottom"
+                          Margin="12"
+                          Padding="8,5"
+                          Background="#CC111820"
+                          CornerRadius="4">
+                    <TextBlock x:Name="ThermalCursorText"
+                               Foreground="White"
+                               FontWeight="SemiBold"
+                               Text="x=0 · y=0 · 0,00 °C"/>
+                  </Border>
                 </Grid>
               </Border>
 

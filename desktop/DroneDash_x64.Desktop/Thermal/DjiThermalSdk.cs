@@ -39,8 +39,18 @@ public sealed record ThermalAnalysisResult(
     float AmbientTemperatureC,
     string ApiVersion,
     string RjpegVersion,
-    BitmapSource PseudoColorImage)
+    BitmapSource PseudoColorImage,
+    float[] Temperatures)
 {
+    public float? TemperatureAt(int x, int y)
+    {
+        if (x < 0 || y < 0 || x >= Width || y >= Height)
+            return null;
+
+        var value = Temperatures[(y * Width) + x];
+        return float.IsFinite(value) ? value : null;
+    }
+
     public IReadOnlyList<ImageMetadataEntryDto> ToMetadata() =>
     [
         new("Thermal", "DJI Thermal SDK", "v1.8"),
@@ -226,7 +236,8 @@ public sealed class DjiThermalSdk : IDisposable
                 measurementParams.AmbientTemperature,
                 FormatApiVersion(apiVersion),
                 $"{rjpegVersion.Rjpeg}/{rjpegVersion.Header}/{rjpegVersion.Curve}",
-                bitmap);
+                bitmap,
+                temperatures);
         }
         finally
         {

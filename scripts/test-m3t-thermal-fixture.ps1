@@ -1,5 +1,5 @@
 param(
-    [string]$Configuration = "Debug"
+    [string]$Configuration = "Release"
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,8 +17,14 @@ if (-not (Test-Path -LiteralPath $libdirp -PathType Leaf)) {
 }
 
 Write-Host ""
-Write-Host "Fixture and TSDK runtime are present."
-Write-Host "Launch DroneDash_x64.Desktop and click: Medien -> M3T Testbild"
-Write-Host "The viewer will load the real R-JPEG and immediately run the TSDK thermal analysis."
-Write-Host ""
-Write-Host "dotnet run --project desktop/DroneDash_x64.Desktop/DroneDash_x64.Desktop.csproj --configuration $Configuration"
+Write-Host "Running real dirp_measure_ex smoke test against the M3T fixture..."
+Push-Location $repoRoot
+try {
+    dotnet run --project desktop/DroneDash_x64.ThermalSmoke/DroneDash_x64.ThermalSmoke.csproj --configuration $Configuration -- $fixture
+    if ($LASTEXITCODE -ne 0) {
+        throw "Thermal smoke test failed with exit code $LASTEXITCODE"
+    }
+}
+finally {
+    Pop-Location
+}

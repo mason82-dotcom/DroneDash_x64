@@ -35,11 +35,17 @@ jobs:
       - name: Restore mock RC
         run: dotnet restore desktop/DroneDash_x64.MockRc/DroneDash_x64.MockRc.csproj
 
+      - name: Restore thermal smoke tool
+        run: dotnet restore desktop/DroneDash_x64.ThermalSmoke/DroneDash_x64.ThermalSmoke.csproj
+
       - name: Build desktop
         run: dotnet build desktop/DroneDash_x64.Desktop/DroneDash_x64.Desktop.csproj --configuration Release --no-restore
 
       - name: Build mock RC
         run: dotnet build desktop/DroneDash_x64.MockRc/DroneDash_x64.MockRc.csproj --configuration Release --no-restore
+
+      - name: Build thermal smoke tool
+        run: dotnet build desktop/DroneDash_x64.ThermalSmoke/DroneDash_x64.ThermalSmoke.csproj --configuration Release --no-restore
 
   rc-agent:
     name: Android RC agent

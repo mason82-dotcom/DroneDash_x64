@@ -48,7 +48,7 @@ Version 0.2 hardens the bridge and build path:
 - the media workspace includes an image viewer for aircraft and local files, fit/1:1 viewing, standard EXIF/GPS metadata, file hashes and DJI-specific XMP metadata when present;
 - DJI DNG/RAW files are supported with WIC preview when a Windows RAW codec is available and metadata-only fallback otherwise;
 - a photogrammetry summary highlights DJI XMP fields such as GPS/altitude, aircraft and gimbal attitude, RTK flag/standard deviations, calibrated focal length, optical center and dewarp calibration data;
-- optional DJI Thermal SDK v1.8 integration analyzes radiometric DJI R-JPEGs locally on Windows x64, including per-pixel temperature measurement, min/max/average/center values and selectable pseudo-color rendering.
+- optional DJI Thermal SDK v1.8 integration analyzes radiometric DJI R-JPEGs locally on Windows x64, including the full per-pixel FLOAT32 temperature matrix, min/max/average/center values, cursor temperature inspection and selectable pseudo-color rendering.
 
 ## Versions pinned by this project
 
@@ -169,6 +169,8 @@ After staging DJI Thermal SDK v1.8, run:
 .\scripts\test-m3t-thermal-fixture.ps1
 ```
 
-Then use **Medien → M3T Testbild**. DroneDash locates the repository fixture, loads its
-EXIF/XMP metadata and, when TSDK is available, immediately performs radiometric analysis.
-The original fixture is never modified.
+The script runs the headless `DroneDash_x64.ThermalSmoke` executable against the real
+M3T fixture and fails if `dirp_measure_ex` does not return a valid 640×512 FLOAT32
+temperature matrix. The same fixture can be opened interactively with
+**Medien → M3T Testbild**. After analysis, moving the mouse over the thermal image shows the
+exact source pixel and measured temperature. The original fixture is never modified.

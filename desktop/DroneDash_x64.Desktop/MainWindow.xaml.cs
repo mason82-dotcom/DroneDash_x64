@@ -29,6 +29,7 @@ public partial class MainWindow : Window
     private int _lastRcBatteryBand = -1;
     private string? _currentPreviewPath;
     private System.Windows.Media.Imaging.BitmapSource? _originalPreview;
+    private ThermalAnalysisResult? _currentThermalResult;
 
     public MainWindow()
     {
@@ -466,6 +467,8 @@ public partial class MainWindow : Window
 
         _currentPreviewPath = path;
         _originalPreview = inspection.Preview;
+        _currentThermalResult = null;
+        ThermalCursorPanel.Visibility = Visibility.Collapsed;
         ThermalSummaryText.Text = "Noch keine Thermal-Analyse.";
         MediaPreviewImage.Source = inspection.Preview;
         MediaPreviewTitle.Text = remoteItem?.Name ?? Path.GetFileName(path);
@@ -522,6 +525,7 @@ public partial class MainWindow : Window
             FooterText.Text = "DJI Thermal SDK analysiert R-JPEG …";
 
             var result = _thermalSdk.Analyze(_currentPreviewPath, palette);
+            _currentThermalResult = result;
 
             RemoveMetadataGroup("Thermal");
             RemoveMetadataGroup("Thermal Parameter");
@@ -558,6 +562,63 @@ public partial class MainWindow : Window
             AddEvent("ERROR", "Thermal", ex.Message);
             ShowError("Thermal-Analyse fehlgeschlagen", ex);
         }
+    }
+
+    private void MediaPreviewImage_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (_currentThermalResult is null || MediaPreviewImage.Source is null)
+        {
+            ThermalCursorPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var point = e.GetPosition(MediaPreviewImage);
+        var sourceWidth = (double)_currentThermalResult.Width;
+        var sourceHeight = (double)_currentThermalResult.Height;
+
+        double scale;
+        double offsetX;
+        double offsetY;
+
+        if (MediaPreviewImage.Stretch == Stretch.None)
+        {
+            scale = 1d;
+            offsetX = 0d;
+            offsetY = 0d;
+        }
+        else
+        {
+            scale = Math.Min(
+                MediaPreviewImage.ActualWidth / sourceWidth,
+                MediaPreviewImage.ActualHeight / sourceHeight);
+
+            if (scale <= 0 || !double.IsFinite(scale))
+            {
+                ThermalCursorPanel.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            offsetX = (MediaPreviewImage.ActualWidth - sourceWidth * scale) / 2d;
+            offsetY = (MediaPreviewImage.ActualHeight - sourceHeight * scale) / 2d;
+        }
+
+        var x = (int)Math.Floor((point.X - offsetX) / scale);
+        var y = (int)Math.Floor((point.Y - offsetY) / scale);
+        var temperature = _currentThermalResult.TemperatureAt(x, y);
+
+        if (temperature is not float value)
+        {
+            ThermalCursorPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        ThermalCursorText.Text = $"x={x} · y={y} · {value:F2} °C";
+        ThermalCursorPanel.Visibility = Visibility.Visible;
+    }
+
+    private void MediaPreviewImage_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        ThermalCursorPanel.Visibility = Visibility.Collapsed;
     }
 
     private void RestoreOriginalPreview_Click(object sender, RoutedEventArgs e)
