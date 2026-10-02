@@ -4,6 +4,7 @@
         xmlns:planning="clr-namespace:DroneDash_x64.Desktop.Planning"
         xmlns:photo="clr-namespace:DroneDash_x64.Desktop.Photogrammetry"
         xmlns:pv="clr-namespace:DroneDash_x64.Desktop.PvAnalysis"
+        xmlns:farming="clr-namespace:DroneDash_x64.Desktop.SmartFarming"
         Title="DroneDash_x64"
         Height="940" Width="1280"
         MinHeight="650" MinWidth="980"
@@ -425,6 +426,10 @@
 
       <TabItem Header="PV-Analyse">
         <pv:PvAnalysisView/>
+      </TabItem>
+
+      <TabItem Header="Smart Farming">
+        <farming:SmartFarmingView/>
       </TabItem>
 
       <TabItem Header="Medien">

@@ -289,3 +289,25 @@ In addition to JSON and CSV, export now creates \`pv-inspection-report.html\`. T
 the analysis parameters, dataset summary, per-image QA table and one row for every anomaly
 candidate. It repeats the important limitation that thermal candidates require expert verification
 and are not automatic electrical defect diagnoses.
+
+
+## Smart Farming for DJI Mavic 3M
+
+The Windows client now contains a dedicated **Smart Farming** module for DJI Mavic 3 Multispectral
+datasets. It groups the normal synchronized RGB + Green/Red/Red-Edge/NIR capture set, checks
+multispectral completeness and DJI radiometric metadata, and provides read-only dataset QA.
+
+Supported quicklook vegetation indices are **NDVI**, **NDRE** and **GNDVI**. M3M multispectral
+TIFFs contain DN values rather than ready-made reflectance. DroneDash therefore applies the
+per-band BlackLevel, SensorGain, ExposureTime, SensorGainAdjustment and sunlight-sensor
+Irradiance terms before calculating the band ratio.
+
+Quicklooks are deliberately labelled as single-capture inspection products: they are not yet
+orthorectified, fully distortion/vignetting corrected, sub-pixel band co-registered or calibrated
+against a reflectance panel. Final agronomic maps and prescription layers must use the later
+processing stage rather than treating a quicklook as a quantitative field orthomosaic.
+
+The module also documents agriculture workflows for crop-stress scouting, variable-rate zones,
+stand/emergence uniformity, weed scouting, drainage/soil-variability investigation and repeated
+RTK monitoring. See `docs/SMART_FARMING_M3M.md` for the DJI technical basis and the Avary Drone,
+NineTenths and Talos Drones practice references supplied for this module.
