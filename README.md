@@ -223,3 +223,26 @@ the five-wayline Mapping 3D structure, and the required Smart Oblique / terrain-
 
 The planning CI test performs a full project round-trip (\`.ddplan\` save/load), regenerates the
 plan, exports all supported DJI mapping modes and runs the semantic KMZ validator.
+
+
+## Photogrammetry dataset workflow
+
+The Windows client now contains a dedicated **Photogrammetrie** workspace. It scans local
+JPG/JPEG/DNG/TIF/TIFF datasets without modifying the source images and extracts DJI XMP fields
+needed for downstream survey QA: GPS, absolute/relative altitude, raw RTK flag, RTK standard
+deviations, aircraft/gimbal attitude, camera calibration, optical center and dewarp data.
+
+A dataset can be linked to a versioned \`.ddplan\` flight-planning project. Geotagged images are
+matched to the nearest generated DroneDash wayline segment and the manifest records wayline ID,
+pass name, segment index and geometric distance to the planned route. DroneDash deliberately
+keeps the raw RTK flag and precision values instead of inventing a hidden quality score.
+
+The workspace summarizes planned-vs-recorded image count, GPS/RTK/calibration completeness and
+QA findings. **Processing-Manifest export** creates:
+
+- \`photogrammetry-manifest.json\` with structured image, RTK, calibration and route-assignment data;
+- \`photogrammetry-images.csv\` for QA/spreadsheet workflows;
+- \`image-list.txt\` containing the original source paths for downstream processors.
+
+This is the handoff point for future Orthomosaic, DSM/DTM, 3D reconstruction and M3M
+multispectral processing. The current implementation does not copy, rename or alter source images.

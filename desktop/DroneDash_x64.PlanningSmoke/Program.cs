@@ -1,3 +1,5 @@
+using System.Globalization;
+using DroneDash_x64.Desktop.Photogrammetry;
 using System.IO;
 using System.IO.Compression;
 using System.Xml.Linq;
@@ -167,4 +169,124 @@ static string ReadEntry(ZipArchive archive, string name)
     using var stream = entry.Open();
     using var reader = new StreamReader(stream);
     return reader.ReadToEnd();
+}
+
+
+var datasetRoot = Path.Combine(
+    Path.GetTempPath(),
+    "DroneDash_PhotogrammetrySmoke_" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(datasetRoot);
+
+try
+{
+    WriteSyntheticDjiXmp(
+        Path.Combine(datasetRoot, "DJI_0001.JPG"),
+        49.0010,
+        8.0010,
+        includeRtk: true,
+        includeCalibration: true);
+
+    WriteSyntheticDjiXmp(
+        Path.Combine(datasetRoot, "DJI_0002.JPG"),
+        49.0020,
+        8.0030,
+        includeRtk: false,
+        includeCalibration: true);
+
+    var dataset = PhotogrammetryDatasetAnalyzer.Analyze(
+        datasetRoot,
+        projectPath);
+
+    if (dataset.Images.Count != 2 ||
+        dataset.Summary.GeotaggedCount != 2 ||
+        dataset.Summary.RtkMetadataCount != 1 ||
+        dataset.Summary.AssignedCount != 2)
+    {
+        throw new InvalidDataException(
+            "Photogrammetry dataset analysis smoke test failed.");
+    }
+
+    if (!dataset.Images.Any(image => image.Issues.Contains("RTK-Metadaten fehlen")))
+        throw new InvalidDataException("Expected RTK QA issue was not produced.");
+
+    var manifestRoot = Path.Combine(datasetRoot, "manifest");
+    var exported = PhotogrammetryManifestExporter.Export(
+        manifestRoot,
+        dataset);
+
+    foreach (var file in new[]
+    {
+        exported.JsonPath,
+        exported.CsvPath,
+        exported.ImageListPath
+    })
+    {
+        if (!File.Exists(file) || new FileInfo(file).Length == 0)
+            throw new InvalidDataException($"Photogrammetry manifest output missing: {file}");
+    }
+
+    Console.WriteLine(
+        $"PASS photogrammetry dataset · images={dataset.Images.Count} · " +
+        $"gps={dataset.Summary.GeotaggedCount} · rtk={dataset.Summary.RtkMetadataCount} · " +
+        $"assigned={dataset.Summary.AssignedCount}");
+}
+finally
+{
+    try
+    {
+        Directory.Delete(datasetRoot, recursive: true);
+    }
+    catch
+    {
+        // CI temp cleanup is best-effort.
+    }
+}
+
+static void WriteSyntheticDjiXmp(
+    string path,
+    double latitude,
+    double longitude,
+    bool includeRtk,
+    bool includeCalibration)
+{
+    var rtk = includeRtk
+        ? """
+          drone-dji:RtkFlag="50"
+          drone-dji:RtkStdLon="0.012"
+          drone-dji:RtkStdLat="0.014"
+          drone-dji:RtkStdHgt="0.025"
+          """
+        : "";
+
+    var calibration = includeCalibration
+        ? """
+          drone-dji:CalibratedFocalLength="3666.666"
+          drone-dji:CalibratedOpticalCenterX="2640.0"
+          drone-dji:CalibratedOpticalCenterY="1978.0"
+          drone-dji:DewarpData="test-calibration"
+          """
+        : "";
+
+    var xmp = $"""
+    fake-jpeg-prefix
+    <x:xmpmeta xmlns:x="adobe:ns:meta/">
+      <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+        <rdf:Description
+          xmlns:drone-dji="http://www.dji.com/drone-dji/1.0/"
+          drone-dji:GPSLatitude="{latitude.ToString(CultureInfo.InvariantCulture)}"
+          drone-dji:GPSLongitude="{longitude.ToString(CultureInfo.InvariantCulture)}"
+          drone-dji:AbsoluteAltitude="145.2"
+          drone-dji:RelativeAltitude="80.1"
+          drone-dji:FlightYawDegree="15.0"
+          drone-dji:GimbalYawDegree="15.0"
+          drone-dji:GimbalPitchDegree="-90.0"
+          drone-dji:ImageSource="WideCamera"
+          {rtk}
+          {calibration}/>
+      </rdf:RDF>
+    </x:xmpmeta>
+    fake-jpeg-suffix
+    """;
+
+    File.WriteAllText(path, xmp);
 }
