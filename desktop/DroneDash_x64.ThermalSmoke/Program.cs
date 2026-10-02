@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.Json;
 using DroneDash_x64.Desktop.Thermal;
 
