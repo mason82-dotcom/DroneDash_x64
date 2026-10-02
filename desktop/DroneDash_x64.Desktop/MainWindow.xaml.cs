@@ -95,6 +95,37 @@ public partial class MainWindow : Window
         PitchText.Text = Degrees(s.PitchDegrees);
         RollText.Text = Degrees(s.RollDegrees);
         YawText.Text = Degrees(s.YawDegrees);
+
+        GpsSignalText.Text = $"{Display(s.GpsSignalLevel)} · {s.SatelliteCount?.ToString(CultureInfo.InvariantCulture) ?? "—"} Sat";
+        HomePointText.Text = s.HomeLocationSet switch
+        {
+            true when s.HomeLatitude is double lat && s.HomeLongitude is double lon =>
+                $"gesetzt · {lat:F7}, {lon:F7}",
+            true => "gesetzt · Koordinaten nicht verfügbar",
+            false => "nicht gesetzt",
+            _ => "—"
+        };
+        CompassText.Text = s.CompassHeadingDegrees is double heading
+            ? $"{heading:F1}° · {(s.CompassHasError == true ? "FEHLER" : "OK")}"
+            : "—";
+
+        GroundSpeedText.Text = Speed(s.GroundSpeedMs);
+        VerticalSpeedText.Text = SignedSpeed(s.VerticalSpeedMs);
+        VelocityNedText.Text =
+            $"N {SignedSpeed(s.VelocityNorthMs)} · E {SignedSpeed(s.VelocityEastMs)} · D {SignedSpeed(s.VelocityDownMs)}";
+        WindText.Text = s.WindSpeedMs is double wind
+            ? $"{wind:F1} m/s · {Display(s.WindDirection)} · {Display(s.WindWarning)}"
+            : $"{Display(s.WindDirection)} · {Display(s.WindWarning)}";
+
+        BatteryElectricalText.Text =
+            $"{Voltage(s.AircraftBatteryVoltageMv)} · {Current(s.AircraftBatteryCurrentMa)} · {Temperature(s.AircraftBatteryTemperatureC)}";
+        BatteryCapacityText.Text =
+            s.AircraftBatteryRemainingMah is int remaining && s.AircraftBatteryFullChargeMah is int full
+                ? $"{remaining} / {full} mAh"
+                : "—";
+        MotorTakeoffText.Text =
+            $"Motoren: {BoolText(s.AreMotorsOn)} · Takeoff Alt: {(s.TakeoffAltitudeMeters is double takeoff ? $"{takeoff:F1} m" : "—")}";
+
         TimestampText.Text = s.Timestamp.ToLocalTime().ToString("HH:mm:ss");
         FooterText.Text = s.ProductConnected ? "Live-Telemetrie aktiv" : "RC-Agent erreichbar; Aircraft nicht verbunden";
     }
@@ -261,4 +292,10 @@ public partial class MainWindow : Window
     private static string Number(double? value, string format) =>
         value is double d ? d.ToString(format, CultureInfo.InvariantCulture) : "—";
     private static string Degrees(double? value) => value is double d ? $"{d:F1}°" : "—";
+    private static string Speed(double? value) => value is double d ? $"{d:F1} m/s" : "—";
+    private static string SignedSpeed(double? value) => value is double d ? $"{d:+0.0;-0.0;0.0} m/s" : "—";
+    private static string Voltage(int? millivolts) => millivolts is int mv ? $"{mv / 1000d:F2} V" : "—";
+    private static string Current(int? milliamps) => milliamps is int ma ? $"{ma / 1000d:+0.00;-0.00;0.00} A" : "—";
+    private static string Temperature(double? value) => value is double d ? $"{d:F1} °C" : "—";
+    private static string BoolText(bool? value) => value switch { true => "AN", false => "AUS", _ => "—" };
 }

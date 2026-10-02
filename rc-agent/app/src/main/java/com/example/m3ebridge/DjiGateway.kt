@@ -15,6 +15,7 @@ import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.sqrt
 
 class DjiGateway {
     private val keys get() = KeyManager.getInstance()
@@ -22,7 +23,27 @@ class DjiGateway {
     fun status(runtime: DjiRuntime): JSONObject {
         val location = keys.getValue(KeyTools.createKey(FlightControllerKey.KeyAircraftLocation3D))
         val attitude = keys.getValue(KeyTools.createKey(FlightControllerKey.KeyAircraftAttitude))
+        val velocity = keys.getValue(KeyTools.createKey(FlightControllerKey.KeyAircraftVelocity))
+        val homeLocation = keys.getValue(KeyTools.createKey(FlightControllerKey.KeyHomeLocation))
         val rcBattery = keys.getValue(KeyTools.createKey(RemoteControllerKey.KeyBatteryInfo))
+
+        val velocityNorth = velocity?.x
+        val velocityEast = velocity?.y
+        val velocityDown = velocity?.z
+        val groundSpeed = if (velocityNorth != null && velocityEast != null) {
+            sqrt(velocityNorth * velocityNorth + velocityEast * velocityEast)
+        } else {
+            null
+        }
+        val verticalSpeed = velocityDown?.let { -it }
+
+        val batteryVoltageMv = keys.getValue(KeyTools.createKey(BatteryKey.KeyVoltage))
+        val batteryCurrentMa = keys.getValue(KeyTools.createKey(BatteryKey.KeyCurrent))
+        val batteryTemperatureC = keys.getValue(KeyTools.createKey(BatteryKey.KeyBatteryTemperature))
+        val batteryRemainingMah = keys.getValue(KeyTools.createKey(BatteryKey.KeyChargeRemaining))
+        val batteryFullChargeMah = keys.getValue(KeyTools.createKey(BatteryKey.KeyFullChargeCapacity))
+
+        val windSpeedDmPs = keys.getValue(KeyTools.createKey(FlightControllerKey.KeyWindSpeed))
 
         return JSONObject()
             .put("sdkPhase", runtime.phase.get())
@@ -33,16 +54,37 @@ class DjiGateway {
             .put("remoteControllerType", enumText(keys.getValue(KeyTools.createKey(RemoteControllerKey.KeyRemoteControllerType))))
             .put("remoteControllerFirmware", stringOrBlank(keys.getValue(KeyTools.createKey(RemoteControllerKey.KeyFirmwareVersion))))
             .putNullable("aircraftBatteryPercent", keys.getValue(KeyTools.createKey(BatteryKey.KeyChargeRemainingInPercent)))
+            .putNullable("aircraftBatteryVoltageMv", batteryVoltageMv)
+            .putNullable("aircraftBatteryCurrentMa", batteryCurrentMa)
+            .putNullable("aircraftBatteryTemperatureC", batteryTemperatureC)
+            .putNullable("aircraftBatteryRemainingMah", batteryRemainingMah)
+            .putNullable("aircraftBatteryFullChargeMah", batteryFullChargeMah)
             .putNullable("remoteControllerBatteryPercent", rcBattery?.batteryPercent)
             .putNullable("satelliteCount", keys.getValue(KeyTools.createKey(FlightControllerKey.KeyGPSSatelliteCount)))
+            .put("gpsSignalLevel", enumText(keys.getValue(KeyTools.createKey(FlightControllerKey.KeyGPSSignalLevel))))
             .put("flightMode", enumText(keys.getValue(KeyTools.createKey(FlightControllerKey.KeyFlightMode))))
             .putNullable("isFlying", keys.getValue(KeyTools.createKey(FlightControllerKey.KeyIsFlying)))
+            .putNullable("areMotorsOn", keys.getValue(KeyTools.createKey(FlightControllerKey.KeyAreMotorsOn)))
             .putNullable("latitude", location?.latitude)
             .putNullable("longitude", location?.longitude)
             .putNullable("altitudeMeters", location?.altitude)
+            .putNullable("takeoffAltitudeMeters", keys.getValue(KeyTools.createKey(FlightControllerKey.KeyTakeoffLocationAltitude)))
+            .putNullable("velocityNorthMs", velocityNorth)
+            .putNullable("velocityEastMs", velocityEast)
+            .putNullable("velocityDownMs", velocityDown)
+            .putNullable("groundSpeedMs", groundSpeed)
+            .putNullable("verticalSpeedMs", verticalSpeed)
             .putNullable("pitchDegrees", attitude?.pitch)
             .putNullable("rollDegrees", attitude?.roll)
             .putNullable("yawDegrees", attitude?.yaw)
+            .putNullable("compassHeadingDegrees", keys.getValue(KeyTools.createKey(FlightControllerKey.KeyCompassHeading)))
+            .putNullable("compassHasError", keys.getValue(KeyTools.createKey(FlightControllerKey.KeyCompassHasError)))
+            .putNullable("homeLocationSet", keys.getValue(KeyTools.createKey(FlightControllerKey.KeyIsHomeLocationSet)))
+            .putNullable("homeLatitude", homeLocation?.latitude)
+            .putNullable("homeLongitude", homeLocation?.longitude)
+            .putNullable("windSpeedMs", windSpeedDmPs?.div(10.0))
+            .put("windWarning", enumText(keys.getValue(KeyTools.createKey(FlightControllerKey.KeyWindWarning))))
+            .put("windDirection", enumText(keys.getValue(KeyTools.createKey(FlightControllerKey.KeyWindDirection))))
             .put("timestamp", isoNow())
     }
 
@@ -55,8 +97,6 @@ class DjiGateway {
         keys.getValue(KeyTools.createKey(FlightControllerKey.KeyIsFlying)) == true
 
     fun updateConfiguration(payload: JSONObject): JSONObject {
-        // Validate the complete request before the first write. This avoids a partial
-        // configuration update when one of two supplied values is invalid.
         val heightLimit = readOptionalAltitude(payload, "heightLimitMeters")
         val goHomeHeight = readOptionalAltitude(payload, "goHomeHeightMeters")
 

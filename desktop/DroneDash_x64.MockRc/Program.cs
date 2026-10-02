@@ -47,6 +47,10 @@ app.MapGet("/api/v1/health", () => Results.Json(new
 app.MapGet("/api/v1/status", () =>
 {
     var seconds = (DateTimeOffset.UtcNow - started).TotalSeconds;
+    var velocityNorth = Math.Sin(seconds / 5d) * 4.5;
+    var velocityEast = Math.Cos(seconds / 7d) * 3.2;
+    var velocityDown = Math.Sin(seconds / 9d) * 0.8;
+
     return Results.Json(new
     {
         sdkPhase = "READY",
@@ -57,16 +61,37 @@ app.MapGet("/api/v1/status", () =>
         remoteControllerType = "DJI_RC_PRO_ENTERPRISE",
         remoteControllerFirmware = "mock-rc-fw",
         aircraftBatteryPercent = Math.Max(20, 93 - (int)(seconds / 90)),
+        aircraftBatteryVoltageMv = 15420,
+        aircraftBatteryCurrentMa = -3850,
+        aircraftBatteryTemperatureC = 31.7,
+        aircraftBatteryRemainingMah = 4020,
+        aircraftBatteryFullChargeMah = 5000,
         remoteControllerBatteryPercent = 82,
         satelliteCount = 18,
+        gpsSignalLevel = "LEVEL_5",
         flightMode = "GPS_NORMAL",
         isFlying = seconds % 30 > 5,
+        areMotorsOn = seconds % 30 > 3,
         latitude = 49.223500 + Math.Sin(seconds / 40d) * 0.0002,
         longitude = 8.535100 + Math.Cos(seconds / 40d) * 0.0002,
         altitudeMeters = 42.0 + Math.Sin(seconds / 4d) * 2.5,
+        takeoffAltitudeMeters = 102.4,
+        velocityNorthMs = velocityNorth,
+        velocityEastMs = velocityEast,
+        velocityDownMs = velocityDown,
+        groundSpeedMs = Math.Sqrt(velocityNorth * velocityNorth + velocityEast * velocityEast),
+        verticalSpeedMs = -velocityDown,
         pitchDegrees = Math.Sin(seconds / 3d) * 4,
         rollDegrees = Math.Cos(seconds / 3d) * 5,
         yawDegrees = (seconds * 4) % 360 - 180,
+        compassHeadingDegrees = (seconds * 4) % 360 - 180,
+        compassHasError = false,
+        homeLocationSet = true,
+        homeLatitude = 49.223350,
+        homeLongitude = 8.534950,
+        windSpeedMs = 3.4,
+        windWarning = "LEVEL_0",
+        windDirection = "NORTH",
         timestamp = DateTimeOffset.UtcNow
     });
 });
@@ -100,7 +125,6 @@ app.MapGet("/api/v1/media/{index:int}/download", (int index) =>
     if (item is null)
         return Results.NotFound(new { error = "media index not found" });
 
-    // Compact synthetic payload for UI testing. Real agent streams the original DJI file.
     var text = $"DroneDash_x64 Mock media\r\nIndex: {item.Index}\r\nName: {item.Name}\r\n";
     var bytes = Encoding.UTF8.GetBytes(text);
     return Results.File(bytes, "application/octet-stream", item.Name + ".mock.txt");
