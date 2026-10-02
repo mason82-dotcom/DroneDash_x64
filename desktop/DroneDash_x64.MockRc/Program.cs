@@ -92,6 +92,31 @@ app.MapGet("/api/v1/status", () =>
         windSpeedMs = 3.4,
         windWarning = "LEVEL_0",
         windDirection = "NORTH",
+        rtkEnabled = true,
+        rtkHealthy = true,
+        rtkMaintainAccuracyEnabled = true,
+        rtkReferenceStationSource = "NTRIP_NETWORK_SERVICE",
+        rtkPositioningSolution = "FIXED_POINT",
+        rtkMobileLatitude = 49.223501,
+        rtkMobileLongitude = 8.535101,
+        rtkMobileAltitudeMeters = 143.82,
+        rtkBaseLatitude = 49.220000,
+        rtkBaseLongitude = 8.530000,
+        rtkBaseAltitudeMeters = 101.25,
+        rtkStdLongitudeMeters = 0.012,
+        rtkStdLatitudeMeters = 0.010,
+        rtkStdAltitudeMeters = 0.018,
+        rtkHeading = "RTKHeading{heading=42.1}",
+        rtkRealHeading = "42.0",
+        rtkSatelliteCounts = new Dictionary<string, int>
+        {
+            ["mobile1.GPS"] = 14,
+            ["mobile1.GALILEO"] = 10,
+            ["mobile1.BEIDOU"] = 16,
+            ["base.GPS"] = 13,
+            ["base.GALILEO"] = 9
+        },
+        rtkError = (string?)null,
         timestamp = DateTimeOffset.UtcNow
     });
 });

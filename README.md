@@ -40,7 +40,8 @@ Version 0.2 hardens the bridge and build path:
 - LAN binding requires an explicit `BRIDGE_BIND_ADDRESS`, and the server refuses non-loopback
   exposure while the default token `change-me-now` is still configured;
 - Android Gradle compatibility flags are aligned with DJI's current MSDK integration guidance;
-- GitHub Actions now builds the Windows projects and assembles the Android debug APK on every push/PR.
+- GitHub Actions now builds the Windows projects and assembles the Android debug APK on every push/PR;
+- live status includes velocity, Home Point, GPS/compass/wind, detailed battery telemetry and read-only RTK telemetry including FIX/FLOAT state, precision and satellite counts.
 
 ## Versions pinned by this project
 

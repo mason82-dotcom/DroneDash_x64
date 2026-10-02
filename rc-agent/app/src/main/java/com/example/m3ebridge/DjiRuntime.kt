@@ -36,6 +36,9 @@ class DjiRuntime(private val application: Application) {
                     registered.set(true)
                     lastError.set(null)
                     phase.set(if (productConnected.get()) "READY" else "REGISTERED")
+                    if (productConnected.get()) {
+                        RtkTelemetrySource.start()
+                    }
                 }
 
                 override fun onRegisterFailure(error: IDJIError?) {
@@ -49,11 +52,16 @@ class DjiRuntime(private val application: Application) {
                     this@DjiRuntime.productId.set(productId)
                     productConnected.set(true)
                     phase.set(if (registered.get()) "READY" else "PRODUCT_CONNECTED")
+                    if (registered.get()) {
+                        RtkTelemetrySource.start()
+                    }
                 }
 
                 override fun onProductDisconnect(productId: Int) {
                     this@DjiRuntime.productId.set(productId)
                     productConnected.set(false)
+                    RtkTelemetrySource.stop()
+                    RtkTelemetrySource.reset("aircraft disconnected")
                     phase.set(if (registered.get()) "REGISTERED" else "DISCONNECTED")
                 }
 
@@ -71,6 +79,8 @@ class DjiRuntime(private val application: Application) {
 
     fun stop() {
         Handler(Looper.getMainLooper()).post {
+            RtkTelemetrySource.stop()
+            RtkTelemetrySource.reset("runtime stopped")
             runCatching { SDKManager.getInstance().destroy() }
             phase.set("STOPPED")
         }

@@ -126,6 +126,18 @@ public partial class MainWindow : Window
         MotorTakeoffText.Text =
             $"Motoren: {BoolText(s.AreMotorsOn)} · Takeoff Alt: {(s.TakeoffAltitudeMeters is double takeoff ? $"{takeoff:F1} m" : "—")}";
 
+        RtkStatusText.Text =
+            $"Enabled {BoolText(s.RtkEnabled)} · Healthy {BoolText(s.RtkHealthy)} · Maintain {BoolText(s.RtkMaintainAccuracyEnabled)} · {Display(s.RtkPositioningSolution)}";
+        RtkSourceText.Text = Display(s.RtkReferenceStationSource);
+        RtkMobileText.Text = Coordinate3D(s.RtkMobileLatitude, s.RtkMobileLongitude, s.RtkMobileAltitudeMeters);
+        RtkBaseText.Text = Coordinate3D(s.RtkBaseLatitude, s.RtkBaseLongitude, s.RtkBaseAltitudeMeters);
+        RtkAccuracyText.Text =
+            $"Lon {Meters(s.RtkStdLongitudeMeters)} · Lat {Meters(s.RtkStdLatitudeMeters)} · Alt {Meters(s.RtkStdAltitudeMeters)}";
+        RtkHeadingText.Text =
+            $"RTK {Display(s.RtkHeading)} · Fusion {Display(s.RtkRealHeading)}";
+        RtkSatellitesText.Text = FormatRtkSatellites(s.RtkSatelliteCounts);
+        RtkErrorText.Text = string.IsNullOrWhiteSpace(s.RtkError) ? "—" : s.RtkError;
+
         TimestampText.Text = s.Timestamp.ToLocalTime().ToString("HH:mm:ss");
         FooterText.Text = s.ProductConnected ? "Live-Telemetrie aktiv" : "RC-Agent erreichbar; Aircraft nicht verbunden";
     }
@@ -298,4 +310,27 @@ public partial class MainWindow : Window
     private static string Current(int? milliamps) => milliamps is int ma ? $"{ma / 1000d:+0.00;-0.00;0.00} A" : "—";
     private static string Temperature(double? value) => value is double d ? $"{d:F1} °C" : "—";
     private static string BoolText(bool? value) => value switch { true => "AN", false => "AUS", _ => "—" };
+    private static string Meters(double? value) => value is double d ? $"{d:F3} m" : "—";
+
+    private static string Coordinate3D(double? latitude, double? longitude, double? altitude)
+    {
+        if (latitude is not double lat || longitude is not double lon)
+        {
+            return "—";
+        }
+
+        return altitude is double alt
+            ? $"{lat:F7}, {lon:F7} · {alt:F2} m"
+            : $"{lat:F7}, {lon:F7}";
+    }
+
+    private static string FormatRtkSatellites(IReadOnlyDictionary<string, int>? counts)
+    {
+        if (counts is null || counts.Count == 0)
+        {
+            return "—";
+        }
+
+        return string.Join(" · ", counts.OrderBy(x => x.Key).Select(x => $"{x.Key}: {x.Value}"));
+    }
 }

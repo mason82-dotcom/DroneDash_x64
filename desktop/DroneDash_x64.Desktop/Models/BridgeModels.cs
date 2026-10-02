@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace DroneDash_x64.Desktop.Models;
 
 public sealed record HealthDto(
@@ -48,6 +50,24 @@ public sealed record StatusDto(
     double? WindSpeedMs,
     string WindWarning,
     string WindDirection,
+    bool? RtkEnabled,
+    bool? RtkHealthy,
+    bool? RtkMaintainAccuracyEnabled,
+    string? RtkReferenceStationSource,
+    string? RtkPositioningSolution,
+    double? RtkMobileLatitude,
+    double? RtkMobileLongitude,
+    double? RtkMobileAltitudeMeters,
+    double? RtkBaseLatitude,
+    double? RtkBaseLongitude,
+    double? RtkBaseAltitudeMeters,
+    double? RtkStdLongitudeMeters,
+    double? RtkStdLatitudeMeters,
+    double? RtkStdAltitudeMeters,
+    string? RtkHeading,
+    string? RtkRealHeading,
+    Dictionary<string, int>? RtkSatelliteCounts,
+    string? RtkError,
     DateTimeOffset Timestamp);
 
 public sealed record ConfigurationDto(

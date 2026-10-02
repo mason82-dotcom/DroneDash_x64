@@ -48,6 +48,7 @@
               <RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <GroupBox Grid.Column="0" Header="System" Margin="6">
@@ -160,6 +161,45 @@
                 <TextBlock Text="Motoren / Takeoff"/>
                 <TextBlock x:Name="MotorTakeoffText" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
               </StackPanel>
+            </GroupBox>
+
+            <GroupBox Grid.Row="3" Grid.ColumnSpan="3" Header="RTK" Margin="6">
+              <Grid Margin="14">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="1.4*"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                  <TextBlock Text="Status"/>
+                  <TextBlock x:Name="RtkStatusText" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                  <TextBlock Text="Quelle"/>
+                  <TextBlock x:Name="RtkSourceText" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1">
+                  <TextBlock Text="Mobile Station"/>
+                  <TextBlock x:Name="RtkMobileText" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                  <TextBlock Text="Standardabweichung Längs / Quer / Höhe"/>
+                  <TextBlock x:Name="RtkAccuracyText" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2">
+                  <TextBlock Text="Base Station"/>
+                  <TextBlock x:Name="RtkBaseText" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                  <TextBlock Text="Heading"/>
+                  <TextBlock x:Name="RtkHeadingText" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="3">
+                  <TextBlock Text="RTK Satelliten"/>
+                  <TextBlock x:Name="RtkSatellitesText" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                  <TextBlock Text="RTK Fehler"/>
+                  <TextBlock x:Name="RtkErrorText" Style="{StaticResource ValueText}" Text="—" TextWrapping="Wrap"/>
+                </StackPanel>
+              </Grid>
             </GroupBox>
           </Grid>
         </ScrollViewer>

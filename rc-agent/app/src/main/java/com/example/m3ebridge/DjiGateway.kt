@@ -44,6 +44,7 @@ class DjiGateway {
         val batteryFullChargeMah = keys.getValue(KeyTools.createKey(BatteryKey.KeyFullChargeCapacity))
 
         val windSpeedDmPs = keys.getValue(KeyTools.createKey(FlightControllerKey.KeyWindSpeed))
+        val rtk = RtkTelemetrySource.snapshot
 
         return JSONObject()
             .put("sdkPhase", runtime.phase.get())
@@ -85,6 +86,24 @@ class DjiGateway {
             .putNullable("windSpeedMs", windSpeedDmPs?.div(10.0))
             .put("windWarning", enumText(keys.getValue(KeyTools.createKey(FlightControllerKey.KeyWindWarning))))
             .put("windDirection", enumText(keys.getValue(KeyTools.createKey(FlightControllerKey.KeyWindDirection))))
+            .putNullable("rtkEnabled", rtk.enabled)
+            .putNullable("rtkHealthy", rtk.healthy)
+            .putNullable("rtkMaintainAccuracyEnabled", rtk.maintainAccuracyEnabled)
+            .putNullable("rtkReferenceStationSource", rtk.referenceStationSource)
+            .putNullable("rtkPositioningSolution", rtk.positioningSolution)
+            .putNullable("rtkMobileLatitude", rtk.mobileLatitude)
+            .putNullable("rtkMobileLongitude", rtk.mobileLongitude)
+            .putNullable("rtkMobileAltitudeMeters", rtk.mobileAltitudeM)
+            .putNullable("rtkBaseLatitude", rtk.baseLatitude)
+            .putNullable("rtkBaseLongitude", rtk.baseLongitude)
+            .putNullable("rtkBaseAltitudeMeters", rtk.baseAltitudeM)
+            .putNullable("rtkStdLongitudeMeters", rtk.stdLongitude)
+            .putNullable("rtkStdLatitudeMeters", rtk.stdLatitude)
+            .putNullable("rtkStdAltitudeMeters", rtk.stdAltitude)
+            .putNullable("rtkHeading", rtk.rtkHeading)
+            .putNullable("rtkRealHeading", rtk.realHeading)
+            .put("rtkSatelliteCounts", JSONObject(rtk.satelliteCounts))
+            .putNullable("rtkError", rtk.error)
             .put("timestamp", isoNow())
     }
 

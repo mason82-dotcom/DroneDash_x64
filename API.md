@@ -48,3 +48,16 @@ Relevant HTTP responses:
 `PUT /api/v1/config` is rejected with `409 Conflict` while DJI reports
 `KeyIsFlying=true`. Reading status/configuration and downloading media remain separate operations.
 This interlock is enforced in the RC agent, so it cannot be bypassed by a desktop UI mistake.
+
+## Extended live telemetry
+
+`GET /api/v1/status` now also exposes:
+
+- aircraft N/E/D velocity, horizontal ground speed and climb/descent speed;
+- GPS signal level, Home Point, compass heading/error, wind speed/warning/direction;
+- aircraft battery voltage, current, temperature, remaining/full capacity;
+- RTK enable/health state, maintain-accuracy state, reference-station source and positioning solution;
+- RTK mobile/base coordinates, standard deviations, heading/fused heading and per-receiver GNSS satellite counts.
+
+The RTK integration is **read-only**. DroneDash registers DJI RTK listeners but does not enable/disable
+RTK, change the RTK source, configure NTRIP credentials, or modify base-station settings.
