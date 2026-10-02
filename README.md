@@ -44,7 +44,8 @@ Version 0.2 hardens the bridge and build path:
 - live status includes velocity, Home Point, GPS/compass/wind, detailed battery telemetry and read-only RTK telemetry including FIX/FLOAT state, precision and satellite counts;
 - the primary camera/gimbal status now includes camera mode/activity, SD/internal storage capacity and main-gimbal attitude without exposing camera or gimbal control actions;
 - dedicated Aircraft, RC, Energy, RTK and Camera/Gimbal pages provide a structured device view;
-- a local diagnostic/event log records state transitions and warnings (up to 500 entries) and can be exported as CSV without logging every 1 Hz telemetry sample.
+- a local diagnostic/event log records state transitions and warnings (up to 500 entries) and can be exported as CSV without logging every 1 Hz telemetry sample;
+- the media workspace includes an image viewer for aircraft and local files, fit/1:1 viewing, standard EXIF/GPS metadata, file hashes and DJI-specific XMP metadata when present.
 
 ## Versions pinned by this project
 

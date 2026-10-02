@@ -123,3 +123,9 @@ public sealed record DiagnosticEventDto(
 {
     public string TimeText => Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
 }
+
+
+public sealed record ImageMetadataEntryDto(
+    string Group,
+    string Name,
+    string Value);

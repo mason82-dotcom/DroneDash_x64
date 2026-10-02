@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
 using DroneDash_x64.Desktop.Api;
+using DroneDash_x64.Desktop.Imaging;
 using DroneDash_x64.Desktop.Models;
 using WinForms = System.Windows.Forms;
 
@@ -16,6 +17,7 @@ public partial class MainWindow : Window
 {
     private readonly RcApiClient _api = new();
     private readonly ObservableCollection<MediaItemDto> _media = [];
+    private readonly ObservableCollection<ImageMetadataEntryDto> _imageMetadata = [];
     private readonly ObservableCollection<DiagnosticEventDto> _events = [];
     private readonly DispatcherTimer _pollTimer;
     private bool _statusRequestRunning;
@@ -28,6 +30,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         MediaGrid.ItemsSource = _media;
+        MetadataGrid.ItemsSource = _imageMetadata;
         EventGrid.ItemsSource = _events;
 
         AddEvent("INFO", "App", "DroneDash_x64 gestartet.");
@@ -35,7 +38,11 @@ public partial class MainWindow : Window
         _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _pollTimer.Tick += async (_, _) => await PollStatusAsync();
 
-        Closed += (_, _) => _api.Dispose();
+        Closed += (_, _) =>
+        {
+            _api.Dispose();
+            CleanupPreviewCache();
+        };
     }
 
     private async void ConnectButton_Click(object sender, RoutedEventArgs e)
@@ -296,6 +303,164 @@ public partial class MainWindow : Window
         {
             MediaInfoText.Text = "Fehler beim Laden.";
             ShowError("Medienliste konnte nicht geladen werden", ex);
+        }
+    }
+
+    private async void PreviewMedia_Click(object sender, RoutedEventArgs e)
+    {
+        if (MediaGrid.SelectedItem is not MediaItemDto item)
+        {
+            System.Windows.MessageBox.Show(this, "Ein Bild in der Medienliste auswählen.", "Bildviewer",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        await PreviewRemoteMediaAsync(item);
+    }
+
+    private async void MediaGrid_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (MediaGrid.SelectedItem is MediaItemDto item)
+            await PreviewRemoteMediaAsync(item);
+    }
+
+    private async Task PreviewRemoteMediaAsync(MediaItemDto item)
+    {
+        if (!IsSupportedImageName(item.Name))
+        {
+            System.Windows.MessageBox.Show(this,
+                $"„{item.Name}“ ist kein unterstütztes Bildformat. Videos bleiben über die Download-Funktion verfügbar.",
+                "Bildviewer", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        try
+        {
+            ConfigureApi();
+            var cachePath = PreviewCachePath(item);
+            var progress = new Progress<double>(p =>
+            {
+                DownloadProgress.Value = p * 100d;
+                MediaInfoText.Text = $"Vorschau {item.Name} · {p:P0}";
+            });
+
+            await _api.DownloadMediaAsync(item.Index, cachePath, progress);
+            LoadImagePreview(cachePath, item);
+            DownloadProgress.Value = 100;
+            MediaInfoText.Text = $"Vorschau geladen · {_imageMetadata.Count} Metadatenfelder";
+            AddEvent("INFO", "Media", $"Bildvorschau geladen: {item.Name}.");
+        }
+        catch (Exception ex)
+        {
+            ShowError("Bildvorschau konnte nicht geladen werden", ex);
+        }
+    }
+
+    private void OpenLocalImage_Click(object sender, RoutedEventArgs e)
+    {
+        using var dialog = new WinForms.OpenFileDialog
+        {
+            Title = "Bild für Vorschau und Metadaten öffnen",
+            Filter = "Bilddateien|*.jpg;*.jpeg;*.png;*.tif;*.tiff;*.bmp;*.gif|Alle Dateien|*.*",
+            Multiselect = false,
+            CheckFileExists = true
+        };
+
+        if (dialog.ShowDialog() != WinForms.DialogResult.OK)
+            return;
+
+        try
+        {
+            LoadImagePreview(dialog.FileName, null);
+            MediaInfoText.Text = $"Lokales Bild · {_imageMetadata.Count} Metadatenfelder";
+            AddEvent("INFO", "Media", $"Lokales Bild geöffnet: {Path.GetFileName(dialog.FileName)}.");
+        }
+        catch (Exception ex)
+        {
+            ShowError("Bild konnte nicht geöffnet werden", ex);
+        }
+    }
+
+    private void LoadImagePreview(string path, MediaItemDto? remoteItem)
+    {
+        var inspection = ImageMetadataReader.Load(path);
+
+        _imageMetadata.Clear();
+        if (remoteItem is not null)
+        {
+            _imageMetadata.Add(new ImageMetadataEntryDto("DJI Media", "Index", remoteItem.Index.ToString(CultureInfo.InvariantCulture)));
+            _imageMetadata.Add(new ImageMetadataEntryDto("DJI Media", "Dateiname", remoteItem.Name));
+            _imageMetadata.Add(new ImageMetadataEntryDto("DJI Media", "Typ", remoteItem.Type));
+            _imageMetadata.Add(new ImageMetadataEntryDto("DJI Media", "API-Größe", remoteItem.SizeText));
+            _imageMetadata.Add(new ImageMetadataEntryDto("DJI Media", "API-Datum", remoteItem.Date));
+        }
+
+        foreach (var entry in inspection.Metadata)
+            _imageMetadata.Add(entry);
+
+        MediaPreviewImage.Source = inspection.Preview;
+        MediaPreviewPlaceholder.Visibility = Visibility.Collapsed;
+        MediaPreviewTitle.Text = remoteItem?.Name ?? Path.GetFileName(path);
+        MediaPreviewSummary.Text =
+            $"{inspection.Preview.PixelWidth} × {inspection.Preview.PixelHeight} px · {_imageMetadata.Count} Metadatenfelder";
+        FitPreview();
+    }
+
+    private void FitPreview_Click(object sender, RoutedEventArgs e) => FitPreview();
+
+    private void FitPreview()
+    {
+        MediaPreviewImage.Stretch = Stretch.Uniform;
+        MediaPreviewImage.Width = double.NaN;
+        MediaPreviewImage.Height = double.NaN;
+        MediaPreviewImage.HorizontalAlignment = HorizontalAlignment.Stretch;
+        MediaPreviewImage.VerticalAlignment = VerticalAlignment.Stretch;
+        MediaPreviewScroll.ScrollToHome();
+    }
+
+    private void ActualSizePreview_Click(object sender, RoutedEventArgs e)
+    {
+        if (MediaPreviewImage.Source is not System.Windows.Media.Imaging.BitmapSource bitmap)
+            return;
+
+        MediaPreviewImage.Stretch = Stretch.None;
+        MediaPreviewImage.Width = bitmap.PixelWidth;
+        MediaPreviewImage.Height = bitmap.PixelHeight;
+        MediaPreviewImage.HorizontalAlignment = HorizontalAlignment.Left;
+        MediaPreviewImage.VerticalAlignment = VerticalAlignment.Top;
+        MediaPreviewScroll.ScrollToHome();
+    }
+
+    private static bool IsSupportedImageName(string? name)
+    {
+        var extension = Path.GetExtension(name ?? "");
+        return extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".png", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".tif", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".tiff", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".bmp", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".gif", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string PreviewCachePath(MediaItemDto item)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "DroneDash_x64", "preview");
+        Directory.CreateDirectory(directory);
+        return Path.Combine(directory, $"{item.Index}_{SanitizeFileName(item.Name, item.Index)}");
+    }
+
+    private static void CleanupPreviewCache()
+    {
+        try
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "DroneDash_x64", "preview");
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, true);
+        }
+        catch
+        {
+            // Preview cache cleanup is best effort only.
         }
     }
 

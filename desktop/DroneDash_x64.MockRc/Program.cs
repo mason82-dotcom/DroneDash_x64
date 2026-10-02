@@ -170,6 +170,14 @@ app.MapGet("/api/v1/media/{index:int}/download", (int index) =>
     if (item is null)
         return Results.NotFound(new { error = "media index not found" });
 
+    if (item.Type.Equals("JPEG", StringComparison.OrdinalIgnoreCase))
+    {
+        // Small valid JPEG so the Windows image/metadata viewer can be exercised without DJI hardware.
+        var jpeg = Convert.FromBase64String(
+            "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAEf/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABBQJ//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAwEBPwF//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAgEBPwF//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQAGPwJ//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPyF//9oADAMBAAIAAwAAABAf/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAwEBPxB//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAgEBPxB//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxB//9k=");
+        return Results.File(jpeg, "image/jpeg", item.Name);
+    }
+
     var text = $"DroneDash_x64 Mock media\r\nIndex: {item.Index}\r\nName: {item.Name}\r\n";
     var bytes = Encoding.UTF8.GetBytes(text);
     return Results.File(bytes, "application/octet-stream", item.Name + ".mock.txt");
