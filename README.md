@@ -207,3 +207,19 @@ and validate Smart Oblique / terrain-follow execution before field use.
 The CI planning smoke test now covers all three WPML template types, verifies five executable
 folders for Mapping 3D, checks Smart Oblique and real-time terrain-follow fields, and validates
 the Mapping Strip `LineString` representation.
+
+
+### Planning project files and KMZ validation
+
+Flight-planning work can be saved as a versioned DroneDash \`.ddplan\` JSON project and loaded
+back into the editor without losing aircraft profile, mapping mode, geometry, overlaps, altitude,
+speed, gimbal settings, Smart Oblique, terrain-follow or strip parameters.
+
+Every exported DJI KMZ is now validated immediately. The same validator can inspect an arbitrary
+KMZ from the **DJI KMZ prüfen** button. It checks the required archive entries, KML/WPML namespace
+1.0.2, WGS84 coordinate mode, M3E/M3T/M3M aircraft/payload pairing, unique wayline IDs,
+continuous waypoint indexes, valid WGS84 coordinates, positive distance-trigger parameters,
+the five-wayline Mapping 3D structure, and the required Smart Oblique / terrain-follow fields.
+
+The planning CI test performs a full project round-trip (\`.ddplan\` save/load), regenerates the
+plan, exports all supported DJI mapping modes and runs the semantic KMZ validator.

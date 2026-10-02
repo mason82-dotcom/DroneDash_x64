@@ -18,6 +18,20 @@
         <TextBlock Margin="0,3,0,10" TextWrapping="Wrap"
                    Text="Mapping 2D, Mapping 3D/Oblique und Strip-Mapping für M3E, M3T und M3M. Exportiert DJI WPML 1.0.2 als KMZ; Missionen werden nicht automatisch gestartet."/>
 
+        <GroupBox Header="Projekt" Margin="0,0,0,10">
+          <StackPanel Margin="10">
+            <WrapPanel>
+              <Button Content="Projekt speichern" Click="SaveProject_Click"/>
+              <Button Content="Projekt laden" Click="LoadProject_Click"/>
+              <Button Content="DJI KMZ prüfen" Click="ValidateKmz_Click"/>
+            </WrapPanel>
+            <TextBlock x:Name="ProjectInfoText"
+                       Margin="4,7,0,0"
+                       Text="Neues, noch nicht gespeichertes Projekt"
+                       TextWrapping="Wrap"/>
+          </StackPanel>
+        </GroupBox>
+
         <GroupBox Header="Messfläche / Trasse" Margin="0,0,0,10">
           <StackPanel Margin="10">
             <WrapPanel>
@@ -105,7 +119,17 @@
         </WrapPanel>
 
         <GroupBox Header="Photogrammetrie" Margin="0,10,0,10">
-          <TextBlock x:Name="PlanningStatsText" Margin="10" Text="Noch keine Route berechnet." TextWrapping="Wrap"/>
+          <TextBlock x:Name="PlanningStatsText"
+                     Margin="10"
+                     Text="Noch keine Route berechnet."
+                     TextWrapping="Wrap"/>
+        </GroupBox>
+
+        <GroupBox Header="DJI KMZ Validierung" Margin="0,0,0,10">
+          <TextBlock x:Name="KmzValidationText"
+                     Margin="10"
+                     Text="Noch keine KMZ geprüft."
+                     TextWrapping="Wrap"/>
         </GroupBox>
 
         <Border Padding="10" Background="#FFF8D8">
@@ -113,7 +137,10 @@
                      Text="WPML-Export vor dem realen Einsatz in DJI Pilot 2 prüfen. Mapping 3D erzeugt fünf Waylines. Smart Oblique und Terrain Follow werden zusätzlich im DJI-Template codiert; Pilot 2 sollte solche Vorlagen vor Ausführung neu generieren/validieren. Hindernisdaten werden nicht automatisch berücksichtigt."/>
         </Border>
 
-        <TextBlock x:Name="PlanningStatusText" Margin="4,10,0,0" Text="Karte wird initialisiert …" TextWrapping="Wrap"/>
+        <TextBlock x:Name="PlanningStatusText"
+                   Margin="4,10,0,0"
+                   Text="Karte wird initialisiert …"
+                   TextWrapping="Wrap"/>
       </StackPanel>
     </ScrollViewer>
   </Grid>

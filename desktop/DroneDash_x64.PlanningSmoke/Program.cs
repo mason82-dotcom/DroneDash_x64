@@ -18,9 +18,32 @@ var mapping2D = new FlightPlanSettings(
     80, 8, 80, 70, 15, -90, -60,
     true, false, 40);
 
-var plan2D = PhotogrammetryPlanner.Generate(polygon, mapping2D);
+var projectPath = Path.Combine(Path.GetTempPath(), "DroneDash_PlanningSmoke.ddplan");
+FlightPlanProjectStore.Save(projectPath, mapping2D, polygon);
+var loadedProject = FlightPlanProjectStore.Load(projectPath);
+
+if (loadedProject.SchemaVersion != FlightPlanProject.CurrentSchemaVersion ||
+    loadedProject.Settings != mapping2D ||
+    loadedProject.Geometry.Count != polygon.Length)
+{
+    throw new InvalidDataException("DroneDash project round-trip failed.");
+}
+
+for (var i = 0; i < polygon.Length; i++)
+{
+    if (loadedProject.Geometry[i] != polygon[i])
+        throw new InvalidDataException($"DroneDash project geometry mismatch at {i}.");
+}
+
+var plan2D = PhotogrammetryPlanner.Generate(
+    loadedProject.Geometry,
+    loadedProject.Settings);
 ValidatePlan(plan2D, expectedPasses: 1);
-ValidateKmz(plan2D, "mapping2d", expectedFolders: 1, expectedTemplateToken: "smartObliqueEnable");
+ValidateKmz(
+    plan2D,
+    "mapping2d",
+    expectedFolders: 1,
+    expectedTemplateToken: "smartObliqueEnable");
 
 var mapping3D = mapping2D with
 {
@@ -32,7 +55,11 @@ var mapping3D = mapping2D with
 
 var plan3D = PhotogrammetryPlanner.Generate(polygon, mapping3D);
 ValidatePlan(plan3D, expectedPasses: 5);
-ValidateKmz(plan3D, "mapping3d", expectedFolders: 5, expectedTemplateToken: "realTimeFollowSurface");
+ValidateKmz(
+    plan3D,
+    "mapping3d",
+    expectedFolders: 5,
+    expectedTemplateToken: "realTimeFollowSurface");
 
 var stripGeometry = new[]
 {
@@ -51,10 +78,17 @@ var strip = mapping2D with
 
 var stripPlan = PhotogrammetryPlanner.Generate(stripGeometry, strip);
 ValidatePlan(stripPlan, expectedPasses: 1);
-ValidateKmz(stripPlan, "mappingStrip", expectedFolders: 1, expectedTemplateToken: "LineString");
+ValidateKmz(
+    stripPlan,
+    "mappingStrip",
+    expectedFolders: 1,
+    expectedTemplateToken: "LineString");
 
 Console.WriteLine(
-    $"PASS planning modes · 2D segments={plan2D.Segments.Count} · 3D passes={plan3D.Passes.Count} · strip segments={stripPlan.Segments.Count}");
+    $"PASS planning persistence + validation · " +
+    $"2D segments={plan2D.Segments.Count} · " +
+    $"3D passes={plan3D.Passes.Count} · " +
+    $"strip segments={stripPlan.Segments.Count}");
 
 static void ValidatePlan(FlightPlanResult plan, int expectedPasses)
 {
@@ -63,7 +97,8 @@ static void ValidatePlan(FlightPlanResult plan, int expectedPasses)
         plan.AreaSquareMeters <= 0 ||
         plan.EstimatedPhotos <= 0)
     {
-        throw new InvalidOperationException($"Planner returned invalid result for {plan.Settings.Mode}.");
+        throw new InvalidOperationException(
+            $"Planner returned invalid result for {plan.Settings.Mode}.");
     }
 }
 
@@ -73,41 +108,62 @@ static void ValidateKmz(
     int expectedFolders,
     string expectedTemplateToken)
 {
-    var path = Path.Combine(Path.GetTempPath(), $"DroneDash_{plan.Settings.Mode}_Smoke.kmz");
+    var path = Path.Combine(
+        Path.GetTempPath(),
+        $"DroneDash_{plan.Settings.Mode}_Smoke.kmz");
+
     DjiWpmlExporter.ExportKmz(path, plan);
 
+    var report = DjiKmzValidator.Validate(path);
+    if (!report.IsValid)
+    {
+        throw new InvalidDataException(
+            $"KMZ validation failed: {string.Join(" | ", report.Errors)}");
+    }
+
+    if (report.TemplateType != expectedTemplateType)
+        throw new InvalidDataException(
+            $"Expected template {expectedTemplateType}, got {report.TemplateType}.");
+
+    if (report.WaylineCount != expectedFolders)
+        throw new InvalidDataException(
+            $"Expected {expectedFolders} waylines, got {report.WaylineCount}.");
+
     using var archive = ZipFile.OpenRead(path);
-    var names = archive.Entries.Select(e => e.FullName).ToHashSet(StringComparer.Ordinal);
-    foreach (var required in new[] { "wpmz/template.kml", "wpmz/waylines.wpml", "wpmz/res/" })
+    var names = archive.Entries
+        .Select(e => e.FullName)
+        .ToHashSet(StringComparer.Ordinal);
+
+    foreach (var required in new[]
+    {
+        "wpmz/template.kml",
+        "wpmz/waylines.wpml",
+        "wpmz/res/"
+    })
     {
         if (!names.Contains(required))
             throw new InvalidDataException($"KMZ entry missing: {required}");
     }
 
     var template = ReadEntry(archive, "wpmz/template.kml");
-    var waylines = ReadEntry(archive, "wpmz/waylines.wpml");
-
-    if (!template.Contains($">{expectedTemplateType}<", StringComparison.Ordinal))
-        throw new InvalidDataException($"templateType missing: {expectedTemplateType}");
     if (!template.Contains(expectedTemplateToken, StringComparison.Ordinal))
-        throw new InvalidDataException($"Template token missing: {expectedTemplateToken}");
+        throw new InvalidDataException(
+            $"Template token missing: {expectedTemplateToken}");
 
+    var waylines = ReadEntry(archive, "wpmz/waylines.wpml");
     var waylinesXml = XDocument.Parse(waylines);
     XNamespace kml = "http://www.opengis.net/kml/2.2";
     var folderCount = waylinesXml.Descendants(kml + "Folder").Count();
     if (folderCount != expectedFolders)
-        throw new InvalidDataException($"Expected {expectedFolders} wayline folders, got {folderCount}.");
-
-    if (plan.Settings.TerrainFollowEnabled &&
-        !template.Contains(">realTimeFollowSurface<", StringComparison.Ordinal))
-    {
-        throw new InvalidDataException("Terrain follow height mode missing.");
-    }
+        throw new InvalidDataException(
+            $"Expected {expectedFolders} wayline folders, got {folderCount}.");
 }
 
 static string ReadEntry(ZipArchive archive, string name)
 {
-    var entry = archive.GetEntry(name) ?? throw new InvalidDataException($"Missing entry: {name}");
+    var entry = archive.GetEntry(name)
+        ?? throw new InvalidDataException($"Missing entry: {name}");
+
     using var stream = entry.Open();
     using var reader = new StreamReader(stream);
     return reader.ReadToEnd();
