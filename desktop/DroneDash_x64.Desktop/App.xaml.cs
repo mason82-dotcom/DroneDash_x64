@@ -1,7 +1,5 @@
-using System.Windows;
-
 namespace DroneDash_x64.Desktop;
 
-public partial class App : Application
+public partial class App : System.Windows.Application
 {
 }
