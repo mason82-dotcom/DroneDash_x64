@@ -9,6 +9,16 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Planning\route-editor.html"
+             CopyToOutputDirectory="PreserveNewest"
+             Link="planning\route-editor.html" />
+  </ItemGroup>
+
   <ItemGroup Condition="Exists('third_party\dji-tsdk\runtime\libdirp.dll')">
     <Content Include="third_party\dji-tsdk\runtime\*.dll"
              CopyToOutputDirectory="PreserveNewest"

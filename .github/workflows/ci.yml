@@ -38,6 +38,9 @@ jobs:
       - name: Restore thermal smoke tool
         run: dotnet restore desktop/DroneDash_x64.ThermalSmoke/DroneDash_x64.ThermalSmoke.csproj
 
+      - name: Restore planning smoke tool
+        run: dotnet restore desktop/DroneDash_x64.PlanningSmoke/DroneDash_x64.PlanningSmoke.csproj
+
       - name: Build desktop
         run: dotnet build desktop/DroneDash_x64.Desktop/DroneDash_x64.Desktop.csproj --configuration Release --no-restore
 
@@ -46,6 +49,12 @@ jobs:
 
       - name: Build thermal smoke tool
         run: dotnet build desktop/DroneDash_x64.ThermalSmoke/DroneDash_x64.ThermalSmoke.csproj --configuration Release --no-restore
+
+      - name: Build planning smoke tool
+        run: dotnet build desktop/DroneDash_x64.PlanningSmoke/DroneDash_x64.PlanningSmoke.csproj --configuration Release --no-restore
+
+      - name: Run planning smoke test
+        run: dotnet run --project desktop/DroneDash_x64.PlanningSmoke/DroneDash_x64.PlanningSmoke.csproj --configuration Release --no-build
 
   rc-agent:
     name: Android RC agent

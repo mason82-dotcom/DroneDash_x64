@@ -1,6 +1,7 @@
 <Window x:Class="DroneDash_x64.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:planning="clr-namespace:DroneDash_x64.Desktop.Planning"
         Title="DroneDash_x64"
         Height="940" Width="1280"
         MinHeight="650" MinWidth="980"
@@ -410,6 +411,10 @@
             </TextBlock>
           </Border>
         </Grid>
+      </TabItem>
+
+      <TabItem Header="Flugplanung">
+        <planning:FlightPlanningView/>
       </TabItem>
 
       <TabItem Header="Medien">

@@ -1,0 +1,94 @@
+<UserControl x:Class="DroneDash_x64.Desktop.Planning.FlightPlanningView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf">
+  <Grid Margin="8">
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="2.2*"/>
+      <ColumnDefinition Width="430"/>
+    </Grid.ColumnDefinitions>
+
+    <Border Grid.Column="0" BorderBrush="#30363D" BorderThickness="1" CornerRadius="4" Margin="4">
+      <wv2:WebView2 x:Name="RouteMap"/>
+    </Border>
+
+    <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
+      <StackPanel Margin="12,4,4,4">
+        <TextBlock Text="DJI Flugroutenplanung" FontSize="20" FontWeight="SemiBold"/>
+        <TextBlock Margin="0,3,0,10" TextWrapping="Wrap"
+                   Text="Mapping-/Photogrammetrieplanung für M3E, M3T und M3M. Exportiert DJI WPML 1.0.2 als KMZ. Missionen werden hier nicht automatisch gestartet."/>
+
+        <GroupBox Header="Fläche" Margin="0,0,0,10">
+          <StackPanel Margin="10">
+            <WrapPanel>
+              <Button Content="Polygon zeichnen" Click="DrawPolygon_Click"/>
+              <Button Content="Zeichnen beenden" Click="StopDrawing_Click"/>
+              <Button Content="Punkt zurück" Click="UndoPoint_Click"/>
+              <Button Content="Löschen" Click="ClearPlan_Click"/>
+            </WrapPanel>
+            <TextBlock x:Name="PolygonInfoText" Margin="4,7,0,0" Text="0 Punkte"/>
+          </StackPanel>
+        </GroupBox>
+
+        <GroupBox Header="Mission" Margin="0,0,0,10">
+          <Grid Margin="10">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="150"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Text="Name" VerticalAlignment="Center"/>
+            <TextBox x:Name="PlanNameBox" Grid.Row="0" Grid.Column="1" Text="DroneDash Mapping"/>
+
+            <TextBlock Grid.Row="1" Text="Aircraft" VerticalAlignment="Center"/>
+            <ComboBox x:Name="AircraftBox" Grid.Row="1" Grid.Column="1" SelectedIndex="0">
+              <ComboBoxItem Content="Mavic 3 Enterprise (M3E)" Tag="M3E"/>
+              <ComboBoxItem Content="Mavic 3 Thermal (M3T)" Tag="M3T"/>
+              <ComboBoxItem Content="Mavic 3 Multispectral (M3M)" Tag="M3M"/>
+            </ComboBox>
+
+            <TextBlock Grid.Row="2" Text="Höhe AGL [m]" VerticalAlignment="Center"/>
+            <TextBox x:Name="AltitudeBox" Grid.Row="2" Grid.Column="1" Text="80"/>
+
+            <TextBlock Grid.Row="3" Text="Geschwindigkeit [m/s]" VerticalAlignment="Center"/>
+            <TextBox x:Name="SpeedBox" Grid.Row="3" Grid.Column="1" Text="8"/>
+
+            <TextBlock Grid.Row="4" Text="Front Overlap [%]" VerticalAlignment="Center"/>
+            <TextBox x:Name="FrontOverlapBox" Grid.Row="4" Grid.Column="1" Text="80"/>
+
+            <TextBlock Grid.Row="5" Text="Side Overlap [%]" VerticalAlignment="Center"/>
+            <TextBox x:Name="SideOverlapBox" Grid.Row="5" Grid.Column="1" Text="70"/>
+
+            <TextBlock Grid.Row="6" Text="Rasterwinkel [°]" VerticalAlignment="Center"/>
+            <TextBox x:Name="GridAngleBox" Grid.Row="6" Grid.Column="1" Text="0"/>
+
+            <TextBlock Grid.Row="7" Text="Gimbal Pitch [°]" VerticalAlignment="Center"/>
+            <TextBox x:Name="GimbalPitchBox" Grid.Row="7" Grid.Column="1" Text="-90"/>
+          </Grid>
+        </GroupBox>
+
+        <WrapPanel>
+          <Button Content="Mapping-Raster berechnen" Click="GenerateGrid_Click"/>
+          <Button Content="DJI KMZ exportieren" Click="ExportKmz_Click"/>
+        </WrapPanel>
+
+        <GroupBox Header="Photogrammetrie" Margin="0,10,0,10">
+          <TextBlock x:Name="PlanningStatsText" Margin="10" Text="Noch kein Raster berechnet." TextWrapping="Wrap"/>
+        </GroupBox>
+
+        <Border Padding="10" Background="#FFF8D8">
+          <TextBlock TextWrapping="Wrap"
+                     Text="WPML-Export vor dem realen Einsatz in DJI Pilot 2 prüfen. Höhen sind relativ zum Startpunkt geplant; Terrain-/Hindernisdaten werden in dieser ersten Stufe noch nicht berücksichtigt."/>
+        </Border>
+
+        <TextBlock x:Name="PlanningStatusText" Margin="4,10,0,0" Text="Karte wird initialisiert …" TextWrapping="Wrap"/>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

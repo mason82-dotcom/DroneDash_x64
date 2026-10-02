@@ -174,3 +174,21 @@ M3T fixture and fails if `dirp_measure_ex` does not return a valid 640×512 FLOA
 temperature matrix. The same fixture can be opened interactively with
 **Medien → M3T Testbild**. After analysis, moving the mouse over the thermal image shows the
 exact source pixel and measured temperature. The original fixture is never modified.
+
+
+## DJI flight planning, mapping and photogrammetry
+
+The Windows client now contains a **Flugplanung** workspace backed by WebView2 and an
+OpenStreetMap/Leaflet map. It supports polygon-based mapping planning for M3E, M3T and M3M,
+serpentine flight-grid generation, GSD/footprint/overlap/photo-spacing calculations, distance,
+photo-count and flight-time estimates, and DJI WPML 1.0.2 KMZ export.
+
+The planner uses DJI's Mavic 3 Enterprise WPML identifiers (aircraft type 77 with subtype
+0/1/2 and payload 66/67/68). Exported KMZ files contain `wpmz/template.kml`,
+`wpmz/waylines.wpml` and `wpmz/res/`. Mapping photo actions use equal-distance triggers per
+survey segment. DroneDash does **not** upload or start these missions automatically; exported
+missions should be reviewed in DJI Pilot 2 before flight.
+
+M3E and M3M RGB GSD calculations use the 20 MP 4/3 mapping camera geometry. The M3T wide
+profile is explicitly marked as an inspection estimate because the 48 MP wide camera lacks the
+M3E mechanical-shutter survey profile.

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+html,body,#map{height:100%;margin:0}
+body{background:#101318;font-family:Segoe UI,Arial,sans-serif}
+#banner{position:absolute;z-index:1000;top:10px;left:50%;transform:translateX(-50%);
+background:rgba(20,24,30,.9);color:#fff;padding:7px 12px;border-radius:5px;font-size:13px;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="map"></div><div id="banner">Karte bereit · Polygonmodus aus</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map=L.map('map',{zoomControl:true}).setView([51.1657,10.4515],6);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  maxZoom:20,
+  attribution:'&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+const polygonLayer=L.layerGroup().addTo(map);
+const routeLayer=L.layerGroup().addTo(map);
+const banner=document.getElementById('banner');
+let drawing=false;
+
+map.on('click', e=>{
+  if(!drawing) return;
+  chrome.webview.postMessage({type:'polygonPoint',lat:e.latlng.lat,lon:e.latlng.lng});
+});
+
+function setDrawing(value){
+  drawing=!!value;
+  banner.textContent=drawing?'Polygon zeichnen · Klick fügt Eckpunkt hinzu':'Polygonmodus aus';
+  map.getContainer().style.cursor=drawing?'crosshair':'grab';
+}
+
+function renderPlan(data){
+  polygonLayer.clearLayers();
+  routeLayer.clearLayers();
+
+  if(data.polygon && data.polygon.length){
+    const pts=data.polygon.map(p=>[p.latitude,p.longitude]);
+    L.polygon(pts,{weight:2,fillOpacity:.12}).addTo(polygonLayer);
+    pts.forEach((p,i)=>L.circleMarker(p,{radius:4,weight:2,fillOpacity:1})
+      .bindTooltip(String(i+1),{permanent:false}).addTo(polygonLayer));
+  }
+
+  if(data.segments){
+    data.segments.forEach((s,i)=>{
+      L.polyline([[s.start.latitude,s.start.longitude],[s.end.latitude,s.end.longitude]],{
+        weight:3,opacity:.9
+      }).bindTooltip('Linie '+(i+1)).addTo(routeLayer);
+    });
+  }
+
+  const layers=[...polygonLayer.getLayers(),...routeLayer.getLayers()];
+  if(layers.length){
+    const group=L.featureGroup(layers);
+    const bounds=group.getBounds();
+    if(bounds.isValid()) map.fitBounds(bounds.pad(.15));
+  }
+}
+
+window.chrome.webview.addEventListener('message', e=>{
+  const m=e.data||{};
+  if(m.type==='setDrawing') setDrawing(m.value);
+  if(m.type==='render') renderPlan(m);
+});
+
+chrome.webview.postMessage({type:'ready'});
+</script>
+</body>
+</html>
