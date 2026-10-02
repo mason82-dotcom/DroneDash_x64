@@ -22,10 +22,10 @@ public static class PvThermalOverlayRenderer
             foreach (var candidate in candidates)
             {
                 var brush = candidate.Severity == PvAnomalySeverity.Critical
-                    ? Brushes.Red
-                    : Brushes.Orange;
+                    ? System.Windows.Media.Brushes.Red
+                    : System.Windows.Media.Brushes.Orange;
 
-                var pen = new Pen(brush, 2);
+                var pen = new System.Windows.Media.Pen(brush, 2);
                 pen.Freeze();
 
                 var rect = new Rect(
@@ -35,14 +35,14 @@ public static class PvThermalOverlayRenderer
                     Math.Min(thermal.Height - candidate.MinY, candidate.MaxY - candidate.MinY + 5));
 
                 drawing.DrawRectangle(
-                    new SolidColorBrush(Color.FromArgb(35, brush.Color.R, brush.Color.G, brush.Color.B)),
+                    new SolidColorBrush(System.Windows.Media.Color.FromArgb(35, brush.Color.R, brush.Color.G, brush.Color.B)),
                     pen,
                     rect);
 
                 drawing.DrawEllipse(
                     brush,
                     null,
-                    new Point(candidate.PeakX, candidate.PeakY),
+                    new System.Windows.Point(candidate.PeakX, candidate.PeakY),
                     3.5,
                     3.5);
             }
