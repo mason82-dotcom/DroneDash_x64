@@ -1,0 +1,180 @@
+<UserControl x:Class="DroneDash_x64.Desktop.PvAnalysis.PvAnalysisView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <DockPanel Margin="12">
+    <StackPanel DockPanel.Dock="Top">
+      <TextBlock Text="PV-Analyse"
+                 FontSize="20"
+                 FontWeight="SemiBold"/>
+      <TextBlock Margin="0,3,0,10"
+                 TextWrapping="Wrap"
+                 Text="Radiometrische M3T-R-JPEG-Batchanalyse für Photovoltaik-Inspektionen. DroneDash erkennt lokale thermische Anomalie-Kandidaten anhand konfigurierbarer ΔT-Schwellen. Die Ausgabe ist keine automatische elektrische Fehlerdiagnose."/>
+
+      <Border Margin="0,0,0,10"
+              Padding="10"
+              BorderBrush="#8A5A00"
+              BorderThickness="1"
+              CornerRadius="4"
+              Background="#FFF4D6">
+        <TextBlock x:Name="ThermalSdkStatusText"
+                   Text="DJI Thermal SDK wird geprüft …"
+                   TextWrapping="Wrap"/>
+      </Border>
+
+      <WrapPanel>
+        <Button Content="Thermal-Bildordner wählen"
+                Click="SelectFolder_Click"/>
+        <Button Content="Flugplan verknüpfen"
+                Click="SelectFlightPlan_Click"/>
+        <Button x:Name="AnalyzeButton"
+                Content="PV-Datensatz analysieren"
+                Click="Analyze_Click"/>
+        <Button x:Name="ExportButton"
+                Content="PV-Analyse exportieren"
+                Click="Export_Click"
+                IsEnabled="False"/>
+      </WrapPanel>
+
+      <Grid Margin="4,10,4,8">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="150"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="150"/>
+          <ColumnDefinition Width="130"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Grid.Column="0"
+                   Text="Bildordner"
+                   FontWeight="SemiBold"/>
+        <TextBlock x:Name="FolderText"
+                   Grid.Row="0"
+                   Grid.Column="1"
+                   Grid.ColumnSpan="3"
+                   Text="Noch nicht gewählt."
+                   TextWrapping="Wrap"/>
+
+        <TextBlock Grid.Row="1"
+                   Grid.Column="0"
+                   Text="Flugplan"
+                   FontWeight="SemiBold"/>
+        <TextBlock x:Name="FlightPlanText"
+                   Grid.Row="1"
+                   Grid.Column="1"
+                   Grid.ColumnSpan="3"
+                   Text="Optional · nicht verknüpft."
+                   TextWrapping="Wrap"/>
+
+        <TextBlock Grid.Row="2"
+                   Grid.Column="0"
+                   Text="Warn ΔT [°C]"
+                   VerticalAlignment="Center"/>
+        <TextBox x:Name="WarningDeltaBox"
+                 Grid.Row="2"
+                 Grid.Column="1"
+                 Text="5.0"/>
+
+        <TextBlock Grid.Row="2"
+                   Grid.Column="2"
+                   Text="Kritisch ΔT [°C]"
+                   VerticalAlignment="Center"/>
+        <TextBox x:Name="CriticalDeltaBox"
+                 Grid.Row="2"
+                 Grid.Column="3"
+                 Text="15.0"/>
+      </Grid>
+
+      <Grid Margin="4,0,4,8">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="150"/>
+          <ColumnDefinition Width="130"/>
+          <ColumnDefinition Width="150"/>
+          <ColumnDefinition Width="130"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <TextBlock Grid.Column="0"
+                   Text="Lokaler Radius [px]"
+                   VerticalAlignment="Center"/>
+        <TextBox x:Name="WindowRadiusBox"
+                 Grid.Column="1"
+                 Text="10"/>
+
+        <TextBlock Grid.Column="2"
+                   Text="Min. Cluster [px]"
+                   VerticalAlignment="Center"/>
+        <TextBox x:Name="MinimumClusterBox"
+                 Grid.Column="3"
+                 Text="6"/>
+
+        <TextBlock Grid.Column="4"
+                   Margin="12,0,0,0"
+                   TextWrapping="Wrap"
+                   Text="ΔT bezieht sich auf den lokalen thermischen Mittelwert um das jeweilige Pixel; zusammenhängende Pixel werden zu einem Kandidaten gruppiert."/>
+      </Grid>
+
+      <ProgressBar x:Name="AnalysisProgress"
+                   Height="4"
+                   Margin="4,0,4,8"
+                   IsIndeterminate="False"/>
+
+      <Border Margin="4,0,4,10"
+              Padding="10"
+              Background="#EEF5F7"
+              BorderBrush="#4A6572"
+              BorderThickness="1"
+              CornerRadius="4">
+        <StackPanel>
+          <TextBlock x:Name="SummaryText"
+                     Text="Noch kein PV-Datensatz analysiert."
+                     TextWrapping="Wrap"/>
+          <TextBlock x:Name="StatusText"
+                     Margin="0,4,0,0"
+                     Text="Bereit."
+                     TextWrapping="Wrap"/>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+
+    <DataGrid x:Name="ResultGrid"
+              AutoGenerateColumns="False"
+              IsReadOnly="True"
+              CanUserAddRows="False"
+              SelectionMode="Extended">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Datei"
+                            Binding="{Binding FileName}"
+                            Width="220"/>
+        <DataGridTextColumn Header="GPS"
+                            Binding="{Binding GpsText}"
+                            Width="180"/>
+        <DataGridTextColumn Header="RTK"
+                            Binding="{Binding RtkText}"
+                            Width="190"/>
+        <DataGridTextColumn Header="Max"
+                            Binding="{Binding MaxTemperatureText}"
+                            Width="90"/>
+        <DataGridTextColumn Header="max ΔT"
+                            Binding="{Binding HighestDeltaText}"
+                            Width="90"/>
+        <DataGridTextColumn Header="Kandidaten"
+                            Binding="{Binding Candidates.Count}"
+                            Width="80"/>
+        <DataGridTextColumn Header="Stufe"
+                            Binding="{Binding Severity}"
+                            Width="90"/>
+        <DataGridTextColumn Header="Route"
+                            Binding="{Binding RouteText}"
+                            Width="210"/>
+        <DataGridTextColumn Header="Status"
+                            Binding="{Binding StatusText}"
+                            Width="*"/>
+      </DataGrid.Columns>
+    </DataGrid>
+  </DockPanel>
+</UserControl>

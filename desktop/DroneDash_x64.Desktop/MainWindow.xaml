@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:planning="clr-namespace:DroneDash_x64.Desktop.Planning"
         xmlns:photo="clr-namespace:DroneDash_x64.Desktop.Photogrammetry"
+        xmlns:pv="clr-namespace:DroneDash_x64.Desktop.PvAnalysis"
         Title="DroneDash_x64"
         Height="940" Width="1280"
         MinHeight="650" MinWidth="980"
@@ -420,6 +421,10 @@
 
       <TabItem Header="Photogrammetrie">
         <photo:PhotogrammetryWorkspaceView/>
+      </TabItem>
+
+      <TabItem Header="PV-Analyse">
+        <pv:PvAnalysisView/>
       </TabItem>
 
       <TabItem Header="Medien">

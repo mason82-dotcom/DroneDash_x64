@@ -246,3 +246,27 @@ QA findings. **Processing-Manifest export** creates:
 
 This is the handoff point for future Orthomosaic, DSM/DTM, 3D reconstruction and M3M
 multispectral processing. The current implementation does not copy, rename or alter source images.
+
+
+## PV analysis
+
+The Windows client now contains a dedicated **PV-Analyse** module for radiometric M3T
+photovoltaic inspection datasets. It reuses DJI Thermal SDK v1.8 and the photogrammetry metadata
+pipeline to combine per-pixel temperatures with GPS, RTK and optional planned-wayline context.
+
+The first implementation deliberately reports **thermal anomaly candidates**, not automatic
+electrical fault diagnoses. For each thermal R-JPEG DroneDash calculates local temperature
+contrast, groups connected hot pixels into clusters and records peak temperature, local thermal
+baseline, delta-T, cluster size, centroid and bounding box. Warning and critical delta-T thresholds,
+local window radius and minimum cluster size are operator-configurable.
+
+Batch results preserve DJI radiometric parameters such as emissivity and measurement distance and
+can be linked to a \`.ddplan\` flight plan. Export creates:
+
+- \`pv-analysis.json\` with the complete structured analysis;
+- \`pv-images.csv\` with per-image thermal/GPS/RTK/route context;
+- \`pv-anomaly-candidates.csv\` with one row per detected thermal cluster.
+
+The PV CI smoke test uses a synthetic temperature matrix with a known connected hotspot and verifies
+the local-contrast detector, cluster severity and JSON/CSV export without requiring proprietary DJI
+native binaries.
