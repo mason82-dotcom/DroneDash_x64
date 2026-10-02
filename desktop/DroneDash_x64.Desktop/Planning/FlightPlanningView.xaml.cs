@@ -10,7 +10,7 @@ namespace DroneDash_x64.Desktop.Planning;
 
 public partial class FlightPlanningView : System.Windows.Controls.UserControl
 {
-    private readonly List<GeoPoint> _polygon = [];
+    private readonly List<GeoPoint> _geometry = [];
     private FlightPlanResult? _plan;
     private bool _mapReady;
 
@@ -63,9 +63,9 @@ public partial class FlightPlanningView : System.Windows.Controls.UserControl
             {
                 var lat = root.GetProperty("lat").GetDouble();
                 var lon = root.GetProperty("lon").GetDouble();
-                _polygon.Add(new GeoPoint(lat, lon));
+                _geometry.Add(new GeoPoint(lat, lon));
                 _plan = null;
-                UpdatePolygonInfo();
+                UpdateGeometryInfo();
                 RenderMap();
             }
         }
@@ -78,43 +78,61 @@ public partial class FlightPlanningView : System.Windows.Controls.UserControl
     private void DrawPolygon_Click(object sender, RoutedEventArgs e)
     {
         PostMap(new { type = "setDrawing", value = true });
-        PlanningStatusText.Text = "Polygonmodus aktiv: Eckpunkte auf der Karte anklicken.";
+        PlanningStatusText.Text = SelectedMode() == FlightPlanMode.MappingStrip
+            ? "Trassenmodus aktiv: Mittellinie Punkt für Punkt auf der Karte anklicken."
+            : "Polygonmodus aktiv: Eckpunkte der Messfläche auf der Karte anklicken.";
     }
 
     private void StopDrawing_Click(object sender, RoutedEventArgs e)
     {
         PostMap(new { type = "setDrawing", value = false });
-        PlanningStatusText.Text = "Polygonmodus beendet.";
+        PlanningStatusText.Text = "Zeichenmodus beendet.";
     }
 
     private void UndoPoint_Click(object sender, RoutedEventArgs e)
     {
-        if (_polygon.Count == 0)
+        if (_geometry.Count == 0)
             return;
 
-        _polygon.RemoveAt(_polygon.Count - 1);
+        _geometry.RemoveAt(_geometry.Count - 1);
         _plan = null;
-        UpdatePolygonInfo();
+        UpdateGeometryInfo();
         RenderMap();
     }
 
     private void ClearPlan_Click(object sender, RoutedEventArgs e)
     {
-        _polygon.Clear();
+        _geometry.Clear();
         _plan = null;
-        PlanningStatsText.Text = "Noch kein Raster berechnet.";
-        UpdatePolygonInfo();
+        PlanningStatsText.Text = "Noch keine Route berechnet.";
+        UpdateGeometryInfo();
         RenderMap();
+    }
+
+    private void ModeBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        _plan = null;
+        if (!IsLoaded)
+            return;
+
+        UpdateGeometryInfo();
+        RenderMap();
+        PlanningStatusText.Text = SelectedMode() switch
+        {
+            FlightPlanMode.Mapping3D => "Mapping 3D: eine Nadir- und vier Oblique-Waylines werden geplant.",
+            FlightPlanMode.MappingStrip => "Strip-Mapping: gezeichnete Punkte bilden die Korridor-Mittellinie.",
+            _ => "Mapping 2D: Polygonfläche mit parallelem Mapping-Raster."
+        };
     }
 
     private void GenerateGrid_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            _plan = PhotogrammetryPlanner.Generate(_polygon, ReadSettings());
+            _plan = PhotogrammetryPlanner.Generate(_geometry, ReadSettings());
             RenderPlanSummary(_plan);
             RenderMap();
-            PlanningStatusText.Text = "Mapping-Raster berechnet.";
+            PlanningStatusText.Text = "Flugroute berechnet.";
         }
         catch (Exception ex)
         {
@@ -127,7 +145,7 @@ public partial class FlightPlanningView : System.Windows.Controls.UserControl
     {
         try
         {
-            _plan ??= PhotogrammetryPlanner.Generate(_polygon, ReadSettings());
+            _plan ??= PhotogrammetryPlanner.Generate(_geometry, ReadSettings());
 
             using var dialog = new WinForms.SaveFileDialog
             {
@@ -157,40 +175,81 @@ public partial class FlightPlanningView : System.Windows.Controls.UserControl
         if (!Enum.TryParse<DjiAircraftProfile>(aircraftTag, out var aircraft))
             aircraft = DjiAircraftProfile.M3E;
 
+        var mode = SelectedMode();
+
         return new FlightPlanSettings(
             string.IsNullOrWhiteSpace(PlanNameBox.Text) ? "DroneDash Mapping" : PlanNameBox.Text.Trim(),
             aircraft,
+            mode,
             ParseDouble(AltitudeBox.Text, "Höhe"),
             ParseDouble(SpeedBox.Text, "Geschwindigkeit"),
             ParseInt(FrontOverlapBox.Text, "Front Overlap"),
             ParseInt(SideOverlapBox.Text, "Side Overlap"),
             ParseDouble(GridAngleBox.Text, "Rasterwinkel"),
-            ParseDouble(GimbalPitchBox.Text, "Gimbal Pitch"));
+            ParseDouble(GimbalPitchBox.Text, "Nadir Gimbal"),
+            ParseDouble(ObliquePitchBox.Text, "Oblique Gimbal"),
+            SmartObliqueBox.IsChecked == true,
+            TerrainFollowBox.IsChecked == true,
+            ParseDouble(StripHalfWidthBox.Text, "Strip Halbbreite"));
+    }
+
+    private FlightPlanMode SelectedMode()
+    {
+        var modeTag = (ModeBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Mapping2D";
+        return Enum.TryParse<FlightPlanMode>(modeTag, out var mode)
+            ? mode
+            : FlightPlanMode.Mapping2D;
     }
 
     private void RenderPlanSummary(FlightPlanResult plan)
     {
         var secondary = plan.SecondaryGsdCentimeters is double ms
-            ? $"\nMS GSD: {ms:F2} cm/px"
+            ? $"
+MS GSD: {ms:F2} cm/px"
             : "";
 
+        var geometryMetric = plan.Settings.Mode == FlightPlanMode.MappingStrip
+            ? $"Korridorfläche (geschätzt): {plan.AreaSquareMeters / 10_000d:F2} ha"
+            : $"Fläche: {plan.AreaSquareMeters / 10_000d:F2} ha";
+
         PlanningStatsText.Text =
-            $"{plan.CameraProfile}\n" +
-            $"Fläche: {plan.AreaSquareMeters / 10_000d:F2} ha\n" +
-            $"RGB/Wide GSD: {plan.GsdCentimeters:F2} cm/px{secondary}\n" +
-            $"Footprint: {plan.FootprintWidthMeters:F1} × {plan.FootprintHeightMeters:F1} m\n" +
-            $"Linienabstand: {plan.LineSpacingMeters:F1} m\n" +
-            $"Fotoabstand: {plan.PhotoSpacingMeters:F1} m\n" +
-            $"Rastersegmente: {plan.Segments.Count}\n" +
-            $"Flugstrecke inkl. Transits: {plan.FlightDistanceMeters / 1000d:F2} km\n" +
-            $"Geschätzte Bilder: {plan.EstimatedPhotos:N0}\n" +
-            $"Reine Flugzeit: {plan.EstimatedFlightTime:hh\\:mm\\:ss}\n\n" +
+            $"{plan.CameraProfile}
+" +
+            $"Modus: {plan.Settings.Mode}
+" +
+            $"{geometryMetric}
+" +
+            $"RGB/Wide GSD: {plan.GsdCentimeters:F2} cm/px{secondary}
+" +
+            $"Footprint: {plan.FootprintWidthMeters:F1} × {plan.FootprintHeightMeters:F1} m
+" +
+            $"Linienabstand: {plan.LineSpacingMeters:F1} m
+" +
+            $"Fotoabstand: {plan.PhotoSpacingMeters:F1} m
+" +
+            $"Waylines: {plan.Passes.Count}
+" +
+            $"Segmente: {plan.Segments.Count}
+" +
+            $"Terrain Follow: {(plan.Settings.TerrainFollowEnabled ? "ja" : "nein")}
+" +
+            $"Smart Oblique: {(plan.Settings.SmartObliqueEnabled ? "ja" : "nein")}
+" +
+            $"Flugstrecke inkl. Transits: {plan.FlightDistanceMeters / 1000d:F2} km
+" +
+            $"Geschätzte Bilder: {plan.EstimatedPhotos:N0}
+" +
+            $"Reine Flugzeit: {plan.EstimatedFlightTime:hh\:mm\:ss}
+
+" +
             plan.SurveyNote;
     }
 
-    private void UpdatePolygonInfo()
+    private void UpdateGeometryInfo()
     {
-        PolygonInfoText.Text = $"{_polygon.Count} Punkte";
+        PolygonInfoText.Text = SelectedMode() == FlightPlanMode.MappingStrip
+            ? $"{_geometry.Count} Trassenpunkte"
+            : $"{_geometry.Count} Polygonpunkte";
     }
 
     private void RenderMap()
@@ -201,13 +260,16 @@ public partial class FlightPlanningView : System.Windows.Controls.UserControl
         var message = new
         {
             type = "render",
-            polygon = _polygon.Select(p => new { latitude = p.Latitude, longitude = p.Longitude }),
-            segments = (_plan?.Segments ?? Array.Empty<RouteSegment>())
-                .Select(s => new
+            geometryMode = SelectedMode() == FlightPlanMode.MappingStrip ? "strip" : "polygon",
+            polygon = _geometry.Select(p => new { latitude = p.Latitude, longitude = p.Longitude }),
+            segments = (_plan?.Passes ?? Array.Empty<FlightPass>())
+                .SelectMany(pass => pass.Segments.Select(segment => new
                 {
-                    start = new { latitude = s.Start.Latitude, longitude = s.Start.Longitude },
-                    end = new { latitude = s.End.Latitude, longitude = s.End.Longitude }
-                })
+                    pass = pass.WaylineId,
+                    name = pass.Name,
+                    start = new { latitude = segment.Start.Latitude, longitude = segment.Start.Longitude },
+                    end = new { latitude = segment.End.Latitude, longitude = segment.End.Longitude }
+                }))
         };
 
         RouteMap.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(message));

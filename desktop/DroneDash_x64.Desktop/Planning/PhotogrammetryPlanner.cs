@@ -7,10 +7,10 @@ public static class PhotogrammetryPlanner
     private const double RadToDeg = 180d / Math.PI;
 
     public static FlightPlanResult Generate(
-        IReadOnlyList<GeoPoint> polygon,
+        IReadOnlyList<GeoPoint> geometry,
         FlightPlanSettings settings)
     {
-        Validate(polygon, settings);
+        Validate(geometry, settings);
 
         var camera = CameraFor(settings.Aircraft);
         var frame = camera.FrameAt(settings.AltitudeMeters);
@@ -20,10 +20,154 @@ public static class PhotogrammetryPlanner
         if (lineSpacing <= 0.1 || photoSpacing <= 0.1)
             throw new ArgumentOutOfRangeException(nameof(settings), "Überlappung erzeugt einen zu kleinen Linien-/Fotoabstand.");
 
+        var passes = settings.Mode switch
+        {
+            FlightPlanMode.Mapping2D => BuildMapping2DPasses(geometry, settings, lineSpacing),
+            FlightPlanMode.Mapping3D => BuildMapping3DPasses(geometry, settings, lineSpacing),
+            FlightPlanMode.MappingStrip => BuildStripPasses(geometry, settings),
+            _ => throw new ArgumentOutOfRangeException(nameof(settings.Mode))
+        };
+
+        var segments = passes.SelectMany(p => p.Segments).ToArray();
+        if (segments.Length == 0)
+            throw new InvalidOperationException("Aus der Geometrie konnte keine Flugroute erzeugt werden.");
+
+        var area = settings.Mode == FlightPlanMode.MappingStrip
+            ? PolylineLengthMeters(geometry) * settings.StripHalfWidthMeters * 2d
+            : PolygonAreaMeters(geometry);
+
+        var flightDistance = 0d;
+        RouteSegment? previous = null;
+        foreach (var pass in passes)
+        {
+            foreach (var segment in pass.Segments)
+            {
+                if (previous is not null)
+                    flightDistance += DistanceMeters(previous.End, segment.Start);
+                flightDistance += segment.LengthMeters;
+                previous = segment;
+            }
+        }
+
+        var photos = segments.Sum(segment =>
+            Math.Max(2, (int)Math.Ceiling(segment.LengthMeters / photoSpacing) + 1));
+        var seconds = flightDistance / settings.SpeedMetersPerSecond;
+
+        var note = camera.Note;
+        if (settings.Mode == FlightPlanMode.Mapping3D)
+            note += " 3D/Oblique erzeugt fünf lokale Waylines: eine Nadir- und vier geneigte Richtungen.";
+        if (settings.Mode == FlightPlanMode.MappingStrip)
+            note += " Strip-Mapping nutzt die gezeichneten Punkte als Mittellinie; die WPML-Vorlage trägt die seitliche Ausdehnung.";
+        if (settings.SmartObliqueEnabled && settings.Mode == FlightPlanMode.Mapping2D)
+            note += " Smart Oblique ist in template.kml aktiviert; DJI Pilot 2 sollte die ausführbare Route aus der Vorlage neu generieren.";
+        if (settings.TerrainFollowEnabled)
+            note += " Terrain Follow ist als realTimeFollowSurface im DJI-Template markiert; die lokalen Waylines bleiben ein flacher Vorschau-/Fallbackpfad.";
+
+        return new FlightPlanResult(
+            settings,
+            geometry.ToArray(),
+            passes,
+            segments,
+            area,
+            frame.WidthMeters,
+            frame.HeightMeters,
+            lineSpacing,
+            photoSpacing,
+            frame.GsdCentimeters,
+            frame.SecondaryGsdCentimeters,
+            flightDistance,
+            photos,
+            TimeSpan.FromSeconds(seconds),
+            camera.Name,
+            note);
+    }
+
+    private static IReadOnlyList<FlightPass> BuildMapping2DPasses(
+        IReadOnlyList<GeoPoint> polygon,
+        FlightPlanSettings settings,
+        double lineSpacing)
+    {
+        var segments = BuildGridSegments(polygon, settings.GridAngleDegrees, lineSpacing);
+        return
+        [
+            new FlightPass(
+                0,
+                settings.SmartObliqueEnabled ? "Mapping 2D · Smart Oblique Template" : "Mapping 2D · Nadir",
+                settings.GridAngleDegrees,
+                settings.GimbalPitchDegrees,
+                false,
+                segments)
+        ];
+    }
+
+    private static IReadOnlyList<FlightPass> BuildMapping3DPasses(
+        IReadOnlyList<GeoPoint> polygon,
+        FlightPlanSettings settings,
+        double lineSpacing)
+    {
+        var passes = new List<FlightPass>
+        {
+            new(
+                0,
+                "3D · Nadir",
+                NormalizeAngle(settings.GridAngleDegrees),
+                -90,
+                false,
+                BuildGridSegments(polygon, settings.GridAngleDegrees, lineSpacing))
+        };
+
+        var headings = new[] { 0d, 90d, 180d, 270d };
+        for (var i = 0; i < headings.Length; i++)
+        {
+            var angle = NormalizeAngle(settings.GridAngleDegrees + headings[i]);
+            passes.Add(new FlightPass(
+                i + 1,
+                $"3D · Oblique {headings[i]:0}°",
+                angle,
+                settings.ObliqueGimbalPitchDegrees,
+                true,
+                BuildGridSegments(polygon, angle, lineSpacing)));
+        }
+
+        return passes;
+    }
+
+    private static IReadOnlyList<FlightPass> BuildStripPasses(
+        IReadOnlyList<GeoPoint> line,
+        FlightPlanSettings settings)
+    {
+        var segments = new List<RouteSegment>();
+        for (var i = 1; i < line.Count; i++)
+        {
+            var length = DistanceMeters(line[i - 1], line[i]);
+            if (length > 0.25)
+                segments.Add(new RouteSegment(line[i - 1], line[i], length));
+        }
+
+        if (segments.Count == 0)
+            throw new InvalidOperationException("Die Strip-Geometrie enthält keine nutzbare Strecke.");
+
+        return
+        [
+            new FlightPass(
+                0,
+                "Mapping Strip · Mittellinie",
+                settings.GridAngleDegrees,
+                settings.GimbalPitchDegrees,
+                false,
+                segments)
+        ];
+    }
+
+    private static IReadOnlyList<RouteSegment> BuildGridSegments(
+        IReadOnlyList<GeoPoint> polygon,
+        double angleDegrees,
+        double lineSpacing)
+    {
         var originLat = polygon.Average(p => p.Latitude);
         var originLon = polygon.Average(p => p.Longitude);
         var local = polygon.Select(p => ToLocal(p, originLat, originLon)).ToList();
-        var angle = settings.GridAngleDegrees * DegToRad;
+        var angle = NormalizeAngle(angleDegrees) * DegToRad;
         var rotated = local.Select(p => Rotate(p, -angle)).ToList();
 
         var minY = rotated.Min(p => p.Y);
@@ -84,41 +228,20 @@ public static class PhotogrammetryPlanner
         if (routeSegments.Count == 0)
             throw new InvalidOperationException("Aus dem Polygon konnte kein Mapping-Raster erzeugt werden.");
 
-        var area = Math.Abs(PolygonArea(local));
-        var segmentDistance = routeSegments.Sum(s => s.LengthMeters);
-        var transitDistance = 0d;
-        for (var i = 1; i < routeSegments.Count; i++)
-            transitDistance += DistanceMeters(routeSegments[i - 1].End, routeSegments[i].Start);
-
-        var flightDistance = segmentDistance + transitDistance;
-        var photos = routeSegments.Sum(segment =>
-            Math.Max(2, (int)Math.Ceiling(segment.LengthMeters / photoSpacing) + 1));
-        var seconds = flightDistance / settings.SpeedMetersPerSecond;
-
-        return new FlightPlanResult(
-            settings,
-            polygon.ToArray(),
-            routeSegments,
-            area,
-            frame.WidthMeters,
-            frame.HeightMeters,
-            lineSpacing,
-            photoSpacing,
-            frame.GsdCentimeters,
-            frame.SecondaryGsdCentimeters,
-            flightDistance,
-            photos,
-            TimeSpan.FromSeconds(seconds),
-            camera.Name,
-            camera.Note);
+        return routeSegments;
     }
 
-    private static void Validate(IReadOnlyList<GeoPoint> polygon, FlightPlanSettings settings)
+    private static void Validate(IReadOnlyList<GeoPoint> geometry, FlightPlanSettings settings)
     {
-        if (polygon.Count < 3)
-            throw new InvalidOperationException("Mindestens drei Polygonpunkte sind erforderlich.");
-        if (polygon.Any(p => p.Latitude is < -90 or > 90 || p.Longitude is < -180 or > 180))
-            throw new ArgumentOutOfRangeException(nameof(polygon), "Polygon enthält ungültige WGS84-Koordinaten.");
+        var minimumPoints = settings.Mode == FlightPlanMode.MappingStrip ? 2 : 3;
+        if (geometry.Count < minimumPoints)
+            throw new InvalidOperationException(
+                settings.Mode == FlightPlanMode.MappingStrip
+                    ? "Für Strip-Mapping sind mindestens zwei Trassenpunkte erforderlich."
+                    : "Mindestens drei Polygonpunkte sind erforderlich.");
+
+        if (geometry.Any(p => p.Latitude is < -90 or > 90 || p.Longitude is < -180 or > 180))
+            throw new ArgumentOutOfRangeException(nameof(geometry), "Geometrie enthält ungültige WGS84-Koordinaten.");
         if (settings.AltitudeMeters is < 10 or > 500)
             throw new ArgumentOutOfRangeException(nameof(settings.AltitudeMeters), "Planungshöhe muss zwischen 10 und 500 m liegen.");
         if (settings.SpeedMetersPerSecond is <= 0 or > 15)
@@ -129,6 +252,12 @@ public static class PhotogrammetryPlanner
             throw new ArgumentOutOfRangeException(nameof(settings.GridAngleDegrees), "Rasterwinkel muss zwischen 0 und < 360° liegen.");
         if (settings.GimbalPitchDegrees is < -90 or > -30)
             throw new ArgumentOutOfRangeException(nameof(settings.GimbalPitchDegrees), "Gimbal-Pitch muss für Mapping zwischen -90° und -30° liegen.");
+        if (settings.ObliqueGimbalPitchDegrees is < -90 or > -30)
+            throw new ArgumentOutOfRangeException(nameof(settings.ObliqueGimbalPitchDegrees), "Oblique-Pitch muss zwischen -90° und -30° liegen.");
+        if (settings.StripHalfWidthMeters is <= 0 or > 500)
+            throw new ArgumentOutOfRangeException(nameof(settings.StripHalfWidthMeters), "Strip-Halbbreite muss > 0 und <= 500 m sein.");
+        if (settings.SmartObliqueEnabled && settings.Mode != FlightPlanMode.Mapping2D)
+            throw new InvalidOperationException("Smart Oblique ist in DroneDash derzeit nur für Mapping 2D als DJI-Templateoption verfügbar.");
     }
 
     private static CameraModel CameraFor(DjiAircraftProfile aircraft) =>
@@ -160,16 +289,29 @@ public static class PhotogrammetryPlanner
         return intersections;
     }
 
-    private static double PolygonArea(IReadOnlyList<LocalPoint> polygon)
+    private static double PolygonAreaMeters(IReadOnlyList<GeoPoint> polygon)
     {
+        var originLat = polygon.Average(p => p.Latitude);
+        var originLon = polygon.Average(p => p.Longitude);
+        var local = polygon.Select(p => ToLocal(p, originLat, originLon)).ToList();
+
         double sum = 0;
-        for (var i = 0; i < polygon.Count; i++)
+        for (var i = 0; i < local.Count; i++)
         {
-            var a = polygon[i];
-            var b = polygon[(i + 1) % polygon.Count];
+            var a = local[i];
+            var b = local[(i + 1) % local.Count];
             sum += a.X * b.Y - b.X * a.Y;
         }
-        return sum / 2d;
+
+        return Math.Abs(sum / 2d);
+    }
+
+    private static double PolylineLengthMeters(IReadOnlyList<GeoPoint> line)
+    {
+        var result = 0d;
+        for (var i = 1; i < line.Count; i++)
+            result += DistanceMeters(line[i - 1], line[i]);
+        return result;
     }
 
     private static double DistanceMeters(GeoPoint a, GeoPoint b)
@@ -207,6 +349,12 @@ public static class PhotogrammetryPlanner
         return new LocalPoint(
             point.X * cos - point.Y * sin,
             point.X * sin + point.Y * cos);
+    }
+
+    private static double NormalizeAngle(double angle)
+    {
+        angle %= 360d;
+        return angle < 0 ? angle + 360d : angle;
     }
 
     private readonly record struct LocalPoint(double X, double Y);

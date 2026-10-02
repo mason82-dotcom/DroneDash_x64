@@ -5,7 +5,7 @@
   <Grid Margin="8">
     <Grid.ColumnDefinitions>
       <ColumnDefinition Width="2.2*"/>
-      <ColumnDefinition Width="430"/>
+      <ColumnDefinition Width="450"/>
     </Grid.ColumnDefinitions>
 
     <Border Grid.Column="0" BorderBrush="#30363D" BorderThickness="1" CornerRadius="4" Margin="4">
@@ -16,12 +16,12 @@
       <StackPanel Margin="12,4,4,4">
         <TextBlock Text="DJI Flugroutenplanung" FontSize="20" FontWeight="SemiBold"/>
         <TextBlock Margin="0,3,0,10" TextWrapping="Wrap"
-                   Text="Mapping-/Photogrammetrieplanung für M3E, M3T und M3M. Exportiert DJI WPML 1.0.2 als KMZ. Missionen werden hier nicht automatisch gestartet."/>
+                   Text="Mapping 2D, Mapping 3D/Oblique und Strip-Mapping für M3E, M3T und M3M. Exportiert DJI WPML 1.0.2 als KMZ; Missionen werden nicht automatisch gestartet."/>
 
-        <GroupBox Header="Fläche" Margin="0,0,0,10">
+        <GroupBox Header="Messfläche / Trasse" Margin="0,0,0,10">
           <StackPanel Margin="10">
             <WrapPanel>
-              <Button Content="Polygon zeichnen" Click="DrawPolygon_Click"/>
+              <Button Content="Geometrie zeichnen" Click="DrawPolygon_Click"/>
               <Button Content="Zeichnen beenden" Click="StopDrawing_Click"/>
               <Button Content="Punkt zurück" Click="UndoPoint_Click"/>
               <Button Content="Löschen" Click="ClearPlan_Click"/>
@@ -33,7 +33,7 @@
         <GroupBox Header="Mission" Margin="0,0,0,10">
           <Grid Margin="10">
             <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="150"/>
+              <ColumnDefinition Width="170"/>
               <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
@@ -41,50 +41,76 @@
               <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <TextBlock Grid.Row="0" Text="Name" VerticalAlignment="Center"/>
             <TextBox x:Name="PlanNameBox" Grid.Row="0" Grid.Column="1" Text="DroneDash Mapping"/>
 
-            <TextBlock Grid.Row="1" Text="Aircraft" VerticalAlignment="Center"/>
-            <ComboBox x:Name="AircraftBox" Grid.Row="1" Grid.Column="1" SelectedIndex="0">
+            <TextBlock Grid.Row="1" Text="Modus" VerticalAlignment="Center"/>
+            <ComboBox x:Name="ModeBox" Grid.Row="1" Grid.Column="1" SelectedIndex="0" SelectionChanged="ModeBox_SelectionChanged">
+              <ComboBoxItem Content="Mapping 2D / Orthomosaik" Tag="Mapping2D"/>
+              <ComboBoxItem Content="Mapping 3D / Oblique" Tag="Mapping3D"/>
+              <ComboBoxItem Content="Mapping Strip / Korridor" Tag="MappingStrip"/>
+            </ComboBox>
+
+            <TextBlock Grid.Row="2" Text="Aircraft" VerticalAlignment="Center"/>
+            <ComboBox x:Name="AircraftBox" Grid.Row="2" Grid.Column="1" SelectedIndex="0">
               <ComboBoxItem Content="Mavic 3 Enterprise (M3E)" Tag="M3E"/>
               <ComboBoxItem Content="Mavic 3 Thermal (M3T)" Tag="M3T"/>
               <ComboBoxItem Content="Mavic 3 Multispectral (M3M)" Tag="M3M"/>
             </ComboBox>
 
-            <TextBlock Grid.Row="2" Text="Höhe AGL [m]" VerticalAlignment="Center"/>
-            <TextBox x:Name="AltitudeBox" Grid.Row="2" Grid.Column="1" Text="80"/>
+            <TextBlock Grid.Row="3" Text="Höhe AGL [m]" VerticalAlignment="Center"/>
+            <TextBox x:Name="AltitudeBox" Grid.Row="3" Grid.Column="1" Text="80"/>
 
-            <TextBlock Grid.Row="3" Text="Geschwindigkeit [m/s]" VerticalAlignment="Center"/>
-            <TextBox x:Name="SpeedBox" Grid.Row="3" Grid.Column="1" Text="8"/>
+            <TextBlock Grid.Row="4" Text="Geschwindigkeit [m/s]" VerticalAlignment="Center"/>
+            <TextBox x:Name="SpeedBox" Grid.Row="4" Grid.Column="1" Text="8"/>
 
-            <TextBlock Grid.Row="4" Text="Front Overlap [%]" VerticalAlignment="Center"/>
-            <TextBox x:Name="FrontOverlapBox" Grid.Row="4" Grid.Column="1" Text="80"/>
+            <TextBlock Grid.Row="5" Text="Front Overlap [%]" VerticalAlignment="Center"/>
+            <TextBox x:Name="FrontOverlapBox" Grid.Row="5" Grid.Column="1" Text="80"/>
 
-            <TextBlock Grid.Row="5" Text="Side Overlap [%]" VerticalAlignment="Center"/>
-            <TextBox x:Name="SideOverlapBox" Grid.Row="5" Grid.Column="1" Text="70"/>
+            <TextBlock Grid.Row="6" Text="Side Overlap [%]" VerticalAlignment="Center"/>
+            <TextBox x:Name="SideOverlapBox" Grid.Row="6" Grid.Column="1" Text="70"/>
 
-            <TextBlock Grid.Row="6" Text="Rasterwinkel [°]" VerticalAlignment="Center"/>
-            <TextBox x:Name="GridAngleBox" Grid.Row="6" Grid.Column="1" Text="0"/>
+            <TextBlock Grid.Row="7" Text="Rasterwinkel [°]" VerticalAlignment="Center"/>
+            <TextBox x:Name="GridAngleBox" Grid.Row="7" Grid.Column="1" Text="0"/>
 
-            <TextBlock Grid.Row="7" Text="Gimbal Pitch [°]" VerticalAlignment="Center"/>
-            <TextBox x:Name="GimbalPitchBox" Grid.Row="7" Grid.Column="1" Text="-90"/>
+            <TextBlock Grid.Row="8" Text="Nadir Gimbal [°]" VerticalAlignment="Center"/>
+            <TextBox x:Name="GimbalPitchBox" Grid.Row="8" Grid.Column="1" Text="-90"/>
+
+            <TextBlock Grid.Row="9" Text="Oblique Gimbal [°]" VerticalAlignment="Center"/>
+            <TextBox x:Name="ObliquePitchBox" Grid.Row="9" Grid.Column="1" Text="-60"/>
+
+            <TextBlock Grid.Row="10" Text="Strip Halbbreite [m]" VerticalAlignment="Center"/>
+            <TextBox x:Name="StripHalfWidthBox" Grid.Row="10" Grid.Column="1" Text="40"/>
+
+            <TextBlock Grid.Row="11" Text="Smart Oblique" VerticalAlignment="Center"/>
+            <CheckBox x:Name="SmartObliqueBox" Grid.Row="11" Grid.Column="1"
+                      Content="DJI Smart Oblique Template (Mapping 2D)"
+                      VerticalAlignment="Center"/>
+
+            <TextBlock Grid.Row="12" Text="Terrain Follow" VerticalAlignment="Center"/>
+            <CheckBox x:Name="TerrainFollowBox" Grid.Row="12" Grid.Column="1"
+                      Content="realTimeFollowSurface (M3E/M3T/M3M)"
+                      VerticalAlignment="Center"/>
           </Grid>
         </GroupBox>
 
         <WrapPanel>
-          <Button Content="Mapping-Raster berechnen" Click="GenerateGrid_Click"/>
+          <Button Content="Route berechnen" Click="GenerateGrid_Click"/>
           <Button Content="DJI KMZ exportieren" Click="ExportKmz_Click"/>
         </WrapPanel>
 
         <GroupBox Header="Photogrammetrie" Margin="0,10,0,10">
-          <TextBlock x:Name="PlanningStatsText" Margin="10" Text="Noch kein Raster berechnet." TextWrapping="Wrap"/>
+          <TextBlock x:Name="PlanningStatsText" Margin="10" Text="Noch keine Route berechnet." TextWrapping="Wrap"/>
         </GroupBox>
 
         <Border Padding="10" Background="#FFF8D8">
           <TextBlock TextWrapping="Wrap"
-                     Text="WPML-Export vor dem realen Einsatz in DJI Pilot 2 prüfen. Höhen sind relativ zum Startpunkt geplant; Terrain-/Hindernisdaten werden in dieser ersten Stufe noch nicht berücksichtigt."/>
+                     Text="WPML-Export vor dem realen Einsatz in DJI Pilot 2 prüfen. Mapping 3D erzeugt fünf Waylines. Smart Oblique und Terrain Follow werden zusätzlich im DJI-Template codiert; Pilot 2 sollte solche Vorlagen vor Ausführung neu generieren/validieren. Hindernisdaten werden nicht automatisch berücksichtigt."/>
         </Border>
 
         <TextBlock x:Name="PlanningStatusText" Margin="4,10,0,0" Text="Karte wird initialisiert …" TextWrapping="Wrap"/>

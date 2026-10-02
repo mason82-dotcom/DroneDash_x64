@@ -12,7 +12,7 @@ background:rgba(20,24,30,.9);color:#fff;padding:7px 12px;border-radius:5px;font-
 </style>
 </head>
 <body>
-<div id="map"></div><div id="banner">Karte bereit · Polygonmodus aus</div>
+<div id="map"></div><div id="banner">Karte bereit · Zeichenmodus aus</div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const map=L.map('map',{zoomControl:true}).setView([51.1657,10.4515],6);
@@ -21,7 +21,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
   attribution:'&copy; OpenStreetMap contributors'
 }).addTo(map);
 
-const polygonLayer=L.layerGroup().addTo(map);
+const geometryLayer=L.layerGroup().addTo(map);
 const routeLayer=L.layerGroup().addTo(map);
 const banner=document.getElementById('banner');
 let drawing=false;
@@ -33,30 +33,36 @@ map.on('click', e=>{
 
 function setDrawing(value){
   drawing=!!value;
-  banner.textContent=drawing?'Polygon zeichnen · Klick fügt Eckpunkt hinzu':'Polygonmodus aus';
+  banner.textContent=drawing?'Geometrie zeichnen · Klick fügt Punkt hinzu':'Zeichenmodus aus';
   map.getContainer().style.cursor=drawing?'crosshair':'grab';
 }
 
 function renderPlan(data){
-  polygonLayer.clearLayers();
+  geometryLayer.clearLayers();
   routeLayer.clearLayers();
 
   if(data.polygon && data.polygon.length){
     const pts=data.polygon.map(p=>[p.latitude,p.longitude]);
-    L.polygon(pts,{weight:2,fillOpacity:.12}).addTo(polygonLayer);
+    if(data.geometryMode==='strip'){
+      L.polyline(pts,{weight:5,opacity:.8}).addTo(geometryLayer);
+    } else if(pts.length>=3){
+      L.polygon(pts,{weight:2,fillOpacity:.12}).addTo(geometryLayer);
+    } else {
+      L.polyline(pts,{weight:2,opacity:.8}).addTo(geometryLayer);
+    }
     pts.forEach((p,i)=>L.circleMarker(p,{radius:4,weight:2,fillOpacity:1})
-      .bindTooltip(String(i+1),{permanent:false}).addTo(polygonLayer));
+      .bindTooltip(String(i+1),{permanent:false}).addTo(geometryLayer));
   }
 
   if(data.segments){
     data.segments.forEach((s,i)=>{
       L.polyline([[s.start.latitude,s.start.longitude],[s.end.latitude,s.end.longitude]],{
-        weight:3,opacity:.9
-      }).bindTooltip('Linie '+(i+1)).addTo(routeLayer);
+        weight:3,opacity:.85
+      }).bindTooltip((s.name||'Wayline')+' · Segment '+(i+1)).addTo(routeLayer);
     });
   }
 
-  const layers=[...polygonLayer.getLayers(),...routeLayer.getLayers()];
+  const layers=[...geometryLayer.getLayers(),...routeLayer.getLayers()];
   if(layers.length){
     const group=L.featureGroup(layers);
     const bounds=group.getBounds();

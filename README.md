@@ -179,9 +179,11 @@ exact source pixel and measured temperature. The original fixture is never modif
 ## DJI flight planning, mapping and photogrammetry
 
 The Windows client now contains a **Flugplanung** workspace backed by WebView2 and an
-OpenStreetMap/Leaflet map. It supports polygon-based mapping planning for M3E, M3T and M3M,
-serpentine flight-grid generation, GSD/footprint/overlap/photo-spacing calculations, distance,
-photo-count and flight-time estimates, and DJI WPML 1.0.2 KMZ export.
+OpenStreetMap/Leaflet map. It supports DJI-style **mapping2d**, **mapping3d** and
+**mappingStrip** planning for M3E, M3T and M3M, serpentine grid generation,
+GSD/footprint/overlap/photo-spacing calculations, distance, photo-count and flight-time
+estimates, and DJI WPML 1.0.2 KMZ export. Mapping 3D produces one Nadir plus four oblique
+waylines; Strip mode uses a drawn centerline and WPML left/right corridor extension.
 
 The planner uses DJI's Mavic 3 Enterprise WPML identifiers (aircraft type 77 with subtype
 0/1/2 and payload 66/67/68). Exported KMZ files contain `wpmz/template.kml`,
@@ -192,3 +194,16 @@ missions should be reviewed in DJI Pilot 2 before flight.
 M3E and M3M RGB GSD calculations use the 20 MP 4/3 mapping camera geometry. The M3T wide
 profile is explicitly marked as an inspection estimate because the 48 MP wide camera lacks the
 M3E mechanical-shutter survey profile.
+
+
+### Smart Oblique and terrain follow
+
+For M3E/M3T/M3M the planner can encode DJI Smart Oblique parameters in a Mapping 2D template
+and can set the WPML height mode to `realTimeFollowSurface` with a configured surface-relative
+height. These are template-level DJI planning features: DroneDash deliberately marks the locally
+generated executable waylines as a flat preview/fallback and expects DJI Pilot 2 to regenerate
+and validate Smart Oblique / terrain-follow execution before field use.
+
+The CI planning smoke test now covers all three WPML template types, verifies five executable
+folders for Mapping 3D, checks Smart Oblique and real-time terrain-follow fields, and validates
+the Mapping Strip `LineString` representation.

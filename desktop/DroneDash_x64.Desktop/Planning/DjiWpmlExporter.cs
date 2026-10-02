@@ -1,5 +1,5 @@
-using System.IO;
 using System.Globalization;
+using System.IO;
 using System.IO.Compression;
 using System.Xml.Linq;
 
@@ -27,43 +27,16 @@ public static class DjiWpmlExporter
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var settings = plan.Settings;
         var model = DjiModel(settings.Aircraft);
-        var coordinates = string.Join(" ",
-            plan.Polygon
-                .Concat([plan.Polygon[0]])
-                .Select(p => FormattableString.Invariant($"{p.Longitude:F8},{p.Latitude:F8},0")));
 
         var folder = new XElement(Kml + "Folder",
-            E("templateType", "mapping2d"),
+            E("templateType", TemplateType(settings.Mode)),
             E("templateId", 0),
-            new XElement(Wpml + "waylineCoordinateSysParam",
-                E("coordinateMode", "WGS84"),
-                E("heightMode", "relativeToStartPoint"),
-                E("globalShootHeight", F(settings.AltitudeMeters)),
-                E("positioningType", "GPS"),
-                E("surfaceFollowModeEnable", 0)),
+            CoordinateSystem(settings),
             E("autoFlightSpeed", F(settings.SpeedMetersPerSecond)),
             new XElement(Wpml + "payloadParam",
                 E("payloadPositionIndex", 0),
                 E("imageFormat", model.ImageFormat)),
-            new XElement(Kml + "Placemark",
-                E("elevationOptimizeEnable", 0),
-                E("shootType", "distance"),
-                E("direction", Math.Round(settings.GridAngleDegrees)),
-                E("margin", 0),
-                new XElement(Wpml + "overlap",
-                    E("orthoCameraOverlapH", settings.FrontOverlapPercent),
-                    E("orthoCameraOverlapW", settings.SideOverlapPercent)),
-                E("ellipsoidHeight", F(settings.AltitudeMeters)),
-                E("height", F(settings.AltitudeMeters)),
-                E("facadeWaylineEnable", 0),
-                new XElement(Wpml + "mappingHeadingParam",
-                    E("mappingHeadingMode", "followWayline")),
-                E("gimbalPitchMode", "fixed"),
-                E("gimbalPitchAngle", F(settings.GimbalPitchDegrees)),
-                new XElement(Kml + "Polygon",
-                    new XElement(Kml + "outerBoundaryIs",
-                        new XElement(Kml + "LinearRing",
-                            new XElement(Kml + "coordinates", coordinates))))));
+            BuildTemplatePlacemark(plan));
 
         return new XDocument(
             new XDeclaration("1.0", "UTF-8", null),
@@ -81,16 +54,124 @@ public static class DjiWpmlExporter
     {
         var settings = plan.Settings;
         var model = DjiModel(settings.Aircraft);
+        var document = new XElement(Kml + "Document",
+            MissionConfig(settings, model, includeRthHeight: true));
+
+        foreach (var pass in plan.Passes)
+            document.Add(BuildWaylineFolder(plan, pass));
+
+        return new XDocument(
+            new XDeclaration("1.0", "UTF-8", null),
+            new XElement(Kml + "kml",
+                new XAttribute(XNamespace.Xmlns + "wpml", Wpml),
+                document));
+    }
+
+    private static XElement CoordinateSystem(FlightPlanSettings settings)
+    {
+        var element = new XElement(Wpml + "waylineCoordinateSysParam",
+            E("coordinateMode", "WGS84"),
+            E("heightMode", settings.TerrainFollowEnabled ? "realTimeFollowSurface" : "relativeToStartPoint"),
+            E("globalShootHeight", F(settings.AltitudeMeters)),
+            E("positioningType", "GPS"),
+            E("surfaceFollowModeEnable", settings.TerrainFollowEnabled ? 1 : 0));
+
+        if (settings.TerrainFollowEnabled)
+            element.Add(E("surfaceRelativeHeight", F(settings.AltitudeMeters)));
+
+        return element;
+    }
+
+    private static XElement BuildTemplatePlacemark(FlightPlanResult plan) =>
+        plan.Settings.Mode switch
+        {
+            FlightPlanMode.Mapping2D => BuildMapping2DPlacemark(plan),
+            FlightPlanMode.Mapping3D => BuildMapping3DPlacemark(plan),
+            FlightPlanMode.MappingStrip => BuildMappingStripPlacemark(plan),
+            _ => throw new ArgumentOutOfRangeException(nameof(plan.Settings.Mode))
+        };
+
+    private static XElement BuildMapping2DPlacemark(FlightPlanResult plan)
+    {
+        var settings = plan.Settings;
+        var placemark = new XElement(Kml + "Placemark",
+            E("elevationOptimizeEnable", 0),
+            E("smartObliqueEnable", settings.SmartObliqueEnabled ? 1 : 0));
+
+        if (settings.SmartObliqueEnabled)
+            placemark.Add(E("smartObliqueGimbalPitch", F(settings.ObliqueGimbalPitchDegrees)));
+
+        placemark.Add(
+            E("shootType", "distance"),
+            E("direction", Math.Round(settings.GridAngleDegrees)),
+            E("margin", 0),
+            Overlap(settings, includeInclined: settings.SmartObliqueEnabled),
+            E("ellipsoidHeight", F(settings.AltitudeMeters)),
+            E("height", F(settings.AltitudeMeters)),
+            E("facadeWaylineEnable", 0),
+            new XElement(Wpml + "mappingHeadingParam",
+                E("mappingHeadingMode", "followWayline")),
+            E("gimbalPitchMode", "fixed"),
+            E("gimbalPitchAngle", F(settings.GimbalPitchDegrees)),
+            Polygon(plan.Geometry));
+
+        return placemark;
+    }
+
+    private static XElement BuildMapping3DPlacemark(FlightPlanResult plan)
+    {
+        var settings = plan.Settings;
+        return new XElement(Kml + "Placemark",
+            E("inclinedGimbalPitch", F(settings.ObliqueGimbalPitchDegrees)),
+            E("inclinedFlightSpeed", F(settings.SpeedMetersPerSecond)),
+            E("shootType", "distance"),
+            E("direction", Math.Round(settings.GridAngleDegrees)),
+            E("margin", 0),
+            Overlap(settings, includeInclined: true),
+            E("ellipsoidHeight", F(settings.AltitudeMeters)),
+            E("height", F(settings.AltitudeMeters)),
+            Polygon(plan.Geometry));
+    }
+
+    private static XElement BuildMappingStripPlacemark(FlightPlanResult plan)
+    {
+        var settings = plan.Settings;
+        var coordinates = string.Join(" ",
+            plan.Geometry.Select(p =>
+                FormattableString.Invariant($"{p.Longitude:F8},{p.Latitude:F8},{settings.AltitudeMeters:F3}")));
+
+        return new XElement(Kml + "Placemark",
+            E("caliFlightEnable", 0),
+            E("shootType", "distance"),
+            E("direction", Math.Round(settings.GridAngleDegrees)),
+            E("margin", 0),
+            E("singleLineEnable", 0),
+            E("cuttingDistance", 500),
+            E("boundaryOptimEnable", 1),
+            E("leftExtend", Math.Round(settings.StripHalfWidthMeters)),
+            E("rightExtend", Math.Round(settings.StripHalfWidthMeters)),
+            E("includeCenterEnable", 1),
+            Overlap(settings, includeInclined: false),
+            E("ellipsoidHeight", F(settings.AltitudeMeters)),
+            E("height", F(settings.AltitudeMeters)),
+            E("stripUseTemplateAltitude", 1),
+            new XElement(Kml + "LineString",
+                new XElement(Kml + "coordinates", coordinates)));
+    }
+
+    private static XElement BuildWaylineFolder(FlightPlanResult plan, FlightPass pass)
+    {
+        var settings = plan.Settings;
         var folder = new XElement(Kml + "Folder",
             E("templateId", 0),
             E("executeHeightMode", "relativeToStartPoint"),
-            E("waylineId", 0),
+            E("waylineId", pass.WaylineId),
             E("autoFlightSpeed", F(settings.SpeedMetersPerSecond)));
 
         var waypointIndex = 0;
-        var actionGroupId = 1;
+        var actionGroupId = pass.WaylineId * 10_000 + 1;
 
-        foreach (var segment in plan.Segments)
+        foreach (var segment in pass.Segments)
         {
             var startIndex = waypointIndex;
             folder.Add(Waypoint(segment.Start, waypointIndex++, settings));
@@ -109,7 +190,7 @@ public static class DjiWpmlExporter
                     E("actionId", 0),
                     E("actionActuatorFunc", "takePhoto"),
                     new XElement(Wpml + "actionActuatorFuncParam",
-                        E("fileSuffix", $"map_{startIndex:D4}"),
+                        E("fileSuffix", $"map_{pass.WaylineId:D2}_{startIndex:D4}"),
                         E("payloadPositionIndex", 0),
                         E("useGlobalPayloadLensIndex", 1)))));
 
@@ -119,7 +200,7 @@ public static class DjiWpmlExporter
         if (folder.Elements(Kml + "Placemark").FirstOrDefault() is XElement first)
         {
             first.Add(new XElement(Wpml + "actionGroup",
-                E("actionGroupId", 0),
+                E("actionGroupId", pass.WaylineId * 10_000),
                 E("actionGroupStartIndex", 0),
                 E("actionGroupEndIndex", 0),
                 E("actionGroupMode", "sequence"),
@@ -131,7 +212,7 @@ public static class DjiWpmlExporter
                     new XElement(Wpml + "actionActuatorFuncParam",
                         E("gimbalRotateMode", "absoluteAngle"),
                         E("gimbalPitchRotateEnable", 1),
-                        E("gimbalPitchRotateAngle", F(settings.GimbalPitchDegrees)),
+                        E("gimbalPitchRotateAngle", F(pass.GimbalPitchDegrees)),
                         E("gimbalRollRotateEnable", 0),
                         E("gimbalRollRotateAngle", 0),
                         E("gimbalYawRotateEnable", 0),
@@ -141,13 +222,7 @@ public static class DjiWpmlExporter
                         E("payloadPositionIndex", 0)))));
         }
 
-        return new XDocument(
-            new XDeclaration("1.0", "UTF-8", null),
-            new XElement(Kml + "kml",
-                new XAttribute(XNamespace.Xmlns + "wpml", Wpml),
-                new XElement(Kml + "Document",
-                    MissionConfig(settings, model, includeRthHeight: true),
-                    folder)));
+        return folder;
     }
 
     private static XElement Waypoint(GeoPoint point, int index, FlightPlanSettings settings) =>
@@ -190,6 +265,44 @@ public static class DjiWpmlExporter
 
         return config;
     }
+
+    private static XElement Polygon(IReadOnlyList<GeoPoint> polygon)
+    {
+        var coordinates = string.Join(" ",
+            polygon
+                .Concat([polygon[0]])
+                .Select(p => FormattableString.Invariant($"{p.Longitude:F8},{p.Latitude:F8},0")));
+
+        return new XElement(Kml + "Polygon",
+            new XElement(Kml + "outerBoundaryIs",
+                new XElement(Kml + "LinearRing",
+                    new XElement(Kml + "coordinates", coordinates))));
+    }
+
+    private static XElement Overlap(FlightPlanSettings settings, bool includeInclined)
+    {
+        var element = new XElement(Wpml + "overlap",
+            E("orthoCameraOverlapH", settings.FrontOverlapPercent),
+            E("orthoCameraOverlapW", settings.SideOverlapPercent));
+
+        if (includeInclined)
+        {
+            element.Add(
+                E("inclinedCameraOverlapH", settings.FrontOverlapPercent),
+                E("inclinedCameraOverlapW", settings.SideOverlapPercent));
+        }
+
+        return element;
+    }
+
+    private static string TemplateType(FlightPlanMode mode) =>
+        mode switch
+        {
+            FlightPlanMode.Mapping2D => "mapping2d",
+            FlightPlanMode.Mapping3D => "mapping3d",
+            FlightPlanMode.MappingStrip => "mappingStrip",
+            _ => throw new ArgumentOutOfRangeException(nameof(mode))
+        };
 
     private static DjiModelInfo DjiModel(DjiAircraftProfile profile) =>
         profile switch

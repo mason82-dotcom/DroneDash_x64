@@ -7,6 +7,13 @@ public enum DjiAircraftProfile
     M3M
 }
 
+public enum FlightPlanMode
+{
+    Mapping2D,
+    Mapping3D,
+    MappingStrip
+}
+
 public sealed record GeoPoint(double Latitude, double Longitude);
 
 public sealed record RouteSegment(
@@ -14,19 +21,33 @@ public sealed record RouteSegment(
     GeoPoint End,
     double LengthMeters);
 
+public sealed record FlightPass(
+    int WaylineId,
+    string Name,
+    double GridAngleDegrees,
+    double GimbalPitchDegrees,
+    bool IsOblique,
+    IReadOnlyList<RouteSegment> Segments);
+
 public sealed record FlightPlanSettings(
     string Name,
     DjiAircraftProfile Aircraft,
+    FlightPlanMode Mode,
     double AltitudeMeters,
     double SpeedMetersPerSecond,
     int FrontOverlapPercent,
     int SideOverlapPercent,
     double GridAngleDegrees,
-    double GimbalPitchDegrees);
+    double GimbalPitchDegrees,
+    double ObliqueGimbalPitchDegrees,
+    bool SmartObliqueEnabled,
+    bool TerrainFollowEnabled,
+    double StripHalfWidthMeters);
 
 public sealed record FlightPlanResult(
     FlightPlanSettings Settings,
-    IReadOnlyList<GeoPoint> Polygon,
+    IReadOnlyList<GeoPoint> Geometry,
+    IReadOnlyList<FlightPass> Passes,
     IReadOnlyList<RouteSegment> Segments,
     double AreaSquareMeters,
     double FootprintWidthMeters,
