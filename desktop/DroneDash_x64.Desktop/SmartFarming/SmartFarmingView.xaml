@@ -304,6 +304,97 @@
         </Grid>
       </TabItem>
 
+      <TabItem Header="ODM-Feldprodukte">
+        <Grid Margin="10">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+          </Grid.RowDefinitions>
+
+          <StackPanel Grid.Row="0">
+            <TextBlock Text="NodeODM-Ergebnis → georeferenzierte Feldprodukte"
+                       FontSize="16"
+                       FontWeight="SemiBold"/>
+            <TextBlock Margin="0,3,0,8"
+                       TextWrapping="Wrap"
+                       Text="Importiert NodeODM all.zip sicher, findet odm_orthophoto.tif, liest die Bandzuordnung per GDAL und erzeugt NDVI, NDRE, GNDVI sowie eine 5-Klassen-NDVI-Scouting-Zonenkarte."/>
+            <WrapPanel>
+              <Button Content="NodeODM ZIP importieren"
+                      Click="ImportNodeOdmZip_Click"/>
+              <Button x:Name="GenerateOdmFieldProductsButton"
+                      Content="Feldprodukte berechnen"
+                      Click="GenerateOdmFieldProducts_Click"
+                      IsEnabled="False"/>
+              <Button x:Name="CancelOdmFieldProductsButton"
+                      Content="Abbrechen"
+                      Click="CancelOdmFieldProducts_Click"
+                      IsEnabled="False"/>
+            </WrapPanel>
+          </StackPanel>
+
+          <Border Grid.Row="1"
+                  Margin="0,8,0,8"
+                  Padding="10"
+                  Background="#EEF5F7"
+                  BorderBrush="#4A6572"
+                  BorderThickness="1"
+                  CornerRadius="4">
+            <TextBlock x:Name="OdmImportedStatusText"
+                       Text="Noch kein NodeODM ZIP importiert."
+                       TextWrapping="Wrap"/>
+          </Border>
+
+          <Grid Grid.Row="2" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="120"/>
+              <ColumnDefinition Width="90"/>
+              <ColumnDefinition Width="120"/>
+              <ColumnDefinition Width="90"/>
+              <ColumnDefinition Width="120"/>
+              <ColumnDefinition Width="90"/>
+              <ColumnDefinition Width="120"/>
+              <ColumnDefinition Width="90"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="Z1/Z2 Grenze" VerticalAlignment="Center"/>
+            <TextBox x:Name="ZoneThreshold1Box" Grid.Column="1" Text="0.20"/>
+            <TextBlock Grid.Column="2" Text="Z2/Z3 Grenze" VerticalAlignment="Center"/>
+            <TextBox x:Name="ZoneThreshold2Box" Grid.Column="3" Text="0.40"/>
+            <TextBlock Grid.Column="4" Text="Z3/Z4 Grenze" VerticalAlignment="Center"/>
+            <TextBox x:Name="ZoneThreshold3Box" Grid.Column="5" Text="0.60"/>
+            <TextBlock Grid.Column="6" Text="Z4/Z5 Grenze" VerticalAlignment="Center"/>
+            <TextBox x:Name="ZoneThreshold4Box" Grid.Column="7" Text="0.80"/>
+            <TextBlock Grid.Column="8"
+                       Margin="10,0,0,0"
+                       TextWrapping="Wrap"
+                       Text="Die Zonen sind Scouting-Klassen, keine automatische Dünge-/Bewässerungs-/Pflanzenschutzempfehlung."/>
+          </Grid>
+
+          <StackPanel Grid.Row="3">
+            <ProgressBar x:Name="OdmFieldProductProgress"
+                         Minimum="0"
+                         Maximum="100"
+                         Height="6"/>
+            <TextBlock x:Name="OdmFieldProductStatusText"
+                       Margin="0,4,0,8"
+                       Text="Keine Feldproduktberechnung aktiv."
+                       TextWrapping="Wrap"/>
+          </StackPanel>
+
+          <TextBox x:Name="OdmFieldProductLogText"
+                   Grid.Row="4"
+                   IsReadOnly="True"
+                   AcceptsReturn="True"
+                   VerticalScrollBarVisibility="Auto"
+                   HorizontalScrollBarVisibility="Auto"
+                   FontFamily="Consolas"
+                   Text="Feldprodukt-Log erscheint hier."/>
+        </Grid>
+      </TabItem>
+
       <TabItem Header="Agrar-Workflows">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
           <UniformGrid Columns="2" Margin="10">

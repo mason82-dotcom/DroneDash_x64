@@ -337,3 +337,15 @@ streams complete Green/Red/Red-Edge/NIR datasets through the NodeODM init/upload
 monitors task progress, supports task cancellation and downloads the completed `all.zip`.
 The M3M task uses NIR as primary band and offers ODM radiometric calibration `camera` or the
 experimental `camera+sun` mode.
+
+### NodeODM result import and field products
+
+Smart Farming can import a completed NodeODM `all.zip`, securely extract it, locate the
+georeferenced `odm_orthophoto.tif`, inspect its CRS/bands through local GDAL and resolve the
+M3M Red/Green/NIR/Red-Edge band mapping. Band descriptions are preferred; a controlled
+four-band ODM M3M fallback is surfaced as a warning when descriptions are absent.
+
+DroneDash can then generate georeferenced NDVI, NDRE and GNDVI GeoTIFFs plus a configurable
+five-class NDVI scouting-zone GeoTIFF through OTB. The defaults are 0.20 / 0.40 / 0.60 / 0.80,
+and the UI explicitly treats these as scouting classes rather than agronomic diagnosis or
+machine-ready application rates.

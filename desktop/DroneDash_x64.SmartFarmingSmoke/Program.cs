@@ -1,4 +1,5 @@
 using System.IO;
+using System.IO.Compression;
 using DroneDash_x64.Desktop.SmartFarming;
 using DroneDash_x64.Desktop.SmartFarming.LocalProcessing;
 using DroneDash_x64.Desktop.SmartFarming.Odm;
@@ -221,6 +222,209 @@ finally
     {
         Directory.Delete(
             runnerRoot,
+            recursive: true);
+    }
+    catch
+    {
+    }
+}
+
+
+var describedGdalInfo = """
+{
+  "driverShortName": "GTiff",
+  "size": [1200, 900],
+  "coordinateSystem": {
+    "wkt": "PROJCRS[\"WGS 84 / UTM zone 32N\",BASEGEOGCRS[\"WGS 84\"]]"
+  },
+  "bands": [
+    { "band": 1, "description": "Green" },
+    { "band": 2, "description": "NIR" },
+    { "band": 3, "description": "Red Edge" },
+    { "band": 4, "description": "Red" }
+  ]
+}
+""";
+
+var describedOrthophoto =
+    OdmOrthophotoInspector.ParseGdalInfoJson(
+        @"C:\odm\odm_orthophoto.tif",
+        describedGdalInfo,
+        allowM3mFallback: false);
+
+if (describedOrthophoto.BandMap.RedBand != 4 ||
+    describedOrthophoto.BandMap.GreenBand != 1 ||
+    describedOrthophoto.BandMap.NirBand != 2 ||
+    describedOrthophoto.BandMap.RedEdgeBand != 3)
+{
+    throw new InvalidDataException(
+        "GDAL band descriptions were not mapped correctly.");
+}
+
+var fallbackGdalInfo = """
+{
+  "driverShortName": "GTiff",
+  "size": [1200, 900],
+  "bands": [
+    { "band": 1 },
+    { "band": 2 },
+    { "band": 3 },
+    { "band": 4 }
+  ]
+}
+""";
+
+var fallbackOrthophoto =
+    OdmOrthophotoInspector.ParseGdalInfoJson(
+        @"C:\odm\odm_orthophoto.tif",
+        fallbackGdalInfo,
+        allowM3mFallback: true);
+
+if (fallbackOrthophoto.BandMap.RedBand != 1 ||
+    fallbackOrthophoto.BandMap.GreenBand != 2 ||
+    fallbackOrthophoto.BandMap.NirBand != 3 ||
+    fallbackOrthophoto.BandMap.RedEdgeBand != 4 ||
+    fallbackOrthophoto.Warnings.Count == 0)
+{
+    throw new InvalidDataException(
+        "ODM M3M normalized-band fallback is incorrect.");
+}
+
+var zones = NdviScoutingZoneSettings.Default;
+var zoneExpression =
+    OdmFieldProductPlanBuilder.BuildZoneExpression(zones);
+
+if (!zoneExpression.Contains(
+        "im1b1<0.2?1",
+        StringComparison.Ordinal) ||
+    !zoneExpression.EndsWith(
+        "?4:5)))",
+        StringComparison.Ordinal))
+{
+    throw new InvalidDataException(
+        "NDVI scouting-zone expression is incorrect.");
+}
+
+var fieldPlan =
+    OdmFieldProductPlanBuilder.Build(
+        describedOrthophoto,
+        Path.Combine(
+            Path.GetTempPath(),
+            "DroneDash_FieldProducts_Smoke"),
+        fakeToolchain,
+        zones);
+
+if (fieldPlan.Steps.Count != 4 ||
+    !fieldPlan.Steps.Any(step =>
+        step.Id == "odm-ndvi" &&
+        step.Arguments.Contains(
+            "(im1b2-im1b4)/(im1b2+im1b4+1e-12)")) ||
+    !fieldPlan.Steps.Any(step =>
+        step.Id == "odm-ndre" &&
+        step.Arguments.Contains(
+            "(im1b2-im1b3)/(im1b2+im1b3+1e-12)")) ||
+    !fieldPlan.Steps.Any(step =>
+        step.Id == "odm-gndvi" &&
+        step.Arguments.Contains(
+            "(im1b2-im1b1)/(im1b2+im1b1+1e-12)")))
+{
+    throw new InvalidDataException(
+        "ODM field-product plan does not use the mapped bands.");
+}
+
+var zipSmokeRoot =
+    Path.Combine(
+        Path.GetTempPath(),
+        "DroneDash_OdmZip_" +
+        Guid.NewGuid().ToString("N"));
+
+Directory.CreateDirectory(zipSmokeRoot);
+
+try
+{
+    var safeZip =
+        Path.Combine(
+            zipSmokeRoot,
+            "all.zip");
+
+    using (var archive =
+           ZipFile.Open(
+               safeZip,
+               ZipArchiveMode.Create))
+    {
+        var entry =
+            archive.CreateEntry(
+                "odm_orthophoto/odm_orthophoto.tif");
+
+        using var writer =
+            new StreamWriter(entry.Open());
+
+        writer.Write("synthetic");
+    }
+
+    var extracted =
+        OdmResultImporter.ExtractSafely(
+            safeZip,
+            Path.Combine(
+                zipSmokeRoot,
+                "safe"));
+
+    var foundOrthophoto =
+        OdmResultImporter.FindOrthophoto(
+            extracted);
+
+    if (!File.Exists(foundOrthophoto))
+        throw new InvalidDataException(
+            "Safe ODM ZIP extraction did not find the orthophoto.");
+
+    var maliciousZip =
+        Path.Combine(
+            zipSmokeRoot,
+            "malicious.zip");
+
+    using (var archive =
+           ZipFile.Open(
+               maliciousZip,
+               ZipArchiveMode.Create))
+    {
+        var entry =
+            archive.CreateEntry(
+                "../escape.txt");
+
+        using var writer =
+            new StreamWriter(entry.Open());
+
+        writer.Write("blocked");
+    }
+
+    var rejected = false;
+
+    try
+    {
+        OdmResultImporter.ExtractSafely(
+            maliciousZip,
+            Path.Combine(
+                zipSmokeRoot,
+                "malicious"));
+    }
+    catch (InvalidDataException)
+    {
+        rejected = true;
+    }
+
+    if (!rejected)
+        throw new InvalidDataException(
+            "ZIP path traversal was not rejected.");
+
+    Console.WriteLine(
+        $"PASS ODM field products · {describedOrthophoto.BandMap.ToDisplayText()} · {zones.LegendText}");
+}
+finally
+{
+    try
+    {
+        Directory.Delete(
+            zipSmokeRoot,
             recursive: true);
     }
     catch

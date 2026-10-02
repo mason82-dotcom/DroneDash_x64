@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -23,6 +24,9 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
     private string? _nodeOdmTaskUuid;
     private CancellationTokenSource? _nodeOdmMonitorCts;
     private NodeOdmServerInfo? _nodeOdmServer;
+    private string? _lastNodeOdmZipPath;
+    private OdmImportedResult? _odmImported;
+    private CancellationTokenSource? _odmFieldProductCts;
 
     public SmartFarmingView()
     {
@@ -679,8 +683,11 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
                 dialog.SelectedPath,
                 progress);
 
+            _lastNodeOdmZipPath = path;
             NodeOdmStatusText.Text =
                 $"NodeODM-Ergebnis gespeichert: {path}";
+            OdmImportedStatusText.Text =
+                $"NodeODM ZIP heruntergeladen und bereit zum Import: {path}";
         }
         catch (Exception ex)
         {
@@ -699,6 +706,321 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         NodeOdmLogText.AppendText(
             $"[{DateTimeOffset.Now:HH:mm:ss}] {line}{Environment.NewLine}");
         NodeOdmLogText.ScrollToEnd();
+    }
+
+    private async void ImportNodeOdmZip_Click(object sender, RoutedEventArgs e)
+    {
+        using var fileDialog = new WinForms.OpenFileDialog
+        {
+            Title = "NodeODM all.zip importieren",
+            Filter = "ZIP-Archive (*.zip)|*.zip|Alle Dateien (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+
+        if (!string.IsNullOrWhiteSpace(_lastNodeOdmZipPath) &&
+            File.Exists(_lastNodeOdmZipPath))
+        {
+            fileDialog.InitialDirectory =
+                Path.GetDirectoryName(_lastNodeOdmZipPath);
+            fileDialog.FileName =
+                Path.GetFileName(_lastNodeOdmZipPath);
+        }
+
+        if (fileDialog.ShowDialog() != WinForms.DialogResult.OK)
+            return;
+
+        using var folderDialog = new WinForms.FolderBrowserDialog
+        {
+            Description = "Zielordner zum sicheren Extrahieren des NodeODM-Ergebnisses auswählen",
+            ShowNewFolderButton = true,
+            SelectedPath =
+                Path.GetDirectoryName(fileDialog.FileName) ?? ""
+        };
+
+        if (folderDialog.ShowDialog() != WinForms.DialogResult.OK)
+            return;
+
+        GenerateOdmFieldProductsButton.IsEnabled = false;
+        OdmFieldProductProgress.Value = 0;
+        OdmImportedStatusText.Text =
+            "NodeODM ZIP wird sicher extrahiert und das Orthomosaik wird geprüft …";
+
+        try
+        {
+            var zipPath =
+                Path.GetFullPath(fileDialog.FileName);
+
+            var extractionRoot =
+                Path.Combine(
+                    folderDialog.SelectedPath,
+                    Path.GetFileNameWithoutExtension(zipPath) +
+                    "_extracted");
+
+            var extracted =
+                await Task.Run(() =>
+                    OdmResultImporter.ExtractSafely(
+                        zipPath,
+                        extractionRoot));
+
+            var orthophoto =
+                OdmResultImporter.FindOrthophoto(
+                    extracted);
+
+            var info =
+                await OdmOrthophotoInspector.InspectAsync(
+                    orthophoto);
+
+            _odmImported =
+                new OdmImportedResult(
+                    zipPath,
+                    extracted,
+                    orthophoto,
+                    info,
+                    info.Warnings);
+
+            _lastNodeOdmZipPath =
+                zipPath;
+
+            OdmImportedStatusText.Text =
+                $"Importiert: {zipPath}\n" +
+                $"Orthomosaik: {info.SummaryText}\n" +
+                $"CRS: {info.CoordinateSystemName ?? "—"}\n" +
+                $"Bandbeschreibungen: {string.Join(" | ", info.BandDescriptions)}" +
+                (info.Warnings.Count > 0
+                    ? "\nHinweise: " +
+                      string.Join(" | ", info.Warnings)
+                    : "");
+
+            GenerateOdmFieldProductsButton.IsEnabled = true;
+            OdmFieldProductStatusText.Text =
+                "ODM-Orthomosaik bereit für Feldprodukte.";
+        }
+        catch (Exception ex)
+        {
+            _odmImported = null;
+            OdmImportedStatusText.Text =
+                $"NodeODM-Import fehlgeschlagen: {ex.Message}";
+            System.Windows.MessageBox.Show(
+                ex.Message,
+                "ODM-Feldprodukte",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
+    private async void GenerateOdmFieldProducts_Click(object sender, RoutedEventArgs e)
+    {
+        if (_odmImported is null)
+        {
+            System.Windows.MessageBox.Show(
+                "Zuerst ein NodeODM all.zip importieren.",
+                "ODM-Feldprodukte",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        NdviScoutingZoneSettings zoneSettings;
+
+        try
+        {
+            zoneSettings =
+                new NdviScoutingZoneSettings(
+                    ParseFlexibleDouble(
+                        ZoneThreshold1Box.Text,
+                        "Z1/Z2"),
+                    ParseFlexibleDouble(
+                        ZoneThreshold2Box.Text,
+                        "Z2/Z3"),
+                    ParseFlexibleDouble(
+                        ZoneThreshold3Box.Text,
+                        "Z3/Z4"),
+                    ParseFlexibleDouble(
+                        ZoneThreshold4Box.Text,
+                        "Z4/Z5"));
+
+            zoneSettings.Validate();
+        }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show(
+                ex.Message,
+                "NDVI-Scouting-Zonen",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        _toolchain ??=
+            await LocalImageToolchain.ProbeAsync();
+
+        if (!_toolchain.Otb.Available ||
+            string.IsNullOrWhiteSpace(_toolchain.OtbBandMath) ||
+            string.IsNullOrWhiteSpace(_toolchain.OtbBandMathX))
+        {
+            System.Windows.MessageBox.Show(
+                "Orfeo ToolBox mit BandMath und BandMathX wird für die georeferenzierten Feldprodukte benötigt.",
+                "ODM-Feldprodukte",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        using var folderDialog =
+            new WinForms.FolderBrowserDialog
+            {
+                Description = "Zielordner für georeferenzierte Smart-Farming-Feldprodukte auswählen",
+                ShowNewFolderButton = true,
+                SelectedPath =
+                    _odmImported.ExtractedRoot
+            };
+
+        if (folderDialog.ShowDialog() !=
+            WinForms.DialogResult.OK)
+        {
+            return;
+        }
+
+        var workspace =
+            Path.Combine(
+                folderDialog.SelectedPath,
+                "DroneDash_FieldProducts");
+
+        var plan =
+            OdmFieldProductPlanBuilder.Build(
+                _odmImported.Orthophoto,
+                workspace,
+                _toolchain,
+                zoneSettings);
+
+        var output =
+            LocalProcessingPlanExporter.Export(
+                plan);
+
+        var manifest =
+            OdmFieldProductExporter.ExportManifest(
+                workspace,
+                _odmImported.Orthophoto,
+                zoneSettings);
+
+        var confirmation =
+            System.Windows.MessageBox.Show(
+                "Georeferenzierte Feldprodukte jetzt berechnen?\n\n" +
+                $"{_odmImported.Orthophoto.BandMap.ToDisplayText()}\n" +
+                $"{zoneSettings.LegendText}\n\n" +
+                "Die NDVI-Zonen sind ausschließlich Scouting-Klassen und keine automatische Betriebsmittel-Empfehlung.",
+                "ODM-Feldprodukte",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+        if (confirmation !=
+            MessageBoxResult.Yes)
+        {
+            OdmFieldProductStatusText.Text =
+                $"Plan erzeugt: {output.JsonPath} · Manifest: {manifest}";
+            return;
+        }
+
+        _odmFieldProductCts?.Dispose();
+        _odmFieldProductCts =
+            new CancellationTokenSource();
+
+        GenerateOdmFieldProductsButton.IsEnabled =
+            false;
+        CancelOdmFieldProductsButton.IsEnabled =
+            true;
+        OdmFieldProductProgress.Value = 0;
+        OdmFieldProductLogText.Clear();
+
+        var progress =
+            new Progress<LocalProcessingProgress>(
+                value =>
+                {
+                    OdmFieldProductProgress.Value =
+                        value.Percent;
+
+                    OdmFieldProductStatusText.Text =
+                        $"{value.CompletedSteps}/{value.TotalSteps} · {value.Message}";
+                });
+
+        try
+        {
+            var result =
+                await LocalProcessingRunner.RunAsync(
+                    plan,
+                    progress,
+                    line =>
+                        Dispatcher.BeginInvoke(() =>
+                        {
+                            OdmFieldProductLogText.AppendText(
+                                line +
+                                Environment.NewLine);
+
+                            OdmFieldProductLogText.ScrollToEnd();
+                        }),
+                    _odmFieldProductCts.Token);
+
+            OdmFieldProductProgress.Value =
+                result.Success
+                    ? 100
+                    : OdmFieldProductProgress.Value;
+
+            OdmFieldProductStatusText.Text =
+                result.Success
+                    ? $"Feldprodukte abgeschlossen · {manifest} · Log: {result.LogPath}"
+                    : result.Canceled
+                        ? $"Feldproduktberechnung abgebrochen · Log: {result.LogPath}"
+                        : $"Feldproduktberechnung fehlgeschlagen bei {result.FailedStepId} · ExitCode {result.ExitCode} · Log: {result.LogPath}";
+        }
+        catch (Exception ex)
+        {
+            OdmFieldProductStatusText.Text =
+                $"Feldproduktberechnung fehlgeschlagen: {ex.Message}";
+        }
+        finally
+        {
+            CancelOdmFieldProductsButton.IsEnabled =
+                false;
+
+            GenerateOdmFieldProductsButton.IsEnabled =
+                _odmImported is not null;
+        }
+    }
+
+    private void CancelOdmFieldProducts_Click(object sender, RoutedEventArgs e)
+    {
+        _odmFieldProductCts?.Cancel();
+        OdmFieldProductStatusText.Text =
+            "Abbruch angefordert …";
+    }
+
+    private static double ParseFlexibleDouble(
+        string text,
+        string label)
+    {
+        if (double.TryParse(
+                text,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out var invariant) &&
+            double.IsFinite(invariant))
+        {
+            return invariant;
+        }
+
+        if (double.TryParse(
+                text,
+                NumberStyles.Float,
+                CultureInfo.CurrentCulture,
+                out var current) &&
+            double.IsFinite(current))
+        {
+            return current;
+        }
+
+        throw new FormatException(
+            $"{label}: ungültige Zahl.");
     }
 
     private void SetBusy(bool busy)

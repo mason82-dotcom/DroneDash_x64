@@ -124,3 +124,31 @@ very different RGB camera when the multispectral camera set is present.
 OpenDroneMap's current multispectral documentation lists DJI Mavic 3 Multispectral as supported
 starting with ODM 3.5.3. It recommends processing all multispectral bands together and supports
 radiometric calibration modes `camera` and `camera+sun`.
+
+## ODM field products
+
+Completed NodeODM `all.zip` results can be imported back into DroneDash. ZIP extraction is
+path-normalized and rejects path traversal and Unix symlink entries before writing to disk.
+DroneDash locates `odm_orthophoto/odm_orthophoto.tif` (or one unambiguous equivalent in the
+archive), then calls local `gdalinfo -json` to inspect raster dimensions, CRS and band metadata.
+
+Band mapping is conservative. If GDAL band descriptions identify Red, Green, NIR and Red Edge,
+those descriptions are authoritative. For a four-band orthophoto produced by the DroneDash
+M3M-only NodeODM path, missing descriptions may fall back to ODM's current normalized
+multispectral order: Red, Green, NIR, Red Edge. The UI surfaces this fallback as a warning.
+
+From the georeferenced ODM orthophoto DroneDash builds a four-step OTB field-product plan:
+
+1. NDVI GeoTIFF from NIR and Red;
+2. NDRE GeoTIFF from NIR and Red Edge;
+3. GNDVI GeoTIFF from NIR and Green;
+4. a five-class NDVI scouting-zone GeoTIFF.
+
+The default scouting thresholds are 0.20, 0.40, 0.60 and 0.80. They are operator-editable and
+are intentionally described as scouting classes, not crop diagnosis, fertilizer rates,
+irrigation prescriptions or pesticide recommendations. The generated `field-products.json`
+records the source orthophoto, resolved band mapping, thresholds and output paths.
+
+Current ODM source normalizes identifiable multispectral bands with Red before Green, then NIR
+and Red Edge (when RGB/Blue are absent), while the standard ODM output path remains
+`odm_orthophoto/odm_orthophoto.tif`.

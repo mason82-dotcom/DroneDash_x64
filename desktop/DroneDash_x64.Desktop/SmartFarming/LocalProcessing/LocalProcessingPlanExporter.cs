@@ -23,6 +23,19 @@ public static class LocalProcessingPlanExporter
         Directory.CreateDirectory(Path.Combine(plan.Workspace, "corrected"));
         Directory.CreateDirectory(Path.Combine(plan.Workspace, "indices"));
 
+        foreach (var step in plan.Steps)
+        {
+            if (string.IsNullOrWhiteSpace(step.OutputPath))
+                continue;
+
+            var outputDirectory =
+                Path.GetDirectoryName(
+                    Path.GetFullPath(step.OutputPath));
+
+            if (!string.IsNullOrWhiteSpace(outputDirectory))
+                Directory.CreateDirectory(outputDirectory);
+        }
+
         var jsonPath = Path.Combine(
             plan.Workspace,
             "local-processing-plan.json");
