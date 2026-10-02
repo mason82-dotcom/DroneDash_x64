@@ -1,0 +1,12 @@
+.vs/
+.vscode/settings.json
+**/bin/
+**/obj/
+**/.gradle/
+**/build/
+**/local.properties
+**/*.jks
+**/*.keystore
+*.user
+*.suo
+.DS_Store

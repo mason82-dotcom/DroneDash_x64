@@ -1,0 +1,16 @@
+{
+  "folders": [
+    { "name": "Root", "path": "." },
+    { "name": "Windows Desktop", "path": "desktop/DroneDash_x64.Desktop" },
+    { "name": "Mock RC", "path": "desktop/DroneDash_x64.MockRc" },
+    { "name": "RC Pro Enterprise Agent", "path": "rc-agent" }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/bin": true,
+      "**/obj": true,
+      "**/.gradle": true,
+      "**/build": true
+    }
+  }
+}

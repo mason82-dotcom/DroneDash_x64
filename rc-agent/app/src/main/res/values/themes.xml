@@ -1,0 +1,9 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+  <style name="Theme.M3EBridge" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <item name="android:fontFamily">sans</item>
+    <item name="android:windowLightStatusBar">false</item>
+    <item name="colorPrimary">#1C6DD0</item>
+    <item name="colorPrimaryVariant">#124A8A</item>
+    <item name="colorSecondary">#6CB4EE</item>
+  </style>
+</resources>

@@ -1,0 +1,59 @@
+package com.example.m3ebridge
+
+import android.os.Bundle
+import android.widget.TextView
+import androidx.appcompat.app.AppCompatActivity
+import java.net.NetworkInterface
+import java.util.Collections
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+
+class MainActivity : AppCompatActivity() {
+    private val scheduler = Executors.newSingleThreadScheduledExecutor()
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        scheduler.scheduleAtFixedRate({
+            val app = application as BridgeApplication
+            val status = buildString {
+                append("SDK: ")
+                append(app.djiRuntime.sdkVersion())
+                append("\nPhase: ")
+                append(app.djiRuntime.phase.get())
+                append("\nRegistered: ")
+                append(app.djiRuntime.registered.get())
+                append("\nAircraft connected: ")
+                append(app.djiRuntime.productConnected.get())
+                app.djiRuntime.lastError.get()?.let {
+                    append("\nError: ")
+                    append(it)
+                }
+            }
+
+            runOnUiThread {
+                findViewById<TextView>(R.id.sdk_status).text = status
+                findViewById<TextView>(R.id.bridge_status).text =
+                    "Bridge aktiv · TCP 49152 · Token: ${if (BuildConfig.BRIDGE_TOKEN == "change-me-now") "DEFAULT (ändern!)" else "konfiguriert"}"
+                findViewById<TextView>(R.id.network_info).text =
+                    "USB: adb forward tcp:49152 tcp:49152\n\nLAN-Adressen:\n${localAddresses().joinToString("\n")}"
+            }
+        }, 0, 1, TimeUnit.SECONDS)
+    }
+
+    override fun onDestroy() {
+        scheduler.shutdownNow()
+        super.onDestroy()
+    }
+
+    private fun localAddresses(): List<String> =
+        runCatching {
+            Collections.list(NetworkInterface.getNetworkInterfaces())
+                .flatMap { iface ->
+                    Collections.list(iface.inetAddresses)
+                        .filter { !it.isLoopbackAddress && !it.isLinkLocalAddress }
+                        .map { "${it.hostAddress}:49152" }
+                }
+        }.getOrDefault(emptyList())
+}

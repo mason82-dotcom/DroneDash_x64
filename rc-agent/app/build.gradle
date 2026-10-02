@@ -1,0 +1,79 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+def sdkVersion = project.findProperty("SDK_VERSION") ?: "5.18.0"
+def djiApiKey = project.findProperty("DJI_API_KEY") ?: ""
+def bridgeToken = project.findProperty("BRIDGE_TOKEN") ?: "change-me-now"
+
+android {
+    namespace 'com.example.m3ebridge'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.example.m3ebridge"
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName "0.1.0"
+
+        manifestPlaceholders = [DJI_API_KEY: djiApiKey]
+
+        buildConfigField "String", "BRIDGE_TOKEN",
+                "\"${bridgeToken.replace('\\', '\\\\').replace('"', '\\"')}\""
+
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging true
+            keepDebugSymbols += [
+                '**/libdjivideo.so',
+                '**/libSDKRelativeJNI.so',
+                '**/libFlyForbid.so',
+                '**/libDJIFlySafeCore.so',
+                '**/libDJICommonJNI.so',
+                '**/libDJICSDKCommon.so',
+                '**/libDJIUpgradeCore.so',
+                '**/libDJIUpgradeJNI.so',
+                '**/libmrtc_core.so',
+                '**/libmrtc_core_jni.so',
+                '**/libmrtc_data.so',
+                '**/libmrtc_log.so',
+                '**/libmrtc_onvif.so',
+                '**/libmrtc_rtmp.so',
+                '**/libmrtc_rtsp.so'
+            ]
+        }
+        resources {
+            excludes += ['META-INF/rxjava.properties']
+        }
+    }
+}
+
+dependencies {
+    implementation "com.dji:dji-sdk-v5-aircraft:${sdkVersion}"
+    compileOnly "com.dji:dji-sdk-v5-aircraft-provided:${sdkVersion}"
+    runtimeOnly "com.dji:dji-sdk-v5-networkImp:${sdkVersion}"
+
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.core:core-ktx:1.15.0'
+    implementation 'com.google.android.material:material:1.12.0'
+}

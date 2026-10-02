@@ -1,0 +1,31 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Desktop: run",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["run", "--project", "desktop/DroneDash_x64.Desktop/DroneDash_x64.Desktop.csproj"],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "Mock RC: run",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["run", "--project", "desktop/DroneDash_x64.MockRc/DroneDash_x64.MockRc.csproj"],
+      "isBackground": true,
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "RC Agent: build debug",
+      "type": "shell",
+      "windows": {
+        "command": ".\\scripts\\build-rc-agent.ps1"
+      },
+      "linux": {
+        "command": "cd rc-agent && ./gradlew :app:assembleDebug"
+      },
+      "problemMatcher": []
+    }
+  ]
+}
