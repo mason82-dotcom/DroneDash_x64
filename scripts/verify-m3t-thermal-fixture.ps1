@@ -35,14 +35,14 @@ function Find-JpegDimensions([byte[]]$Data) {
             continue
         }
 
-        $length = ($Data[$position + 2] -shl 8) -bor $Data[$position + 3]
+        $length = ([int]$Data[$position + 2] * 256) + [int]$Data[$position + 3]
         if ($length -lt 2 -or $position + 2 + $length -gt $Data.Length) {
             throw "Invalid JPEG segment length at offset $position"
         }
 
         if ($marker -in @(0xC0,0xC1,0xC2,0xC3,0xC5,0xC6,0xC7,0xC9,0xCA,0xCB,0xCD,0xCE,0xCF)) {
-            $height = ($Data[$position + 5] -shl 8) -bor $Data[$position + 6]
-            $width  = ($Data[$position + 7] -shl 8) -bor $Data[$position + 8]
+            $height = ([int]$Data[$position + 5] * 256) + [int]$Data[$position + 6]
+            $width  = ([int]$Data[$position + 7] * 256) + [int]$Data[$position + 8]
             return @($width, $height)
         }
 
