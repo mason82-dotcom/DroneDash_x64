@@ -170,7 +170,7 @@ public partial class MainWindow : Window
         var selected = MediaGrid.SelectedItems.Cast<MediaItemDto>().ToList();
         if (selected.Count == 0)
         {
-            MessageBox.Show(this, "Mindestens eine Mediendatei auswählen.", "Download",
+            System.Windows.MessageBox.Show(this, "Mindestens eine Mediendatei auswählen.", "Download",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -244,14 +244,14 @@ public partial class MainWindow : Window
     private void SetConnected(bool connected, string text)
     {
         ConnectionDot.Fill = new SolidColorBrush(
-            (Color)ColorConverter.ConvertFromString(connected ? "#46B96B" : "#B94A48"));
+            (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(connected ? "#46B96B" : "#B94A48"));
         ConnectionText.Text = text;
     }
 
     private void ShowError(string title, Exception ex)
     {
         FooterText.Text = ex.Message;
-        MessageBox.Show(this, ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error);
+        System.Windows.MessageBox.Show(this, ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error);
     }
 
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
