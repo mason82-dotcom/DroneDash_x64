@@ -390,7 +390,7 @@ public partial class FlightPlanningView : System.Windows.Controls.UserControl
         }
     }
 
-    private static void SelectComboByTag(ComboBox combo, string tag)
+    private static void SelectComboByTag(System.Windows.Controls.ComboBox combo, string tag)
     {
         foreach (var item in combo.Items.OfType<ComboBoxItem>())
         {
