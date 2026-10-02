@@ -8,7 +8,7 @@ Windows + DJI RC Pro Enterprise management application for the DJI Mavic 3 Enter
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │ Windows 10/11                                                │
-│ DroneDash_x64.Desktop (.NET 10 / WPF)                           │
+│ DroneDash_x64.Desktop (.NET 10 / WPF)                       │
 │  status · configuration · media list · media download        │
 └──────────────────────────────┬───────────────────────────────┘
                                │ HTTP/JSON
@@ -16,7 +16,7 @@ Windows + DJI RC Pro Enterprise management application for the DJI Mavic 3 Enter
                                │
 ┌──────────────────────────────▼───────────────────────────────┐
 │ DJI RC Pro Enterprise                                        │
-│ DroneDash RC Bridge Agent (Android / Kotlin / DJI MSDK V5 5.18.0)     │
+│ DroneDash RC Bridge Agent (Android / Kotlin / DJI MSDK V5)   │
 │  SDK registration · KeyManager · MediaManager                │
 └──────────────────────────────┬───────────────────────────────┘
                                │ DJI RC link
@@ -30,6 +30,18 @@ There is no native DJI MSDK V5 for Windows for this aircraft family. The Android
 the hardware adapter and keeps all DJI-specific code on the controller. The Windows application
 stays clean and testable.
 
+## Current development state
+
+Version 0.2 hardens the bridge and build path:
+
+- concurrent desktop requests no longer mutate shared `HttpClient` headers/base address;
+- media downloads are written to `.part` files and promoted only after a complete transfer;
+- the RC bridge binds to `127.0.0.1` by default, which is ideal for USB + `adb forward`;
+- LAN binding requires an explicit `BRIDGE_BIND_ADDRESS`, and the server refuses non-loopback
+  exposure while the default token `change-me-now` is still configured;
+- Android Gradle compatibility flags are aligned with DJI's current MSDK integration guidance;
+- GitHub Actions now builds the Windows projects and assembles the Android debug APK on every push/PR.
+
 ## Versions pinned by this project
 
 - DJI Mobile SDK V5: **5.18.0**
@@ -40,9 +52,6 @@ stays clean and testable.
 - Gradle: **8.12**
 - Java: **17**
 - Windows desktop: **.NET 10 / WPF**
-
-Do not raise Android target SDK to 36 until DJI publishes a compatible MSDK release and the project
-has been verified against it.
 
 ## Run the Windows UI without DJI hardware
 
@@ -61,13 +70,18 @@ tested before touching a drone.
 
 1. Create a DJI Developer application and bind its App Key to the exact Android package name
    `com.example.m3ebridge`, or change both `namespace` and `applicationId` before registering.
-2. Put secrets in your user Gradle properties, not in Git:
+2. Put secrets and optional LAN binding in your user Gradle properties, not in Git:
    `%USERPROFILE%\.gradle\gradle.properties`
 
 ```properties
 DJI_API_KEY=your_dji_app_key
 BRIDGE_TOKEN=replace_with_a_long_random_token
+# Keep 127.0.0.1 for USB-only operation.
+BRIDGE_BIND_ADDRESS=127.0.0.1
 ```
+
+For deliberate LAN operation, set `BRIDGE_BIND_ADDRESS=0.0.0.0` and configure a strong
+`BRIDGE_TOKEN`. The agent refuses a non-loopback bind when the default token is still active.
 
 3. Install Android SDK Platform 35, Build Tools 35.x, Java 17 and Gradle 8.12. Generate the wrapper once:
    `cd rc-agent && gradle wrapper --gradle-version 8.12`
@@ -75,8 +89,7 @@ BRIDGE_TOKEN=replace_with_a_long_random_token
    `./gradlew :app:assembleDebug`
 5. Enable USB debugging on the RC Pro Enterprise and install:
    `adb install -r app/build/outputs/apk/debug/app-debug.apk`
-6. **Force-stop DJI Pilot 2 before running the MSDK app.** DJI documents unsupported coexistence for
-   this controller/aircraft path.
+6. **Force-stop DJI Pilot 2 before running the MSDK app.**
 7. Launch **DroneDash RC Bridge** on the controller. First-time DJI registration needs connectivity unless you
    deploy an appropriate DJI offline/LDM licensing setup.
 8. On Windows run `scripts/connect-usb.ps1`, then use
@@ -88,30 +101,26 @@ Opening the media endpoint briefly puts the camera into MSDK media-management mo
 shooting/recording and normal image transmission are unavailable; the agent exits that mode after
 the operation.
 
-The aircraft SDK can enumerate and download originals. DJI currently does not expose the aircraft
-SD-card directory path/folder mapping to MSDK, so downloaded files are represented by the metadata
-that MSDK actually provides (index, name, type, size, date). Arbitrary media upload back into the
-aircraft camera storage is not exposed by MSDK V5.
+The aircraft SDK can enumerate and download originals. Downloaded Windows files are first written
+as `<name>.part`; the final file is only replaced after a successful complete transfer.
+
+The aircraft SDK does not expose arbitrary upload back into camera storage through this bridge.
 
 ## Safety and field use
 
-This starter deliberately does not expose motor start, takeoff, landing, RTH execution, virtual-stick
-control or mission execution over HTTP. Configuration writes are limited to max altitude and RTH
-altitude and are sent through DJI's typed KeyManager API. Add flight-control actions only with
-explicit operator interlocks, audit logging, connection-state checks and field testing.
+This project deliberately does not expose motor start, takeoff, landing, RTH execution,
+virtual-stick control or mission execution over HTTP. Configuration writes are limited to max
+altitude and RTH altitude and are sent through DJI's typed KeyManager API.
 
-For wireless LAN operation, do not leave the default token and do not expose TCP/49152 to an
-untrusted network. The recommended first deployment is USB + `adb forward`, which keeps the bridge
-reachable only through the attached development machine.
+For wireless LAN operation, never use the default token and do not expose TCP/49152 to an untrusted
+network. USB + `adb forward` remains the recommended deployment because the RC bridge then listens
+only on loopback.
 
-## GitHub upload
+## Continuous integration
 
-The target repository is `https://github.com/mason82-dotcom/DroneDash_x64`.
+`.github/workflows/ci.yml` verifies both sides of the project:
 
-From a PowerShell terminal with GitHub credentials available:
+- Windows: restore and Release-build the WPF desktop application and mock RC;
+- Android: Java 17 + Gradle 8.12, then `:app:assembleDebug` with CI-only placeholder credentials.
 
-```powershell
-.\scripts\push-github.ps1
-```
-
-The script initializes Git if needed, preserves the existing remote README via rebase with unrelated histories allowed, and pushes the project to `main`.
+This makes SDK/dependency or compiler regressions visible immediately after a push.

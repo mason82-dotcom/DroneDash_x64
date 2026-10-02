@@ -25,6 +25,7 @@ class BridgeApplication : Application() {
             application = this,
             djiRuntime = djiRuntime,
             token = BuildConfig.BRIDGE_TOKEN,
+            bindAddress = BuildConfig.BRIDGE_BIND_ADDRESS,
             port = 49152
         )
         bridgeServer.start()

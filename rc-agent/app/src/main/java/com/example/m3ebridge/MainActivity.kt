@@ -27,17 +27,33 @@ class MainActivity : AppCompatActivity() {
                 append("\nAircraft connected: ")
                 append(app.djiRuntime.productConnected.get())
                 app.djiRuntime.lastError.get()?.let {
-                    append("\nError: ")
+                    append("\nDJI error: ")
                     append(it)
                 }
             }
 
+            val bridgeStatus = buildString {
+                append(if (app.bridgeServer.isRunning()) "Bridge aktiv" else "Bridge inaktiv")
+                append(" · ")
+                append(app.bridgeServer.bindAddress)
+                append(":49152 · Token: ")
+                append(if (BuildConfig.BRIDGE_TOKEN == "change-me-now") "DEFAULT (ändern!)" else "konfiguriert")
+                app.bridgeServer.lastError.get()?.let {
+                    append("\nBridge error: ")
+                    append(it)
+                }
+            }
+
+            val networkInfo = if (app.bridgeServer.isLoopbackBinding()) {
+                "USB: adb forward tcp:49152 tcp:49152\n\nLAN-Zugriff ist standardmäßig deaktiviert."
+            } else {
+                "USB: adb forward tcp:49152 tcp:49152\n\nLAN-Adressen:\n${localAddresses().joinToString("\n")}"
+            }
+
             runOnUiThread {
                 findViewById<TextView>(R.id.sdk_status).text = status
-                findViewById<TextView>(R.id.bridge_status).text =
-                    "Bridge aktiv · TCP 49152 · Token: ${if (BuildConfig.BRIDGE_TOKEN == "change-me-now") "DEFAULT (ändern!)" else "konfiguriert"}"
-                findViewById<TextView>(R.id.network_info).text =
-                    "USB: adb forward tcp:49152 tcp:49152\n\nLAN-Adressen:\n${localAddresses().joinToString("\n")}"
+                findViewById<TextView>(R.id.bridge_status).text = bridgeStatus
+                findViewById<TextView>(R.id.network_info).text = networkInfo
             }
         }, 0, 1, TimeUnit.SECONDS)
     }

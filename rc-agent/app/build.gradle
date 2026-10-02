@@ -6,6 +6,7 @@ plugins {
 def sdkVersion = project.findProperty("SDK_VERSION") ?: "5.18.0"
 def djiApiKey = project.findProperty("DJI_API_KEY") ?: ""
 def bridgeToken = project.findProperty("BRIDGE_TOKEN") ?: "change-me-now"
+def bridgeBindAddress = project.findProperty("BRIDGE_BIND_ADDRESS") ?: "127.0.0.1"
 
 android {
     namespace 'com.example.m3ebridge'
@@ -15,13 +16,15 @@ android {
         applicationId "com.example.m3ebridge"
         minSdk 24
         targetSdk 35
-        versionCode 1
-        versionName "0.1.0"
+        versionCode 2
+        versionName "0.2.0"
 
         manifestPlaceholders = [DJI_API_KEY: djiApiKey]
 
         buildConfigField "String", "BRIDGE_TOKEN",
-                "\"${bridgeToken.replace('\\', '\\\\').replace('"', '\\"')}\""
+                "\"" + bridgeToken.replace('\\', '\\\\').replace('"', '\\"') + "\""
+        buildConfigField "String", "BRIDGE_BIND_ADDRESS",
+                "\"" + bridgeBindAddress.replace('\\', '\\\\').replace('"', '\\"') + "\""
 
         ndk {
             abiFilters 'arm64-v8a'
@@ -53,6 +56,13 @@ android {
                 '**/libDJICSDKCommon.so',
                 '**/libDJIUpgradeCore.so',
                 '**/libDJIUpgradeJNI.so',
+                '**/libvideo-framing.so',
+                '**/libwaes.so',
+                '**/libagora-rtsa-sdk.so',
+                '**/libc++.so',
+                '**/libc++_shared.so',
+                '**/libmrtc_28181.so',
+                '**/libmrtc_agora.so',
                 '**/libmrtc_core.so',
                 '**/libmrtc_core_jni.so',
                 '**/libmrtc_data.so',
@@ -69,9 +79,9 @@ android {
 }
 
 dependencies {
-    implementation "com.dji:dji-sdk-v5-aircraft:${sdkVersion}"
-    compileOnly "com.dji:dji-sdk-v5-aircraft-provided:${sdkVersion}"
-    runtimeOnly "com.dji:dji-sdk-v5-networkImp:${sdkVersion}"
+    implementation "com.dji:dji-sdk-v5-aircraft:" + sdkVersion
+    compileOnly "com.dji:dji-sdk-v5-aircraft-provided:" + sdkVersion
+    runtimeOnly "com.dji:dji-sdk-v5-networkImp:" + sdkVersion
 
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.core:core-ktx:1.15.0'

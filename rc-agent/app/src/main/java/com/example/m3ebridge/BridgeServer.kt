@@ -14,11 +14,13 @@ import java.nio.charset.StandardCharsets
 import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 class BridgeServer(
     private val application: Application,
     private val djiRuntime: DjiRuntime,
     private val token: String,
+    val bindAddress: String,
     private val port: Int
 ) {
     private val running = AtomicBoolean(false)
@@ -26,17 +28,35 @@ class BridgeServer(
     private var serverSocket: ServerSocket? = null
     private var acceptThread: Thread? = null
 
+    val lastError = AtomicReference<String?>(null)
+
     fun start() {
+        val address = runCatching { InetAddress.getByName(bindAddress) }
+            .getOrElse {
+                lastError.set("Ungültige Bridge-Bind-Adresse: $bindAddress")
+                return
+            }
+
+        if (token == "change-me-now" && !address.isLoopbackAddress) {
+            lastError.set("Unsichere LAN-Freigabe verweigert: BRIDGE_TOKEN ist noch der Standardwert.")
+            return
+        }
+
         if (!running.compareAndSet(false, true)) return
 
+        lastError.set(null)
         acceptThread = Thread({
             try {
-                ServerSocket(port, 16, InetAddress.getByName("0.0.0.0")).use { server ->
+                ServerSocket(port, 16, address).use { server ->
                     serverSocket = server
                     while (running.get()) {
                         val socket = runCatching { server.accept() }.getOrNull() ?: break
                         workers.execute { handle(socket) }
                     }
+                }
+            } catch (e: Throwable) {
+                if (running.get()) {
+                    lastError.set(e.message ?: e.javaClass.simpleName)
                 }
             } finally {
                 running.set(false)
@@ -52,6 +72,11 @@ class BridgeServer(
         runCatching { serverSocket?.close() }
         workers.shutdownNow()
     }
+
+    fun isRunning(): Boolean = running.get()
+
+    fun isLoopbackBinding(): Boolean =
+        runCatching { InetAddress.getByName(bindAddress).isLoopbackAddress }.getOrDefault(false)
 
     private fun handle(socket: Socket) {
         socket.use {
