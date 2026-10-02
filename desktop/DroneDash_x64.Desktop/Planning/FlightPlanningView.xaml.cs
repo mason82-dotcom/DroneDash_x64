@@ -204,8 +204,7 @@ public partial class FlightPlanningView : System.Windows.Controls.UserControl
     private void RenderPlanSummary(FlightPlanResult plan)
     {
         var secondary = plan.SecondaryGsdCentimeters is double ms
-            ? $"
-MS GSD: {ms:F2} cm/px"
+            ? $"\nMS GSD: {ms:F2} cm/px"
             : "";
 
         var geometryMetric = plan.Settings.Mode == FlightPlanMode.MappingStrip
@@ -213,35 +212,20 @@ MS GSD: {ms:F2} cm/px"
             : $"Fläche: {plan.AreaSquareMeters / 10_000d:F2} ha";
 
         PlanningStatsText.Text =
-            $"{plan.CameraProfile}
-" +
-            $"Modus: {plan.Settings.Mode}
-" +
-            $"{geometryMetric}
-" +
-            $"RGB/Wide GSD: {plan.GsdCentimeters:F2} cm/px{secondary}
-" +
-            $"Footprint: {plan.FootprintWidthMeters:F1} × {plan.FootprintHeightMeters:F1} m
-" +
-            $"Linienabstand: {plan.LineSpacingMeters:F1} m
-" +
-            $"Fotoabstand: {plan.PhotoSpacingMeters:F1} m
-" +
-            $"Waylines: {plan.Passes.Count}
-" +
-            $"Segmente: {plan.Segments.Count}
-" +
-            $"Terrain Follow: {(plan.Settings.TerrainFollowEnabled ? "ja" : "nein")}
-" +
-            $"Smart Oblique: {(plan.Settings.SmartObliqueEnabled ? "ja" : "nein")}
-" +
-            $"Flugstrecke inkl. Transits: {plan.FlightDistanceMeters / 1000d:F2} km
-" +
-            $"Geschätzte Bilder: {plan.EstimatedPhotos:N0}
-" +
-            $"Reine Flugzeit: {plan.EstimatedFlightTime:hh\:mm\:ss}
-
-" +
+            $"{plan.CameraProfile}\n" +
+            $"Modus: {plan.Settings.Mode}\n" +
+            $"{geometryMetric}\n" +
+            $"RGB/Wide GSD: {plan.GsdCentimeters:F2} cm/px{secondary}\n" +
+            $"Footprint: {plan.FootprintWidthMeters:F1} × {plan.FootprintHeightMeters:F1} m\n" +
+            $"Linienabstand: {plan.LineSpacingMeters:F1} m\n" +
+            $"Fotoabstand: {plan.PhotoSpacingMeters:F1} m\n" +
+            $"Waylines: {plan.Passes.Count}\n" +
+            $"Segmente: {plan.Segments.Count}\n" +
+            $"Terrain Follow: {(plan.Settings.TerrainFollowEnabled ? "ja" : "nein")}\n" +
+            $"Smart Oblique: {(plan.Settings.SmartObliqueEnabled ? "ja" : "nein")}\n" +
+            $"Flugstrecke inkl. Transits: {plan.FlightDistanceMeters / 1000d:F2} km\n" +
+            $"Geschätzte Bilder: {plan.EstimatedPhotos:N0}\n" +
+            $"Reine Flugzeit: {plan.EstimatedFlightTime:hh\\:mm\\:ss}\n\n" +
             plan.SurveyNote;
     }
 
