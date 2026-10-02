@@ -106,7 +106,8 @@ try
     var reportHtml = File.ReadAllText(reportPath);
     if (!reportHtml.Contains("Critical", StringComparison.Ordinal) ||
         !reportHtml.Contains("DJI_TEST_T.JPG", StringComparison.Ordinal) ||
-        !reportHtml.Contains("19.00", StringComparison.Ordinal))
+        !reportHtml.Contains("Anomalie-Kandidaten", StringComparison.Ordinal) ||
+        !reportHtml.Contains("Thermische Anomalie-Kandidaten", StringComparison.Ordinal))
     {
         throw new InvalidDataException("PV HTML report content is incomplete.");
     }
