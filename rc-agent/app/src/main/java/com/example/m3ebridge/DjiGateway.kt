@@ -52,23 +52,43 @@ class DjiGateway {
             .putNullable("goHomeHeightMeters", keys.getValue(KeyTools.createKey(FlightControllerKey.KeyGoHomeHeight)))
 
     fun updateConfiguration(payload: JSONObject): JSONObject {
-        if (payload.has("heightLimitMeters") && !payload.isNull("heightLimitMeters")) {
+        // Validate the complete request before the first write. This avoids a partial
+        // configuration update when one of two supplied values is invalid.
+        val heightLimit = readOptionalAltitude(payload, "heightLimitMeters")
+        val goHomeHeight = readOptionalAltitude(payload, "goHomeHeightMeters")
+
+        if (heightLimit != null) {
             setIntKey(
                 KeyTools.createKey(FlightControllerKey.KeyHeightLimit),
-                payload.getInt("heightLimitMeters"),
+                heightLimit,
                 "heightLimitMeters"
             )
         }
 
-        if (payload.has("goHomeHeightMeters") && !payload.isNull("goHomeHeightMeters")) {
+        if (goHomeHeight != null) {
             setIntKey(
                 KeyTools.createKey(FlightControllerKey.KeyGoHomeHeight),
-                payload.getInt("goHomeHeightMeters"),
+                goHomeHeight,
                 "goHomeHeightMeters"
             )
         }
 
         return configuration()
+    }
+
+    private fun readOptionalAltitude(payload: JSONObject, name: String): Int? {
+        if (!payload.has(name) || payload.isNull(name)) {
+            return null
+        }
+
+        val value = runCatching { payload.getInt(name) }
+            .getOrElse { throw IllegalArgumentException("$name must be an integer") }
+
+        if (value !in 20..500) {
+            throw IllegalArgumentException("$name must be between 20 and 500 metres")
+        }
+
+        return value
     }
 
     private fun setIntKey(key: dji.sdk.keyvalue.key.DJIKey<Int>, value: Int, label: String) {

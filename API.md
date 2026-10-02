@@ -27,3 +27,18 @@ The RC agent intentionally does not provide a generic media-upload endpoint. DJI
 aircraft-media enumeration and download, but not arbitrary upload of files back into the aircraft
 camera storage. Uploading files from the Windows PC *to the RC controller* can be added as a separate
 controller-storage endpoint without pretending that it writes to the aircraft SD card.
+
+## Validation and error semantics
+
+For the Mavic 3 Enterprise family, both `heightLimitMeters` and `goHomeHeightMeters` are
+validated in the RC agent before any DJI KeyManager write is attempted. Values must be integers in
+the range **20..500 m**. If a request contains multiple settings, all supplied values are validated
+first so an invalid second value cannot leave the first one partially applied.
+
+Relevant HTTP responses:
+
+- `400 Bad Request`: malformed JSON, invalid parameter type, or value outside the supported range.
+- `401 Unauthorized`: missing or invalid bridge token.
+- `404 Not Found`: unknown route/media index.
+- `409 Conflict`: operation requires an aircraft connection.
+- `500 Internal Server Error`: DJI SDK failure, timeout, or unexpected bridge error.

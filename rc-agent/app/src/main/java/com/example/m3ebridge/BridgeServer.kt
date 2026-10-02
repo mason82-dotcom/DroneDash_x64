@@ -97,9 +97,10 @@ class BridgeServer(
                 route(request, output)
             } catch (e: Throwable) {
                 runCatching {
+                    val status = if (e is IllegalArgumentException || e is org.json.JSONException) 400 else 500
                     writeJson(
                         output,
-                        500,
+                        status,
                         JSONObject()
                             .put("error", e.message ?: e.javaClass.simpleName)
                     )
