@@ -120,8 +120,10 @@
         <Grid Margin="10">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="220"/>
+            <RowDefinition Height="190"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="170"/>
             <RowDefinition Height="*"/>
           </Grid.RowDefinitions>
 
@@ -131,13 +133,21 @@
                        FontWeight="SemiBold"/>
             <TextBlock Margin="0,3,0,8"
                        TextWrapping="Wrap"
-                       Text="DroneDash verwendet die Tools optional als lokale Worker. Keine nativen Pakete werden mit dem Repo ausgeliefert. Die M3M-Originale bleiben unverändert; alle Zwischenprodukte landen in einem separaten Workspace."/>
+                       Text="DroneDash verwendet die Tools optional als lokale Worker. M3M-Originale bleiben read-only; alle Zwischenprodukte landen im gewählten Workspace."/>
             <WrapPanel>
               <Button Content="Toolchain prüfen"
                       Click="CheckTools_Click"/>
               <Button x:Name="CreateLocalPlanButton"
                       Content="Processing-Workspace erzeugen"
                       Click="CreateLocalPlan_Click"
+                      IsEnabled="False"/>
+              <Button x:Name="RunLocalPlanButton"
+                      Content="Pipeline ausführen"
+                      Click="RunLocalPlan_Click"
+                      IsEnabled="False"/>
+              <Button x:Name="CancelLocalPlanButton"
+                      Content="Abbrechen"
+                      Click="CancelLocalPlan_Click"
                       IsEnabled="False"/>
             </WrapPanel>
           </StackPanel>
@@ -149,21 +159,11 @@
                     IsReadOnly="True"
                     CanUserAddRows="False">
             <DataGrid.Columns>
-              <DataGridTextColumn Header="Tool"
-                                  Binding="{Binding Name}"
-                                  Width="150"/>
-              <DataGridTextColumn Header="Status"
-                                  Binding="{Binding StateText}"
-                                  Width="70"/>
-              <DataGridTextColumn Header="Version"
-                                  Binding="{Binding VersionText}"
-                                  Width="90"/>
-              <DataGridTextColumn Header="Executable"
-                                  Binding="{Binding ExecutableText}"
-                                  Width="300"/>
-              <DataGridTextColumn Header="Details"
-                                  Binding="{Binding Detail}"
-                                  Width="*"/>
+              <DataGridTextColumn Header="Tool" Binding="{Binding Name}" Width="150"/>
+              <DataGridTextColumn Header="Status" Binding="{Binding StateText}" Width="70"/>
+              <DataGridTextColumn Header="Version" Binding="{Binding VersionText}" Width="90"/>
+              <DataGridTextColumn Header="Executable" Binding="{Binding ExecutableText}" Width="300"/>
+              <DataGridTextColumn Header="Details" Binding="{Binding Detail}" Width="*"/>
             </DataGrid.Columns>
           </DataGrid>
 
@@ -173,17 +173,134 @@
                   Background="#FFF8D8">
             <TextBlock x:Name="ToolchainSummaryText"
                        TextWrapping="Wrap"
-                       Text="Noch nicht geprüft. Unterstützte Overrides: DRONEDASH_GDAL_BIN, DRONEDASH_OTB_BIN und DRONEDASH_PYTHON."/>
+                       Text="Noch nicht geprüft. Overrides: DRONEDASH_GDAL_BIN, DRONEDASH_OTB_BIN und DRONEDASH_PYTHON."/>
           </Border>
 
+          <StackPanel Grid.Row="3">
+            <ProgressBar x:Name="LocalProcessingProgress"
+                         Minimum="0"
+                         Maximum="100"
+                         Height="6"/>
+            <TextBlock x:Name="LocalProcessingStatusText"
+                       Margin="0,4,0,8"
+                       Text="Keine lokale Pipeline aktiv."
+                       TextWrapping="Wrap"/>
+          </StackPanel>
+
           <TextBox x:Name="PlanPreviewText"
-                   Grid.Row="3"
+                   Grid.Row="4"
                    IsReadOnly="True"
                    AcceptsReturn="True"
                    VerticalScrollBarVisibility="Auto"
                    HorizontalScrollBarVisibility="Auto"
                    FontFamily="Consolas"
                    Text="Noch kein lokaler Processing-Plan erzeugt."/>
+
+          <TextBox x:Name="LocalRunLogText"
+                   Grid.Row="5"
+                   Margin="0,8,0,0"
+                   IsReadOnly="True"
+                   AcceptsReturn="True"
+                   VerticalScrollBarVisibility="Auto"
+                   HorizontalScrollBarVisibility="Auto"
+                   FontFamily="Consolas"
+                   Text="Live-Log erscheint hier."/>
+        </Grid>
+      </TabItem>
+
+      <TabItem Header="ODM-Orthomosaik">
+        <Grid Margin="10">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+          </Grid.RowDefinitions>
+
+          <TextBlock Grid.Row="0"
+                     Text="NodeODM · georeferenziertes M3M-Orthomosaik"
+                     FontSize="16"
+                     FontWeight="SemiBold"/>
+
+          <Grid Grid.Row="1" Margin="0,8,0,8">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="110"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="90"/>
+              <ColumnDefinition Width="160"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="Endpoint" VerticalAlignment="Center"/>
+            <TextBox x:Name="NodeOdmEndpointBox"
+                     Grid.Column="1"
+                     Text="http://127.0.0.1:3000/"/>
+            <TextBlock Grid.Column="2"
+                       Text="Kalibrierung"
+                       Margin="10,0,0,0"
+                       VerticalAlignment="Center"/>
+            <ComboBox x:Name="NodeOdmCalibrationCombo"
+                      Grid.Column="3"
+                      SelectedIndex="0">
+              <ComboBoxItem Content="camera+sun (experimentell)" Tag="camera+sun"/>
+              <ComboBoxItem Content="camera" Tag="camera"/>
+            </ComboBox>
+          </Grid>
+
+          <Grid Grid.Row="2" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="110"/>
+              <ColumnDefinition Width="250"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="Token" VerticalAlignment="Center"/>
+            <PasswordBox x:Name="NodeOdmTokenBox" Grid.Column="1"/>
+            <WrapPanel Grid.Column="2" Margin="10,0,0,0">
+              <Button Content="NodeODM prüfen" Click="CheckNodeOdm_Click"/>
+              <Button x:Name="StartNodeOdmTaskButton"
+                      Content="M3M-Task starten"
+                      Click="StartNodeOdmTask_Click"
+                      IsEnabled="False"/>
+              <Button x:Name="RefreshNodeOdmTaskButton"
+                      Content="Status aktualisieren"
+                      Click="RefreshNodeOdmTask_Click"
+                      IsEnabled="False"/>
+              <Button x:Name="CancelNodeOdmTaskButton"
+                      Content="Task abbrechen"
+                      Click="CancelNodeOdmTask_Click"
+                      IsEnabled="False"/>
+              <Button x:Name="DownloadNodeOdmButton"
+                      Content="Ergebnis ZIP"
+                      Click="DownloadNodeOdm_Click"
+                      IsEnabled="False"/>
+            </WrapPanel>
+          </Grid>
+
+          <StackPanel Grid.Row="3">
+            <Border Padding="10"
+                    Background="#EEF5F7"
+                    BorderBrush="#4A6572"
+                    BorderThickness="1"
+                    CornerRadius="4">
+              <TextBlock x:Name="NodeOdmStatusText"
+                         Text="NodeODM noch nicht geprüft."
+                         TextWrapping="Wrap"/>
+            </Border>
+            <ProgressBar x:Name="NodeOdmProgress"
+                         Minimum="0"
+                         Maximum="100"
+                         Height="6"
+                         Margin="0,8,0,0"/>
+          </StackPanel>
+
+          <TextBox x:Name="NodeOdmLogText"
+                   Grid.Row="4"
+                   Margin="0,8,0,0"
+                   IsReadOnly="True"
+                   AcceptsReturn="True"
+                   VerticalScrollBarVisibility="Auto"
+                   HorizontalScrollBarVisibility="Auto"
+                   FontFamily="Consolas"
+                   Text="NodeODM-Upload- und Task-Log erscheint hier."/>
         </Grid>
       </TabItem>
 

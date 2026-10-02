@@ -324,3 +324,16 @@ OpenCV ECC registration -> OTB DJI-DN compensation -> GDAL 4-band VRT -> OTB NDV
 The generated PowerShell pipeline is review-first and is not started automatically. Environment
 overrides are DRONEDASH_GDAL_BIN, DRONEDASH_OTB_BIN and DRONEDASH_PYTHON. See
 docs/SMART_FARMING_M3M.md for details and processing limitations.
+
+### Direct processing and NodeODM
+
+The local Smart Farming plan can now run directly inside DroneDash with per-step progress,
+stdout/stderr logging, output validation and process-tree cancellation. The generated
+PowerShell/JSON plan remains available for review and reproducibility.
+
+An optional NodeODM integration adds the full-field photogrammetry path. DroneDash probes a local
+NodeODM endpoint (default `http://127.0.0.1:3000/`), checks the ODM engine version for M3M support,
+streams complete Green/Red/Red-Edge/NIR datasets through the NodeODM init/upload/commit API,
+monitors task progress, supports task cancellation and downloads the completed `all.zip`.
+The M3M task uses NIR as primary band and offers ODM radiometric calibration `camera` or the
+experimental `camera+sun` mode.

@@ -86,3 +86,41 @@ before running native third-party tools. This first toolchain remains a pixel-sp
 single-capture processing workflow, not a georeferenced field product. OpenCV intermediate TIFFs
 must not be treated as orthorectified survey rasters. ODM/photogrammetry is the next stage for
 full-field orthomosaics and map products.
+
+## Direct local execution
+
+The generated local processing plan can now be executed directly from DroneDash after explicit
+operator confirmation. `LocalProcessingRunner` starts every planned executable without a shell
+where possible, captures stdout/stderr into `local-processing.log`, reports step progress in the
+UI and can terminate the active process tree when the operator presses **Abbrechen**. Expected
+output files are checked after each successful exit code.
+
+This keeps the reviewable JSON/PowerShell artifacts while also supporting an interactive
+one-click execution path. Source M3M files remain read-only inputs.
+
+## NodeODM / ODM orthomosaic worker
+
+Smart Farming now includes an optional NodeODM client. The default endpoint is
+`http://127.0.0.1:3000/`, configurable in the UI or with `DRONEDASH_NODEODM_URL`.
+Authentication tokens can be supplied through the masked UI field or
+`DRONEDASH_NODEODM_TOKEN`.
+
+DroneDash probes `/info` and requires an ODM engine version of at least 3.5.3 before enabling
+Mavic 3M task submission. A task uploads only the four multispectral TIFF bands from complete
+captures (Green, Red, Red Edge and NIR), then uses the NodeODM init/upload/commit workflow so
+large datasets are streamed file-by-file rather than buffered as one giant multipart request.
+
+Default M3M options are:
+
+- `radiometric-calibration = camera+sun` (operator can switch to `camera`; ODM documents
+  `camera+sun` as experimental);
+- `primary-band = NIR`.
+
+DroneDash monitors the NodeODM task status and progress, can request cancellation and can download
+the completed `all.zip` result. The RGB `_D.JPG` frames are intentionally not uploaded by this
+M3M orthomosaic path; current ODM has explicit Mavic 3M multispectral handling and discards the
+very different RGB camera when the multispectral camera set is present.
+
+OpenDroneMap's current multispectral documentation lists DJI Mavic 3 Multispectral as supported
+starting with ODM 3.5.3. It recommends processing all multispectral bands together and supports
+radiometric calibration modes `camera` and `camera+sun`.

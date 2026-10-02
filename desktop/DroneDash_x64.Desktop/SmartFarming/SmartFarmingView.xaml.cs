@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media.Imaging;
 using DroneDash_x64.Desktop.SmartFarming.LocalProcessing;
+using DroneDash_x64.Desktop.SmartFarming.Odm;
 using WinForms = System.Windows.Forms;
 
 namespace DroneDash_x64.Desktop.SmartFarming;
@@ -17,12 +18,22 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
     private VegetationIndexResult? _currentIndex;
     private BitmapSource? _currentIndexBitmap;
     private LocalImageToolchainStatus? _toolchain;
+    private LocalProcessingPlan? _currentLocalPlan;
+    private CancellationTokenSource? _localProcessingCts;
+    private string? _nodeOdmTaskUuid;
+    private CancellationTokenSource? _nodeOdmMonitorCts;
+    private NodeOdmServerInfo? _nodeOdmServer;
 
     public SmartFarmingView()
     {
         InitializeComponent();
         CaptureGrid.ItemsSource = _captures;
         ToolGrid.ItemsSource = _toolStatuses;
+        NodeOdmEndpointBox.Text = NodeOdmClient.EndpointFromEnvironment();
+
+        var nodeOdmToken = NodeOdmClient.TokenFromEnvironment();
+        if (!string.IsNullOrWhiteSpace(nodeOdmToken))
+            NodeOdmTokenBox.Password = nodeOdmToken;
     }
 
     private void SelectFolder_Click(object sender, RoutedEventArgs e)
@@ -314,6 +325,11 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
             var plan = LocalProcessingPlanBuilder.Build(capture, workspace, _toolchain);
             var output = LocalProcessingPlanExporter.Export(plan);
 
+            _currentLocalPlan = plan;
+            RunLocalPlanButton.IsEnabled = true;
+            LocalProcessingProgress.Value = 0;
+            LocalProcessingStatusText.Text = "Processing-Plan bereit zur Ausführung.";
+
             PlanPreviewText.Text =
                 string.Join(
                     Environment.NewLine,
@@ -342,6 +358,349 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         }
     }
 
+    private async void RunLocalPlan_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentLocalPlan is null)
+            return;
+
+        var confirmation = System.Windows.MessageBox.Show(
+            "Die erzeugte Pipeline jetzt mit den lokal installierten Drittanbieter-Tools ausführen?\n\n" +
+            "Die M3M-Quelldateien werden nur gelesen. Zwischenprodukte werden ausschließlich in den gewählten Workspace geschrieben.",
+            "Smart Farming Processing",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (confirmation != MessageBoxResult.Yes)
+            return;
+
+        _localProcessingCts?.Dispose();
+        _localProcessingCts = new CancellationTokenSource();
+
+        RunLocalPlanButton.IsEnabled = false;
+        CancelLocalPlanButton.IsEnabled = true;
+        LocalRunLogText.Clear();
+        LocalProcessingProgress.Value = 0;
+
+        var progress = new Progress<LocalProcessingProgress>(value =>
+        {
+            LocalProcessingProgress.Value = value.Percent;
+            LocalProcessingStatusText.Text =
+                $"{value.CompletedSteps}/{value.TotalSteps} · {value.Message}";
+        });
+
+        try
+        {
+            var result = await LocalProcessingRunner.RunAsync(
+                _currentLocalPlan,
+                progress,
+                line => Dispatcher.BeginInvoke(() =>
+                {
+                    LocalRunLogText.AppendText(line + Environment.NewLine);
+                    LocalRunLogText.ScrollToEnd();
+                }),
+                _localProcessingCts.Token);
+
+            LocalProcessingProgress.Value =
+                result.Success ? 100 : LocalProcessingProgress.Value;
+
+            LocalProcessingStatusText.Text = result.Success
+                ? $"Pipeline erfolgreich abgeschlossen · Log: {result.LogPath}"
+                : result.Canceled
+                    ? $"Pipeline abgebrochen · Log: {result.LogPath}"
+                    : $"Pipeline fehlgeschlagen bei {result.FailedStepId} · ExitCode {result.ExitCode} · Log: {result.LogPath}";
+        }
+        catch (Exception ex)
+        {
+            LocalProcessingStatusText.Text =
+                $"Pipeline-Ausführung fehlgeschlagen: {ex.Message}";
+        }
+        finally
+        {
+            CancelLocalPlanButton.IsEnabled = false;
+            RunLocalPlanButton.IsEnabled = _currentLocalPlan is not null;
+        }
+    }
+
+    private void CancelLocalPlan_Click(object sender, RoutedEventArgs e)
+    {
+        _localProcessingCts?.Cancel();
+        LocalProcessingStatusText.Text = "Abbruch angefordert …";
+    }
+
+    private async void CheckNodeOdm_Click(object sender, RoutedEventArgs e)
+    {
+        StartNodeOdmTaskButton.IsEnabled = false;
+        NodeOdmStatusText.Text = "NodeODM wird geprüft …";
+
+        try
+        {
+            using var client = CreateNodeOdmClient();
+            _nodeOdmServer = await client.ProbeAsync();
+
+            NodeOdmStatusText.Text = _nodeOdmServer.Available
+                ? $"NodeODM {_nodeOdmServer.ApiVersion ?? "?"} · Engine {_nodeOdmServer.Engine ?? "?"} {_nodeOdmServer.EngineVersion ?? "?"} · {_nodeOdmServer.M3mSupportText} · Queue {_nodeOdmServer.TaskQueueCount?.ToString() ?? "—"} · CPU {_nodeOdmServer.CpuCores?.ToString() ?? "—"}"
+                : $"NodeODM nicht erreichbar: {_nodeOdmServer.Detail}";
+
+            StartNodeOdmTaskButton.IsEnabled =
+                _nodeOdmServer.SupportsMavic3M &&
+                _dataset?.Captures.Any(capture => capture.IsComplete) == true;
+        }
+        catch (Exception ex)
+        {
+            NodeOdmStatusText.Text =
+                $"NodeODM-Prüfung fehlgeschlagen: {ex.Message}";
+        }
+    }
+
+    private async void StartNodeOdmTask_Click(object sender, RoutedEventArgs e)
+    {
+        if (_dataset is null)
+        {
+            System.Windows.MessageBox.Show(
+                "Zuerst den M3M-Datensatz prüfen.",
+                "NodeODM",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        var files = NodeOdmClient.GetM3mInputFiles(_dataset);
+        if (files.Count == 0)
+        {
+            System.Windows.MessageBox.Show(
+                "Keine vollständigen M3M-Aufnahmen für ODM vorhanden.",
+                "NodeODM",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var calibration =
+            (NodeOdmCalibrationCombo.SelectedItem as ComboBoxItem)?
+                .Tag?.ToString() ?? "camera+sun";
+
+        var confirmation = System.Windows.MessageBox.Show(
+            $"{files.Count} Multispektral-TIFFs an {NodeOdmEndpointBox.Text.Trim()} senden und einen ODM-Task starten?\n\n" +
+            $"Radiometrische Kalibrierung: {calibration}\nPrimary band: NIR\n\n" +
+            "camera+sun ist laut ODM-Dokumentation experimentell.",
+            "M3M NodeODM Task",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (confirmation != MessageBoxResult.Yes)
+            return;
+
+        NodeOdmLogText.Clear();
+        NodeOdmProgress.Value = 0;
+        StartNodeOdmTaskButton.IsEnabled = false;
+        DownloadNodeOdmButton.IsEnabled = false;
+
+        var uploadProgress = new Progress<NodeOdmUploadProgress>(value =>
+        {
+            NodeOdmProgress.Value = value.Percent;
+            NodeOdmStatusText.Text =
+                $"Upload {value.UploadedFiles}/{value.TotalFiles}: {value.CurrentFile}";
+            AppendNodeOdmLog(
+                $"Upload {value.UploadedFiles}/{value.TotalFiles}: {value.CurrentFile}");
+        });
+
+        try
+        {
+            using var client = CreateNodeOdmClient();
+
+            _nodeOdmTaskUuid = await client.CreateM3mTaskAsync(
+                _dataset,
+                $"DroneDash M3M {DateTimeOffset.Now:yyyy-MM-dd HH-mm-ss}",
+                calibration,
+                uploadProgress);
+
+            AppendNodeOdmLog(
+                $"NodeODM Task gestartet: {_nodeOdmTaskUuid}");
+
+            RefreshNodeOdmTaskButton.IsEnabled = true;
+            CancelNodeOdmTaskButton.IsEnabled = true;
+
+            _nodeOdmMonitorCts?.Cancel();
+            _nodeOdmMonitorCts?.Dispose();
+            _nodeOdmMonitorCts = new CancellationTokenSource();
+
+            await MonitorNodeOdmTaskAsync(
+                _nodeOdmMonitorCts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            AppendNodeOdmLog("NodeODM-Upload/Monitoring lokal abgebrochen.");
+        }
+        catch (Exception ex)
+        {
+            NodeOdmStatusText.Text =
+                $"NodeODM-Task fehlgeschlagen: {ex.Message}";
+            AppendNodeOdmLog(NodeOdmStatusText.Text);
+        }
+        finally
+        {
+            StartNodeOdmTaskButton.IsEnabled =
+                _nodeOdmServer?.SupportsMavic3M == true &&
+                _dataset?.Captures.Any(capture => capture.IsComplete) == true;
+        }
+    }
+
+    private async Task MonitorNodeOdmTaskAsync(
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(_nodeOdmTaskUuid))
+            return;
+
+        string? lastOutput = null;
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            using var client = CreateNodeOdmClient();
+
+            var info = await client.GetTaskInfoAsync(
+                _nodeOdmTaskUuid,
+                cancellationToken);
+
+            NodeOdmProgress.Value =
+                Math.Clamp(info.Progress, 0, 100);
+
+            NodeOdmStatusText.Text =
+                $"Task {info.Uuid} · {info.StatusText} · {info.Progress:F1}% · Bilder {info.ImagesCount} · Laufzeit {TimeSpan.FromMilliseconds(info.ProcessingTimeMilliseconds):g}";
+
+            try
+            {
+                var output = await client.GetTaskOutputAsync(
+                    info.Uuid,
+                    0,
+                    cancellationToken);
+
+                if (!string.Equals(
+                        output,
+                        lastOutput,
+                        StringComparison.Ordinal))
+                {
+                    NodeOdmLogText.Text = output;
+                    NodeOdmLogText.ScrollToEnd();
+                    lastOutput = output;
+                }
+            }
+            catch
+            {
+            }
+
+            CancelNodeOdmTaskButton.IsEnabled =
+                !info.IsTerminal;
+            DownloadNodeOdmButton.IsEnabled =
+                info.IsCompleted;
+
+            if (info.IsTerminal)
+                return;
+
+            await Task.Delay(
+                TimeSpan.FromSeconds(3),
+                cancellationToken);
+        }
+    }
+
+    private async void RefreshNodeOdmTask_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_nodeOdmTaskUuid))
+            return;
+
+        try
+        {
+            using var client = CreateNodeOdmClient();
+            var info = await client.GetTaskInfoAsync(_nodeOdmTaskUuid);
+
+            NodeOdmProgress.Value =
+                Math.Clamp(info.Progress, 0, 100);
+
+            NodeOdmStatusText.Text =
+                $"Task {info.Uuid} · {info.StatusText} · {info.Progress:F1}% · Bilder {info.ImagesCount}";
+
+            CancelNodeOdmTaskButton.IsEnabled = !info.IsTerminal;
+            DownloadNodeOdmButton.IsEnabled = info.IsCompleted;
+        }
+        catch (Exception ex)
+        {
+            NodeOdmStatusText.Text =
+                $"Statusabfrage fehlgeschlagen: {ex.Message}";
+        }
+    }
+
+    private async void CancelNodeOdmTask_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_nodeOdmTaskUuid))
+            return;
+
+        try
+        {
+            using var client = CreateNodeOdmClient();
+            await client.CancelTaskAsync(_nodeOdmTaskUuid);
+            _nodeOdmMonitorCts?.Cancel();
+
+            NodeOdmStatusText.Text =
+                $"Abbruch für Task {_nodeOdmTaskUuid} angefordert.";
+            CancelNodeOdmTaskButton.IsEnabled = false;
+        }
+        catch (Exception ex)
+        {
+            NodeOdmStatusText.Text =
+                $"NodeODM-Abbruch fehlgeschlagen: {ex.Message}";
+        }
+    }
+
+    private async void DownloadNodeOdm_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_nodeOdmTaskUuid))
+            return;
+
+        using var dialog = new WinForms.FolderBrowserDialog
+        {
+            Description = "Zielordner für NodeODM all.zip auswählen",
+            ShowNewFolderButton = true
+        };
+
+        if (dialog.ShowDialog() != WinForms.DialogResult.OK)
+            return;
+
+        var progress = new Progress<double>(value =>
+        {
+            NodeOdmProgress.Value = Math.Clamp(value, 0, 100);
+            NodeOdmStatusText.Text =
+                $"NodeODM-Ergebnis wird heruntergeladen: {value:F1}%";
+        });
+
+        try
+        {
+            using var client = CreateNodeOdmClient();
+            var path = await client.DownloadAllAsync(
+                _nodeOdmTaskUuid,
+                dialog.SelectedPath,
+                progress);
+
+            NodeOdmStatusText.Text =
+                $"NodeODM-Ergebnis gespeichert: {path}";
+        }
+        catch (Exception ex)
+        {
+            NodeOdmStatusText.Text =
+                $"Download fehlgeschlagen: {ex.Message}";
+        }
+    }
+
+    private NodeOdmClient CreateNodeOdmClient() =>
+        new(
+            NodeOdmEndpointBox.Text.Trim(),
+            NodeOdmTokenBox.Password);
+
+    private void AppendNodeOdmLog(string line)
+    {
+        NodeOdmLogText.AppendText(
+            $"[{DateTimeOffset.Now:HH:mm:ss}] {line}{Environment.NewLine}");
+        NodeOdmLogText.ScrollToEnd();
+    }
+
     private void SetBusy(bool busy)
     {
         Progress.IsIndeterminate = busy;
@@ -362,6 +721,13 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         ExportDatasetButton.IsEnabled = false;
         ExportQuicklookButton.IsEnabled = false;
         CreateLocalPlanButton.IsEnabled = false;
+        RunLocalPlanButton.IsEnabled = false;
+        CancelLocalPlanButton.IsEnabled = false;
+        _currentLocalPlan = null;
         PlanPreviewText.Text = "Noch kein lokaler Processing-Plan erzeugt.";
+        LocalRunLogText.Text = "Live-Log erscheint hier.";
+        LocalProcessingProgress.Value = 0;
+        LocalProcessingStatusText.Text = "Keine lokale Pipeline aktiv.";
+        StartNodeOdmTaskButton.IsEnabled = false;
     }
 }

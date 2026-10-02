@@ -1,6 +1,7 @@
 using System.IO;
 using DroneDash_x64.Desktop.SmartFarming;
 using DroneDash_x64.Desktop.SmartFarming.LocalProcessing;
+using DroneDash_x64.Desktop.SmartFarming.Odm;
 
 if (!M3mCaptureKeyParser.TryParse(
         "DJI_20261003120000_0042_MS_NIR.TIF",
@@ -124,3 +125,105 @@ if (!localPlan.Steps.Any(step =>
 Console.WriteLine(
     $"PASS local processing plan · steps={localPlan.Steps.Count} · " +
     $"warnings={localPlan.Warnings.Count}");
+
+
+var odmDataset = new M3mDatasetResult(
+    @"C:\m3m",
+    [fakeCapture],
+    new M3mDatasetSummary(1, 1, 1, 1, 1, 1, 1, 1, 0));
+
+var odmInputs = NodeOdmClient.GetM3mInputFiles(odmDataset);
+if (odmInputs.Count != 4 ||
+    odmInputs.Any(path => path.EndsWith("_D.JPG", StringComparison.OrdinalIgnoreCase)))
+{
+    throw new InvalidDataException(
+        "NodeODM M3M input selection must contain exactly four multispectral TIFFs.");
+}
+
+var odmOptions = NodeOdmClient.BuildM3mOptions("camera+sun");
+if (!odmOptions.Any(option =>
+        option.Name == "radiometric-calibration" &&
+        Equals(option.Value, "camera+sun")) ||
+    !odmOptions.Any(option =>
+        option.Name == "primary-band" &&
+        Equals(option.Value, "NIR")))
+{
+    throw new InvalidDataException(
+        "NodeODM M3M options are incomplete.");
+}
+
+var supportedNode = new NodeOdmServerInfo(
+    true,
+    "http://127.0.0.1:3000/",
+    "2.2.1",
+    "odm",
+    "3.5.3",
+    0,
+    null,
+    8,
+    null,
+    "test");
+
+if (!supportedNode.SupportsMavic3M)
+    throw new InvalidDataException(
+        "ODM 3.5.3 must be marked M3M-capable.");
+
+var unsupportedNode =
+    supportedNode with { EngineVersion = "3.5.2" };
+
+if (unsupportedNode.SupportsMavic3M)
+    throw new InvalidDataException(
+        "ODM 3.5.2 must not be marked M3M-capable.");
+
+var runnerRoot = Path.Combine(
+    Path.GetTempPath(),
+    "DroneDash_LocalRunner_" +
+    Guid.NewGuid().ToString("N"));
+
+Directory.CreateDirectory(runnerRoot);
+
+try
+{
+    var runnerPlan = new LocalProcessingPlan(
+        LocalProcessingPlan.CurrentSchemaVersion,
+        DateTimeOffset.UtcNow,
+        "RUNNER-SMOKE",
+        runnerRoot,
+        [
+            new LocalProcessingCommand(
+                "dotnet-version",
+                ".NET",
+                "dotnet",
+                ["--version"],
+                null,
+                "Verify direct process execution")
+        ],
+        []);
+
+    var runnerResult =
+        await LocalProcessingRunner.RunAsync(
+            runnerPlan);
+
+    if (!runnerResult.Success ||
+        runnerResult.CompletedSteps != 1 ||
+        !File.Exists(runnerResult.LogPath))
+    {
+        throw new InvalidDataException(
+            "LocalProcessingRunner smoke test failed.");
+    }
+
+    Console.WriteLine(
+        $"PASS local runner · log={Path.GetFileName(runnerResult.LogPath)}");
+}
+finally
+{
+    try
+    {
+        Directory.Delete(
+            runnerRoot,
+            recursive: true);
+    }
+    catch
+    {
+    }
+}
