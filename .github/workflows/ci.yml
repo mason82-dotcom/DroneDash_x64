@@ -41,6 +41,7 @@ jobs:
               $Help -notmatch "--geo-zones" -or
               $Help -notmatch "--tile-size" -or
               $Help -notmatch "--pipeline-depth" -or
+              $Help -notmatch "--serve-jsonl" -or
               $Help -notmatch "--backend") {
             throw "Smart Farming worker CLI is missing CUDA/GDAL pipeline options."
           }
@@ -223,6 +224,19 @@ jobs:
           '@
           $PipelineTest | python -
 
+          $WorkerSource = Get-Content -LiteralPath $Worker -Raw
+          if ($WorkerSource -notmatch "_CudaIndexProcessor" -or
+              $WorkerSource -notmatch "_CudaZoneProcessor" -or
+              $WorkerSource -match "get_current_stream\(\)\.synchronize") {
+            throw "Persistent CUDA buffer implementation is incomplete."
+          }
+
+          $ServerRequest = '{"id":"probe","arguments":["--probe"]}'
+          $ServerResponse = ($ServerRequest | python $Worker --serve-jsonl | ConvertFrom-Json)
+          if (-not $ServerResponse.ok -or $ServerResponse.id -ne "probe") {
+            throw "Persistent Python worker JSONL protocol failed."
+          }
+
       - name: Verify real M3T thermal fixture with Windows PowerShell 5.1
         shell: powershell
         run: ./scripts/verify-m3t-thermal-fixture.ps1
@@ -248,6 +262,9 @@ jobs:
       - name: Restore project smoke tool
         run: dotnet restore desktop/DroneDash_x64.ProjectSmoke/DroneDash_x64.ProjectSmoke.csproj
 
+      - name: Restore unit tests
+        run: dotnet restore desktop/DroneDash_x64.Tests/DroneDash_x64.Tests.csproj
+
       - name: Build desktop
         run: dotnet build desktop/DroneDash_x64.Desktop/DroneDash_x64.Desktop.csproj --configuration Release --no-restore
 
@@ -256,6 +273,9 @@ jobs:
 
       - name: Build thermal smoke tool
         run: dotnet build desktop/DroneDash_x64.ThermalSmoke/DroneDash_x64.ThermalSmoke.csproj --configuration Release --no-restore
+
+      - name: Run thermal smoke tool
+        run: dotnet run --project desktop/DroneDash_x64.ThermalSmoke/DroneDash_x64.ThermalSmoke.csproj --configuration Release --no-build -- --allow-missing-sdk
 
       - name: Build planning smoke tool
         run: dotnet build desktop/DroneDash_x64.PlanningSmoke/DroneDash_x64.PlanningSmoke.csproj --configuration Release --no-restore
@@ -280,6 +300,9 @@ jobs:
 
       - name: Run project smoke test
         run: dotnet run --project desktop/DroneDash_x64.ProjectSmoke/DroneDash_x64.ProjectSmoke.csproj --configuration Release --no-build
+
+      - name: Run unit tests
+        run: dotnet test desktop/DroneDash_x64.Tests/DroneDash_x64.Tests.csproj --configuration Release --no-restore
 
   rc-agent:
     name: Android RC agent
