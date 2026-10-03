@@ -19,6 +19,39 @@ public partial class PhotogrammetryWorkspaceView : System.Windows.Controls.UserC
         DatasetGrid.ItemsSource = _images;
     }
 
+    public void AcceptFlightPlan(
+        string flightPlanPath)
+    {
+        try
+        {
+            var fullPath =
+                Path.GetFullPath(
+                    flightPlanPath);
+
+            var project =
+                Planning.FlightPlanProjectStore.Load(
+                    fullPath);
+
+            _flightPlanProjectPath =
+                fullPath;
+
+            FlightPlanText.Text =
+                $"{project.Settings.Name} · {project.Settings.Aircraft} · " +
+                $"{project.Settings.Mode} · {project.Geometry.Count} Geometriepunkte\n" +
+                _flightPlanProjectPath;
+
+            InvalidateDataset();
+
+            DatasetStatusText.Text =
+                "Flugplan aus dem DroneDash-Projekt übernommen.";
+        }
+        catch (Exception ex)
+        {
+            DatasetStatusText.Text =
+                $"Flugplan konnte nicht übernommen werden: {ex.Message}";
+        }
+    }
+
     private void SelectImageFolder_Click(object sender, RoutedEventArgs e)
     {
         using var dialog = new WinForms.FolderBrowserDialog
@@ -27,7 +60,8 @@ public partial class PhotogrammetryWorkspaceView : System.Windows.Controls.UserC
             ShowNewFolderButton = false,
             SelectedPath = Directory.Exists(_sourceFolder)
                 ? _sourceFolder
-                : ""
+                : ProjectWorkspaceLayout.TryGetActiveFolder(
+                      ProjectWorkspaceFolder.PhotogrammetryDataset) ?? ""
         };
 
         if (dialog.ShowDialog() != WinForms.DialogResult.OK)
@@ -45,30 +79,17 @@ public partial class PhotogrammetryWorkspaceView : System.Windows.Controls.UserC
             Title = "DroneDash-Flugplan verknüpfen",
             Filter = "DroneDash Flugplan (*.ddplan;*.json)|*.ddplan;*.json|Alle Dateien (*.*)|*.*",
             CheckFileExists = true,
-            Multiselect = false
+            Multiselect = false,
+            InitialDirectory =
+                ProjectWorkspaceLayout.TryGetActiveFolder(
+                    ProjectWorkspaceFolder.Planning)
         };
 
         if (dialog.ShowDialog() != WinForms.DialogResult.OK)
             return;
 
-        try
-        {
-            var project = Planning.FlightPlanProjectStore.Load(dialog.FileName);
-            _flightPlanProjectPath = dialog.FileName;
-            FlightPlanText.Text =
-                $"{project.Settings.Name} · {project.Settings.Aircraft} · " +
-                $"{project.Settings.Mode} · {project.Geometry.Count} Geometriepunkte\n" +
-                _flightPlanProjectPath;
-            InvalidateDataset();
-        }
-        catch (Exception ex)
-        {
-            System.Windows.MessageBox.Show(
-                ex.Message,
-                "Flugplan verknüpfen",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
-        }
+        AcceptFlightPlan(
+            dialog.FileName);
     }
 
     private async void Analyze_Click(object sender, RoutedEventArgs e)
@@ -132,7 +153,12 @@ public partial class PhotogrammetryWorkspaceView : System.Windows.Controls.UserC
         using var dialog = new WinForms.FolderBrowserDialog
         {
             Description = "Zielordner für Processing-Manifest auswählen",
-            ShowNewFolderButton = true
+            ShowNewFolderButton = true,
+            SelectedPath =
+                ProjectWorkspaceLayout.TryGetActiveFolder(
+                    ProjectWorkspaceFolder.PhotogrammetryProcessing) ??
+                _sourceFolder ??
+                ""
         };
 
         if (dialog.ShowDialog() != WinForms.DialogResult.OK)
