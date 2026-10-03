@@ -819,6 +819,59 @@ def _final_stats(stats):
     }
 
 
+def _tile_windows(width, height, tile_size):
+    for y in range(0, height, tile_size):
+        tile_height = min(tile_size, height - y)
+
+        for x in range(0, width, tile_size):
+            tile_width = min(tile_size, width - x)
+            yield (x, y, tile_width, tile_height)
+
+
+def _prefetched_tiles(windows, reader, pipeline_depth):
+    from concurrent.futures import ThreadPoolExecutor
+
+    depth = max(1, min(int(pipeline_depth), 4))
+    iterator = iter(windows)
+    pending = []
+
+    with ThreadPoolExecutor(
+        max_workers=1,
+        thread_name_prefix="dronedash-gdal-read",
+    ) as executor:
+        for _ in range(depth):
+            try:
+                window = next(iterator)
+            except StopIteration:
+                break
+
+            pending.append(
+                (
+                    window,
+                    executor.submit(reader, window),
+                )
+            )
+
+        while pending:
+            window, future = pending.pop(0)
+            payload = future.result()
+
+            try:
+                next_window = next(iterator)
+            except StopIteration:
+                next_window = None
+
+            if next_window is not None:
+                pending.append(
+                    (
+                        next_window,
+                        executor.submit(reader, next_window),
+                    )
+                )
+
+            yield (window, payload)
+
+
 def geospatial_index(args):
     import numpy as np
     from osgeo import gdal
@@ -899,94 +952,93 @@ def geospatial_index(args):
             args.index_type.upper(),
         )
 
-        for y in range(
-            0,
-            source.RasterYSize,
-            tile_size,
-        ):
-            height = min(
-                tile_size,
-                source.RasterYSize - y,
+        def read_index_tile(window):
+            x, y, width, height = window
+
+            positive = positive_band.ReadAsArray(
+                x,
+                y,
+                width,
+                height,
+            )
+            comparison = comparison_band.ReadAsArray(
+                x,
+                y,
+                width,
+                height,
             )
 
-            for x in range(
-                0,
-                source.RasterXSize,
-                tile_size,
-            ):
-                width = min(
-                    tile_size,
-                    source.RasterXSize - x,
+            if positive is None or comparison is None:
+                raise RuntimeError(
+                    f"GDAL failed reading tile x={x} y={y}"
                 )
 
-                positive = positive_band.ReadAsArray(
-                    x,
-                    y,
-                    width,
-                    height,
-                )
-                comparison = comparison_band.ReadAsArray(
-                    x,
-                    y,
-                    width,
-                    height,
-                )
-
-                if positive is None or comparison is None:
-                    raise RuntimeError(
-                        f"GDAL failed reading tile x={x} y={y}"
-                    )
-
-                positive = _prepare_source_tile(
+            return (
+                _prepare_source_tile(
                     positive,
                     positive_nodata,
                     np,
-                )
-                comparison = _prepare_source_tile(
+                ),
+                _prepare_source_tile(
                     comparison,
                     comparison_nodata,
                     np,
-                )
+                ),
+            )
 
-                if backend == "cuda":
-                    try:
-                        values = _index_cuda(
-                            positive,
-                            comparison,
-                            args.index_epsilon,
-                        )
-                    except Exception:
-                        if args.backend == "cuda":
-                            raise
+        windows = _tile_windows(
+            source.RasterXSize,
+            source.RasterYSize,
+            tile_size,
+        )
 
-                        backend = "cpu"
-                        values = _index_cpu(
-                            positive,
-                            comparison,
-                            args.index_epsilon,
-                            np,
-                        )
-                else:
+        for (
+            (x, y, width, height),
+            (positive, comparison),
+        ) in _prefetched_tiles(
+            windows,
+            read_index_tile,
+            args.pipeline_depth,
+        ):
+            if backend == "cuda":
+                try:
+                    values = _index_cuda(
+                        positive,
+                        comparison,
+                        args.index_epsilon,
+                    )
+                except Exception:
+                    if args.backend == "cuda":
+                        raise
+
+                    backend = "cpu"
                     values = _index_cpu(
                         positive,
                         comparison,
                         args.index_epsilon,
                         np,
                     )
-
-                output_band.WriteArray(
-                    values,
-                    x,
-                    y,
-                )
-
-                _update_stats(
-                    values,
+            else:
+                values = _index_cpu(
+                    positive,
+                    comparison,
+                    args.index_epsilon,
                     np,
-                    stats,
                 )
 
-                tiles += 1
+            output_band.WriteArray(
+                values,
+                x,
+                y,
+            )
+
+            _update_stats(
+                values,
+                np,
+                stats,
+            )
+
+            tiles += 1
 
         final_stats = _final_stats(
             stats
@@ -1020,6 +1072,14 @@ def geospatial_index(args):
             "width": int(source.RasterXSize),
             "height": int(source.RasterYSize),
             "tileSize": tile_size,
+            "pipelineDepth": max(
+                1,
+                min(
+                    int(args.pipeline_depth),
+                    4,
+                ),
+            ),
+            "readAheadEnabled": True,
             "tilesProcessed": tiles,
             "backendRequested": args.backend,
             "backendUsed": backend,
@@ -1204,81 +1264,78 @@ def geospatial_zones(args):
             "NDVI_SCOUTING_ZONES",
         )
 
-        for y in range(
-            0,
-            source.RasterYSize,
-            tile_size,
-        ):
-            height = min(
-                tile_size,
-                source.RasterYSize - y,
+        def read_zone_tile(window):
+            x, y, width, height = window
+
+            values = input_band.ReadAsArray(
+                x,
+                y,
+                width,
+                height,
             )
 
-            for x in range(
-                0,
-                source.RasterXSize,
-                tile_size,
-            ):
-                width = min(
-                    tile_size,
-                    source.RasterXSize - x,
+            if values is None:
+                raise RuntimeError(
+                    f"GDAL failed reading NDVI tile x={x} y={y}"
                 )
 
-                values = input_band.ReadAsArray(
-                    x,
-                    y,
-                    width,
-                    height,
-                )
+            return _prepare_source_tile(
+                values,
+                input_nodata,
+                np,
+            )
 
-                if values is None:
-                    raise RuntimeError(
-                        f"GDAL failed reading NDVI tile x={x} y={y}"
+        windows = _tile_windows(
+            source.RasterXSize,
+            source.RasterYSize,
+            tile_size,
+        )
+
+        for (
+            (x, y, width, height),
+            values,
+        ) in _prefetched_tiles(
+            windows,
+            read_zone_tile,
+            args.pipeline_depth,
+        ):
+            if backend == "cuda":
+                try:
+                    zones = _zones_cuda(
+                        values,
+                        thresholds,
                     )
+                except Exception:
+                    if args.backend == "cuda":
+                        raise
 
-                values = _prepare_source_tile(
-                    values,
-                    input_nodata,
-                    np,
-                )
-
-                if backend == "cuda":
-                    try:
-                        zones = _zones_cuda(
-                            values,
-                            thresholds,
-                        )
-                    except Exception:
-                        if args.backend == "cuda":
-                            raise
-
-                        backend = "cpu"
-                        zones = _zones_cpu(
-                            values,
-                            thresholds,
-                            np,
-                        )
-                else:
+                    backend = "cpu"
                     zones = _zones_cpu(
                         values,
                         thresholds,
                         np,
                     )
-
-                output_band.WriteArray(
-                    zones,
-                    x,
-                    y,
+            else:
+                zones = _zones_cpu(
+                    values,
+                    thresholds,
+                    np,
                 )
 
-                for zone in range(1, 6):
-                    counts[zone - 1] += int(
-                        np.count_nonzero(
-                            zones == zone
-                        )
-                    )
+            output_band.WriteArray(
+                zones,
+                x,
+                y,
+            )
 
-                tiles += 1
+            for zone in range(1, 6):
+                counts[zone - 1] += int(
+                    np.count_nonzero(
+                        zones == zone
+                    )
+                )
+
+            tiles += 1
 
         output_band = None
         target.FlushCache()
@@ -1298,6 +1355,14 @@ def geospatial_zones(args):
             "width": int(source.RasterXSize),
             "height": int(source.RasterYSize),
             "tileSize": tile_size,
+            "pipelineDepth": max(
+                1,
+                min(
+                    int(args.pipeline_depth),
+                    4,
+                ),
+            ),
+            "readAheadEnabled": True,
             "tilesProcessed": tiles,
             "thresholds": thresholds,
             "zonePixelCounts": counts,
@@ -1378,6 +1443,12 @@ def main():
     parser.add_argument("--epsilon", type=float, default=1e-6)
     parser.add_argument("--index-epsilon", type=float, default=1e-12)
     parser.add_argument("--tile-size", type=int, default=2048)
+    parser.add_argument(
+        "--pipeline-depth",
+        type=int,
+        default=2,
+        help="bounded GDAL read-ahead depth (1..4) for geospatial tile processing",
+    )
     args = parser.parse_args()
 
     selected_modes = sum(
