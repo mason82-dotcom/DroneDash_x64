@@ -631,7 +631,16 @@ def vegetation_index(args):
 
 
 def _copy_gdal_georeference(source, target):
-    transform = source.GetGeoTransform(can_return_null=True)
+    try:
+        transform = source.GetGeoTransform(
+            can_return_null=True
+        )
+    except TypeError:
+        try:
+            transform = source.GetGeoTransform()
+        except Exception:
+            transform = None
+
     if transform is not None:
         target.SetGeoTransform(transform)
 
@@ -990,7 +999,6 @@ def geospatial_index(args):
             final_stats["standardDeviation"],
         )
 
-        output_band.FlushCache()
         output_band = None
         target.FlushCache()
         target = None
@@ -1272,7 +1280,6 @@ def geospatial_zones(args):
 
                 tiles += 1
 
-        output_band.FlushCache()
         output_band = None
         target.FlushCache()
         target = None
