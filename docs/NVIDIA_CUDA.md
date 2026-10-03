@@ -9,8 +9,9 @@ The integration is deliberately optional:
 - source M3M files remain read-only;
 - OpenCV-CUDA accelerates registration resize and final affine/perspective warping;
 - CuPy-CUDA accelerates local NDVI, NDRE and GNDVI raster arithmetic;
+- GDAL Python bindings enable a tile-based geospatial engine for large ODM orthomosaics; GDAL handles windowed I/O, CRS/geotransform and GeoTIFF output while CuPy accelerates per-tile math;
 - OpenCV ECC transform estimation remains CPU-based because the OpenCV ECC API does not provide a CUDA implementation;
-- the georeferenced NodeODM/OTB field-product path remains unchanged.
+- Orfeo ToolBox remains the fallback for georeferenced field products when the GDAL Python tile engine is unavailable.
 
 ## Runtime selection
 
@@ -71,6 +72,7 @@ The doctor reports:
 - CUDA Toolkit through `nvcc`
 - whether the configured OpenCV build exposes a CUDA device
 - whether CuPy exposes a CUDA device for NDVI/NDRE/GNDVI
+- whether Python GDAL bindings are available for tile-based geospatial field products
 
 ## Direct worker probe
 
@@ -98,6 +100,41 @@ Example CUDA-capable output:
 ```
 
 If either CUDA backend is unavailable, DroneDash falls back only for that processing stage. For example, CPU-only OpenCV can coexist with CuPy GPU vegetation-index calculation.
+
+## GDAL + CUDA tile engine
+
+DroneDash does not require or assume a native CUDA backend inside GDAL itself. Instead it uses a cvTile-style split of responsibilities:
+
+```text
+GDAL windowed raster I/O
+        ↓
+2048 × 2048 tiles
+        ↓
+CuPy/CUDA or NumPy
+        ↓
+GDAL tiled GeoTIFF output
+```
+
+The worker modes are:
+
+```text
+--geo-index
+--geo-zones
+```
+
+For `--geo-index`, GDAL reads only the requested source-band windows. NDVI, NDRE and GNDVI are calculated tile-by-tile and immediately written to a tiled DEFLATE-compressed GeoTIFF. The source geotransform and projection are copied to the result. This prevents large ODM orthomosaics from being loaded completely into CPU or GPU memory.
+
+`--geo-zones` classifies the NDVI result into the configured five scouting zones using the same tile pipeline. Zone 0 is reserved for NoData.
+
+Both operations use unique temporary GeoTIFFs and publish the final output only after the GDAL dataset has been flushed and closed. JSON sidecars record tile size, tile count, backend, GDAL version, CUDA/CuPy device data and raster statistics.
+
+Requirements for this optional path:
+
+- Python + NumPy
+- Python GDAL bindings (`osgeo.gdal`) compatible with the installed GDAL runtime
+- CuPy for GPU arithmetic; without CuPy the same GDAL tile pipeline uses NumPy on CPU
+
+The standard OTB field-product path remains available as fallback when Python GDAL bindings are not installed.
 
 ## Why CUDA is not mandatory
 
