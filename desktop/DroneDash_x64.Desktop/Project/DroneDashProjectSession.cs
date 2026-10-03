@@ -24,6 +24,7 @@ public static class DroneDashProjectSession
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
     public static event EventHandler<ProjectSessionChangedEventArgs>? Changed;
+    public static event EventHandler<ProjectNavigationRequest>? NavigationRequested;
 
     public static string? CurrentProjectPath { get; private set; }
     public static DroneDashProject? CurrentProject { get; private set; }
@@ -43,6 +44,7 @@ public static class DroneDashProjectSession
         CurrentProject =
             project;
 
+        TryEnsureWorkspaceFolders();
         RaiseChanged(reason);
     }
 
@@ -350,6 +352,8 @@ public static class DroneDashProjectSession
             CurrentProject =
                 DroneDashProjectStore.Load(
                     target);
+
+            TryEnsureWorkspaceFolders();
         }
         finally
         {
@@ -439,6 +443,68 @@ public static class DroneDashProjectSession
                    path) >= 0;
     }
 
+    public static string? TryResolveLatestArtifactPath(
+        ProjectArtifactKind kind)
+    {
+        if (!TryGetCurrent(
+                out var projectPath,
+                out var project))
+        {
+            return null;
+        }
+
+        var artifact =
+            project.Artifacts
+                .Where(item =>
+                    item.Kind == kind)
+                .OrderByDescending(item =>
+                    item.AddedAtUtc)
+                .FirstOrDefault();
+
+        if (artifact is null)
+            return null;
+
+        try
+        {
+            var path =
+                DroneDashProjectStore.ResolveArtifactPath(
+                    projectPath,
+                    artifact);
+
+            return artifact.ReferenceKind ==
+                   ProjectReferenceKind.Directory
+                ? Directory.Exists(path)
+                    ? path
+                    : null
+                : File.Exists(path)
+                    ? path
+                    : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static void RequestNavigation(
+        ProjectNavigationTarget target,
+        string? flightPlanPath = null,
+        string reason = "Workflow-Navigation")
+    {
+        var resolvedFlightPlan =
+            string.IsNullOrWhiteSpace(flightPlanPath)
+                ? TryResolveLatestArtifactPath(
+                    ProjectArtifactKind.FlightPlan)
+                : Path.GetFullPath(flightPlanPath);
+
+        NavigationRequested?.Invoke(
+            null,
+            new ProjectNavigationRequest(
+                target,
+                resolvedFlightPlan,
+                reason));
+    }
+
     private static bool TryGetCurrent(
         out string projectPath,
         out DroneDashProject project)
@@ -500,6 +566,27 @@ public static class DroneDashProjectSession
         string path) =>
         Path.TrimEndingDirectorySeparator(
             Path.GetFullPath(path));
+
+    private static void TryEnsureWorkspaceFolders()
+    {
+        if (string.IsNullOrWhiteSpace(
+                CurrentProjectPath))
+        {
+            return;
+        }
+
+        try
+        {
+            ProjectWorkspaceLayout.EnsureStandardFolders(
+                CurrentProjectPath);
+        }
+        catch
+        {
+            // A read-only or unavailable project root must not prevent
+            // opening the project. Module dialogs will gracefully fall
+            // back to their previous/default locations.
+        }
+    }
 
     private static void SaveAndReload(
         string projectPath,
