@@ -118,6 +118,26 @@ if (!rejectedInvalidProjectSave ||
         "Invalid flight-plan save replaced an existing project file.");
 }
 
+var draftProjectPath =
+    Path.Combine(
+        Path.GetTempPath(),
+        "DroneDash_DraftPlanning_Smoke.ddplan");
+
+FlightPlanProjectStore.Save(
+    draftProjectPath,
+    mapping2D,
+    [polygon[0]]);
+
+var draftProject =
+    FlightPlanProjectStore.Load(
+        draftProjectPath);
+
+if (draftProject.Geometry.Count != 1)
+{
+    throw new InvalidDataException(
+        "Incomplete but valid flight-plan draft was not preserved.");
+}
+
 var plan2D = PhotogrammetryPlanner.Generate(
     loadedProject.Geometry,
     loadedProject.Settings);
