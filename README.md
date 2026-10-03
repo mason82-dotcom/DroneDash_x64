@@ -163,7 +163,7 @@ The local DJI Mavic 3M processing worker supports optional NVIDIA CUDA accelerat
 DroneDash-generated processing plans select GPU backends independently per stage:
 
 - OpenCV-CUDA accelerates registration resize and final affine/perspective warping;
-- CuPy-CUDA accelerates local NDVI, NDRE and GNDVI raster arithmetic with fused kernels and reusable GPU buffers;
+- CuPy-CUDA accelerates local NDVI, NDRE and GNDVI raster arithmetic with fused kernels, reusable GPU buffers and adaptive CPU/CUDA selection for small vs. large workloads;
 - Python GDAL bindings optionally provide a pipelined tile-based geospatial engine for large ODM orthomosaics;
 - a dedicated GDAL read-ahead thread prefetches future tiles while the main thread computes the current tile;
 - a dedicated GDAL writer thread writes the previous tile concurrently, giving a bounded read → compute → write pipeline;
