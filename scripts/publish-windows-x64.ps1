@@ -142,7 +142,8 @@ $RequiredFiles = @(
     "smart-farming\dronedash_worker\pointcloud.py",
     "smart-farming\dronedash_worker\analysis.py",
     "smart-farming\dronedash_worker\colmap_support.py",
-    "smart-farming\dronedash_worker\terrain.py"
+    "smart-farming\dronedash_worker\terrain.py",
+    "smart-farming\dronedash_worker\ortho.py"
 )
 
 foreach ($RelativePath in $RequiredFiles) {

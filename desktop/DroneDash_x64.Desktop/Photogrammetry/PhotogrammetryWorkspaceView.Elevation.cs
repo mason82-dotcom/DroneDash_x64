@@ -183,6 +183,37 @@ public partial class PhotogrammetryWorkspaceView
             await ShowElevationModelAsync(chmPath, "Bestandshöhe (CHM)");
     }
 
+    /// <summary>
+    /// The orthomosaic of the same result (NodeODM) as a tile layer for the elevation map, or
+    /// null. Tiling needs GDAL and runs once per image; a failure only drops the layer.
+    /// </summary>
+    private async Task<(OrthoTileSet Tiles, string Path)?> OrthophotoForAsync(string demPath)
+    {
+        if (_odmProducts is not { OrthophotoPath: { } orthoPath } products ||
+            !File.Exists(orthoPath) ||
+            !products.Files.Any(file => WorkerJsonRunner.SameFile(file, demPath)))
+        {
+            return null;
+        }
+
+        try
+        {
+            var tiles = OrthoTileService.TryLoadCached(orthoPath);
+            if (tiles is null && _toolchain is { PythonExecutable: { } python, GdalPythonAvailable: true })
+            {
+                OdmStatusText.Text = "Orthomosaik wird für die Karte gekachelt (einmalig) …";
+                tiles = await OrthoTileService.RenderAsync(python, _toolchain.OpenCvWorkerPath, orthoPath);
+            }
+
+            return tiles is null ? null : (tiles, orthoPath);
+        }
+        catch (Exception ex)
+        {
+            OdmStatusText.Text += $" · Orthomosaik nicht verfügbar: {ex.Message}";
+            return null;
+        }
+    }
+
     private async Task ShowElevationModelAsync(string demPath, string title, string? baseModelPath = null)
     {
         if (_elevationBusy)
@@ -215,7 +246,9 @@ public partial class PhotogrammetryWorkspaceView
                 ? new ElevationAnalysisContext(python, _toolchain.OpenCvWorkerPath, Path.GetFullPath(demPath), baseModelPath)
                 : null;
 
-            new ElevationMapWindow(preview, DemPreviewService.PreviewFolderFor(demPath), title, analysis)
+            var ortho = await OrthophotoForAsync(demPath);
+
+            new ElevationMapWindow(preview, DemPreviewService.PreviewFolderFor(demPath), title, analysis, ortho)
             {
                 Owner = Window.GetWindow(this)
             }.Show();

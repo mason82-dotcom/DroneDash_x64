@@ -57,7 +57,7 @@ function storeBasemap(name){
 const map=L.map('map',{zoomControl:true}).setView([51.1657,10.4515],6);
 const initialBase=baseLayers[readBasemap()]?readBasemap():'OpenStreetMap';
 baseLayers[initialBase].addTo(map);
-L.control.layers(baseLayers,overlays,{position:'topright'}).addTo(map);
+
 L.control.scale({imperial:false}).addTo(map);
 map.on('baselayerchange',e=>storeBasemap(e.name));
 
@@ -68,6 +68,8 @@ const terrainLayer=L.layerGroup().addTo(map);
 const startLayer=L.layerGroup().addTo(map);
 const TERRAIN_COLORS={ok:'#3fb950',low:'#f0a020',collision:'#e5383b',nodata:'#8b949e'};
 let pickingStart=false;
+let orthoLayer=null, orthoUrl=null;
+const layerControl=L.control.layers(baseLayers,overlays,{position:'topright'}).addTo(map);
 let terrainLegend=null;
 const banner=document.getElementById('banner');
 const metricsBox=document.getElementById('metrics');
@@ -112,6 +114,20 @@ function renderStart(point){
   L.marker([point.latitude,point.longitude],{
     icon:L.divIcon({className:'start',html:'H',iconSize:[16,16]}),keyboard:false,zIndexOffset:900
   }).bindTooltip('Startpunkt (Home)',{direction:'top',offset:[0,-8]}).addTo(startLayer);
+}
+
+function renderOrtho(ortho){
+  const url=ortho?ortho.url:null;
+  if(url===orthoUrl) return;
+  if(orthoLayer){ layerControl.removeLayer(orthoLayer); map.removeLayer(orthoLayer); orthoLayer=null; }
+  orthoUrl=url;
+  if(!ortho) return;
+  // Own orthomosaic between basemap and route; finer zooms upscale the native tiles.
+  orthoLayer=L.tileLayer(ortho.url,{
+    bounds:L.latLngBounds(ortho.bounds),minZoom:ortho.minZoom,maxNativeZoom:ortho.maxZoom,maxZoom:23,
+    zIndex:5,attribution:'Orthomosaik: '+(ortho.name||'eigene Befliegung')
+  }).addTo(map);
+  layerControl.addOverlay(orthoLayer,'Orthomosaik');
 }
 
 function renderTerrain(terrain){
@@ -228,6 +244,7 @@ function renderPlan(data){
   drawShape(current.points);
   addHandles();
   renderMetrics(data.metrics);
+  renderOrtho(data.ortho);
   renderStart(data.startPoint);
   renderTerrain(data.terrain);
 

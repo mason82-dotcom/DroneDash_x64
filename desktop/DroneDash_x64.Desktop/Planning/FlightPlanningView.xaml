@@ -52,6 +52,12 @@
               <Button Content="Löschen" Click="ClearPlan_Click"/>
               <Button Content="Importieren (KML/KMZ/GeoJSON)" Click="ImportGeometry_Click"/>
             </WrapPanel>
+            <WrapPanel Margin="0,4,0,0">
+              <Button Content="Orthomosaik als Hintergrund …" Click="SelectOrthophoto_Click"
+                      ToolTip="Eigenes Orthomosaik (z. B. aus NodeODM) als Kartenebene unter der Route; wird beim ersten Mal gekachelt."/>
+              <Button Content="Hintergrund entfernen" Click="ClearOrthophoto_Click"/>
+            </WrapPanel>
+            <TextBlock x:Name="OrthophotoText" Margin="4,2,0,0" Text="Kein Orthomosaik" TextWrapping="Wrap" FontSize="11"/>
             <TextBlock x:Name="PolygonInfoText" Margin="4,7,0,0" Text="0 Punkte" TextWrapping="Wrap"/>
             <TextBlock Margin="4,4,0,0" TextWrapping="Wrap" Opacity="0.7" FontSize="11"
                        Text="Eckpunkte auf der Karte ziehen zum Verschieben · Mittelpunkt-Griff ziehen fügt einen Punkt ein · Rechtsklick auf einen Eckpunkt löscht ihn. Hintergrundkarte oben rechts umschalten."/>

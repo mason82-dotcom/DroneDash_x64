@@ -112,6 +112,7 @@ map.on('mousemove',e=>{
   readout.textContent=v===null?`${pos} · keine Höhendaten`:`Höhe ${fmt(v,2)} m · ${pos}`;
 });
 
+let orthoLayer=null;
 async function load(m){
   errorBox.style.display='none';
   const p=m.preview;
@@ -125,6 +126,14 @@ async function load(m){
     for(let i=0;i<grid.length;i++) grid[i]=view.getFloat32(i*4,true);
 
     if(model){ map.removeLayer(model.overlay); layerControl.removeLayer(model.overlay); }
+    if(m.ortho && !orthoLayer){
+      // Own orthomosaic in the tile pane, i.e. always below the elevation overlay.
+      orthoLayer=L.tileLayer(m.ortho.url,{
+        bounds:L.latLngBounds(m.ortho.bounds),minZoom:m.ortho.minZoom,maxNativeZoom:m.ortho.maxZoom,maxZoom:23,
+        zIndex:5,attribution:'Orthomosaik: '+(m.ortho.name||'eigene Befliegung')
+      }).addTo(map);
+      layerControl.addOverlay(orthoLayer,'Orthomosaik');
+    }
     const bounds=[[p.bounds.south,p.bounds.west],[p.bounds.north,p.bounds.east]];
     const overlay=L.imageOverlay(m.imageUrl,bounds,{opacity:.85,interactive:false}).addTo(map);
     model={preview:p,grid,overlay,title:m.title};

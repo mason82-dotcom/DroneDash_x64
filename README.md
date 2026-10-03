@@ -333,6 +333,16 @@ wrong location. KML is parsed without DTD processing, and file/KMZ entry sizes a
 The basemap can be switched between OpenStreetMap and Esri World Imagery (satellite), with an
 optional Esri label overlay; the last choice is remembered.
 
+### Orthomosaic as map background
+
+*Orthomosaik als Hintergrund …* in **Flugplanung** shows an own orthomosaic (8-bit GeoTIFF, e.g.
+`odm_orthophoto.tif`) as a map layer below the route, the current state of the field instead of
+months-old satellite imagery. The worker (`--ortho-tiles`) cuts it once with GDAL's `gdal2tiles`
+into an XYZ Web Mercator pyramid from the native resolution down eight zoom levels, written to
+`<image>.tiles/` next to the image and replaced as a whole when the image changes. The path is
+saved in the `.ddplan` file. The elevation map shows the orthomosaic of the same NodeODM result
+as well.
+
 ### Planning project files and KMZ validation
 
 Flight-planning work can be saved as a versioned DroneDash \`.ddplan\` JSON project and loaded
@@ -402,6 +412,8 @@ GeoTIFF) opens the model on a Leaflet map over OpenStreetMap or Esri satellite i
   the elevation under the mouse cursor;
 - previews are reused until the model changes; rendering needs Python with GDAL bindings and NumPy
   (set `DRONEDASH_PYTHON`, e.g. OSGeo4W or conda).
+- when the NodeODM result contains an orthomosaic, it is shown as an extra tile layer below the
+  elevation model (see *Orthomosaic as map background*).
 
 **Punktwolke 3D** (or *Punktwolke (LAS/LAZ) öffnen …*) shows the georeferenced point cloud in a
 three.js viewer inside the app:

@@ -11,6 +11,7 @@ from .geospatial import geospatial_index, geospatial_zones
 from .indices import vegetation_index
 from .pointcloud import pointcloud_preview
 from .probes import probe
+from .ortho import ortho_tiles
 from .registration import register
 from .terrain import terrain_check
 
@@ -115,6 +116,7 @@ def main(argv=None):
     parser.add_argument("--dsm")
     parser.add_argument("--dtm")
     parser.add_argument("--max-samples", type=int, default=2000)
+    parser.add_argument("--ortho-tiles", action="store_true")
     parser.add_argument("--terrain-check", action="store_true")
     parser.add_argument("--dem")
     parser.add_argument("--route")
@@ -196,12 +198,13 @@ def main(argv=None):
             bool(args.colmap_georef),
             bool(args.colmap_products),
             bool(args.terrain_check),
+            bool(args.ortho_tiles),
         ]
     )
 
     if selected_modes != 1:
         parser.error(
-            "choose exactly one of --serve-jsonl, --probe, --register, --index, --geo-index, --geo-zones, --dem-preview, --pointcloud-preview, --dem-profile, --dem-volume, --chm, --colmap-georef, --colmap-products or --terrain-check"
+            "choose exactly one of --serve-jsonl, --probe, --register, --index, --geo-index, --geo-zones, --dem-preview, --pointcloud-preview, --dem-profile, --dem-volume, --chm, --colmap-georef, --colmap-products, --terrain-check or --ortho-tiles"
         )
 
     if args.serve_jsonl:
@@ -251,6 +254,12 @@ def main(argv=None):
         if not args.source or not args.polygon:
             parser.error("--dem-volume requires --source and --polygon")
         dem_volume(args)
+        return
+
+    if args.ortho_tiles:
+        if not args.source or not args.output_dir:
+            parser.error("--ortho-tiles requires --source and --output-dir")
+        ortho_tiles(args)
         return
 
     if args.terrain_check:

@@ -182,6 +182,7 @@ public partial class FlightPlanningView
                 ? new { latitude = takeOff.Latitude, longitude = takeOff.Longitude }
                 : null,
             terrain = TerrainMapMessage(),
+            ortho = OrthoMapMessage(),
             polygon = _geometry.Select(p => new
             {
                 latitude = p.Latitude,
