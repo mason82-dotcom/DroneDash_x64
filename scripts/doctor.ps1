@@ -239,6 +239,13 @@ if ($PythonCommand -and (Test-Path $CudaWorker)) {
             else {
                 Write-Check WARN "CuPy CUDA" "CuPy does not expose a CUDA device. Local NDVI/NDRE/GNDVI use NumPy CPU fallback."
             }
+
+            if ($Probe.gdalPythonAvailable) {
+                Write-Check OK "GDAL Python Tile Engine" "GDAL $($Probe.gdalPythonVersion) · geospatial tiled raster processing available."
+            }
+            else {
+                Write-Check WARN "GDAL Python Tile Engine" "Python GDAL bindings (osgeo.gdal) are unavailable. ODM field products fall back to OTB."
+            }
         }
         else {
             Write-Check WARN "OpenCV/CuPy CUDA" "Worker probe failed. Install Python + NumPy and optional CUDA-enabled OpenCV/CuPy packages."

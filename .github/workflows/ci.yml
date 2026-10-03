@@ -37,8 +37,11 @@ jobs:
           python -m py_compile $Worker
           $Help = (python $Worker --help | Out-String)
           if ($Help -notmatch "--index" -or
+              $Help -notmatch "--geo-index" -or
+              $Help -notmatch "--geo-zones" -or
+              $Help -notmatch "--tile-size" -or
               $Help -notmatch "--backend") {
-            throw "Smart Farming worker CLI is missing CUDA/index options."
+            throw "Smart Farming worker CLI is missing CUDA/GDAL tile options."
           }
 
       - name: Verify real M3T thermal fixture with Windows PowerShell 5.1

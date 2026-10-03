@@ -86,7 +86,11 @@ public static partial class LocalImageToolchain
             OpenCvCudaAvailable =
                 openCvProbe.CudaAvailable,
             CupyCudaAvailable =
-                openCvProbe.CupyAvailable
+                openCvProbe.CupyAvailable,
+            GdalPythonAvailable =
+                openCvProbe.GdalPythonAvailable,
+            GdalPythonVersion =
+                openCvProbe.GdalPythonVersion
         };
     }
 
@@ -170,7 +174,9 @@ public static partial class LocalImageToolchain
         bool CupyAvailable,
         string? CupyVersion,
         int CupyDeviceCount,
-        string? CupyDeviceName);
+        string? CupyDeviceName,
+        bool GdalPythonAvailable,
+        string? GdalPythonVersion);
 
     private static async Task<OpenCvProbeResult> ProbeOpenCvAsync(
         string? python,
@@ -194,6 +200,8 @@ public static partial class LocalImageToolchain
                 false,
                 null,
                 0,
+                null,
+                false,
                 null);
         }
 
@@ -214,6 +222,8 @@ public static partial class LocalImageToolchain
                 false,
                 null,
                 0,
+                null,
+                false,
                 null);
         }
 
@@ -223,6 +233,8 @@ public static partial class LocalImageToolchain
             cancellationToken);
 
         string? version = null;
+        var openCvAvailable = false;
+        var numpyAvailable = false;
         var cudaAvailable = false;
         var cudaDeviceCount = 0;
         string? cudaDeviceName = null;
@@ -231,6 +243,8 @@ public static partial class LocalImageToolchain
         string? cupyVersion = null;
         var cupyDeviceCount = 0;
         string? cupyDeviceName = null;
+        var gdalPythonAvailable = false;
+        string? gdalPythonVersion = null;
 
         if (result.Success)
         {
@@ -244,8 +258,32 @@ public static partial class LocalImageToolchain
                     document.RootElement;
 
                 if (root.TryGetProperty(
+                        "opencvAvailable",
+                        out var openCvAvailableElement) &&
+                    openCvAvailableElement.ValueKind is
+                        JsonValueKind.True or
+                        JsonValueKind.False)
+                {
+                    openCvAvailable =
+                        openCvAvailableElement.GetBoolean();
+                }
+
+                if (root.TryGetProperty(
+                        "numpyAvailable",
+                        out var numpyAvailableElement) &&
+                    numpyAvailableElement.ValueKind is
+                        JsonValueKind.True or
+                        JsonValueKind.False)
+                {
+                    numpyAvailable =
+                        numpyAvailableElement.GetBoolean();
+                }
+
+                if (root.TryGetProperty(
                         "opencv",
-                        out var opencv))
+                        out var opencv) &&
+                    opencv.ValueKind ==
+                        JsonValueKind.String)
                 {
                     version =
                         opencv.GetString();
@@ -336,6 +374,27 @@ public static partial class LocalImageToolchain
                     cupyDeviceName =
                         cupyDeviceNameElement.GetString();
                 }
+
+                if (root.TryGetProperty(
+                        "gdalPythonAvailable",
+                        out var gdalPython) &&
+                    gdalPython.ValueKind is
+                        JsonValueKind.True or
+                        JsonValueKind.False)
+                {
+                    gdalPythonAvailable =
+                        gdalPython.GetBoolean();
+                }
+
+                if (root.TryGetProperty(
+                        "gdalPythonVersion",
+                        out var gdalPythonVersionElement) &&
+                    gdalPythonVersionElement.ValueKind ==
+                        JsonValueKind.String)
+                {
+                    gdalPythonVersion =
+                        gdalPythonVersionElement.GetString();
+                }
             }
             catch
             {
@@ -348,12 +407,16 @@ public static partial class LocalImageToolchain
             new LocalImageToolStatus(
                 LocalImageToolKind.PythonOpenCv,
                 "Python + OpenCV",
-                result.Success,
+                result.Success &&
+                openCvAvailable,
                 version,
                 python,
-                result.Success
+                result.Success &&
+                openCvAvailable
                     ? "OpenCV-ECC-Worker verfügbar."
-                    : $"OpenCV-Probe fehlgeschlagen: {result.Output}");
+                    : result.Success
+                        ? "Python-Worker verfügbar, OpenCV jedoch nicht. GDAL-Tile-Engine kann unabhängig davon verfügbar sein."
+                        : $"Python-Worker-Probe fehlgeschlagen: {result.Output}");
 
         return new(
             status,
@@ -366,7 +429,10 @@ public static partial class LocalImageToolchain
             cupyDeviceCount > 0,
             cupyVersion,
             cupyDeviceCount,
-            cupyDeviceName);
+            cupyDeviceName,
+            gdalPythonAvailable &&
+            numpyAvailable,
+            gdalPythonVersion);
     }
 
     private static async Task<LocalImageToolStatus> ProbeCudaAsync(
@@ -428,9 +494,8 @@ public static partial class LocalImageToolchain
         }
 
         var available =
-            openCv.Status.Available &&
-            (openCv.CudaAvailable ||
-             openCv.CupyAvailable);
+            openCv.CudaAvailable ||
+            openCv.CupyAvailable;
 
         var version =
             toolkitVersion ??
@@ -438,12 +503,7 @@ public static partial class LocalImageToolchain
 
         string detail;
 
-        if (!openCv.Status.Available)
-        {
-            detail =
-                "CUDA optional: Python/OpenCV-Worker ist nicht verfügbar.";
-        }
-        else if (available)
+        if (available)
         {
             var device =
                 openCv.CudaDeviceName ??
@@ -453,7 +513,9 @@ public static partial class LocalImageToolchain
             var registration =
                 openCv.CudaAvailable
                     ? "OpenCV-Registrierung: CUDA Resize/Warp"
-                    : "OpenCV-Registrierung: CPU";
+                    : openCv.Status.Available
+                        ? "OpenCV-Registrierung: CPU"
+                        : "OpenCV-Registrierung: nicht verfügbar";
 
             var indices =
                 openCv.CupyAvailable

@@ -102,7 +102,9 @@ var fakeToolchain = new LocalImageToolchainStatus(
     @"C:\DroneDash\smart-farming\opencv_m3m.py")
 {
     OpenCvCudaAvailable = true,
-    CupyCudaAvailable = true
+    CupyCudaAvailable = true,
+    GdalPythonAvailable = true,
+    GdalPythonVersion = "3.11.4"
 };
 
 var localPlan = LocalProcessingPlanBuilder.Build(
@@ -379,21 +381,85 @@ var fieldPlan =
         zones);
 
 if (fieldPlan.Steps.Count != 4 ||
+    fieldPlan.Steps.Any(step =>
+        step.Tool != "GDAL/CUDA Tiles") ||
     !fieldPlan.Steps.Any(step =>
         step.Id == "odm-ndvi" &&
-        step.Arguments.Contains(
-            "(im1b2-im1b4)/(im1b2+im1b4+1e-12)")) ||
+        step.Arguments.Contains("--geo-index") &&
+        step.Arguments.Contains("2") &&
+        step.Arguments.Contains("4")) ||
     !fieldPlan.Steps.Any(step =>
         step.Id == "odm-ndre" &&
-        step.Arguments.Contains(
-            "(im1b2-im1b3)/(im1b2+im1b3+1e-12)")) ||
+        step.Arguments.Contains("--geo-index") &&
+        step.Arguments.Contains("2") &&
+        step.Arguments.Contains("3")) ||
     !fieldPlan.Steps.Any(step =>
         step.Id == "odm-gndvi" &&
-        step.Arguments.Contains(
-            "(im1b2-im1b1)/(im1b2+im1b1+1e-12)")))
+        step.Arguments.Contains("--geo-index") &&
+        step.Arguments.Contains("2") &&
+        step.Arguments.Contains("1")) ||
+    !fieldPlan.Steps.Any(step =>
+        step.Id == "odm-ndvi-scouting-zones" &&
+        step.Arguments.Contains("--geo-zones") &&
+        step.Arguments.Contains("--tile-size") &&
+        step.Arguments.Contains("2048")))
 {
     throw new InvalidDataException(
-        "ODM field-product plan does not use the mapped bands.");
+        "ODM GDAL/CUDA tile plan does not use the mapped bands or zone settings.");
+}
+
+if (!fakeToolchain.GdalTileEngineAvailable ||
+    fakeToolchain.GeoRasterBackend !=
+        "GDAL Tiles + CUDA/CuPy")
+{
+    throw new InvalidDataException(
+        "GDAL/CUDA tile-engine capability model is inconsistent.");
+}
+
+var gdalWithoutOpenCv =
+    fakeToolchain with
+    {
+        OpenCv =
+            fakeToolchain.OpenCv with
+            {
+                Available = false
+            },
+        OpenCvCudaAvailable = false
+    };
+
+if (!gdalWithoutOpenCv.GdalTileEngineAvailable ||
+    gdalWithoutOpenCv.GeoRasterBackend !=
+        "GDAL Tiles + CUDA/CuPy")
+{
+    throw new InvalidDataException(
+        "GDAL tile engine must not depend on OpenCV availability.");
+}
+
+var otbFallbackToolchain =
+    fakeToolchain with
+    {
+        GdalPythonAvailable = false
+    };
+
+var otbFieldPlan =
+    OdmFieldProductPlanBuilder.Build(
+        describedOrthophoto,
+        Path.Combine(
+            Path.GetTempPath(),
+            "DroneDash_FieldProducts_OTB_Fallback_Smoke"),
+        otbFallbackToolchain,
+        zones);
+
+if (otbFieldPlan.Steps.Count != 4 ||
+    otbFieldPlan.Steps.Any(step =>
+        step.Tool != "Orfeo ToolBox") ||
+    !otbFieldPlan.Steps.Any(step =>
+        step.Id == "odm-ndvi" &&
+        step.Arguments.Contains(
+            "(im1b2-im1b4)/(im1b2+im1b4+1e-12)")))
+{
+    throw new InvalidDataException(
+        "ODM field-product OTB fallback is incomplete.");
 }
 
 var zipSmokeRoot =
