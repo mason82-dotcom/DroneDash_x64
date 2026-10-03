@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/desktop/">
+    <Project Path="desktop/DroneDash_x64.Desktop/DroneDash_x64.Desktop.csproj" />
+    <Project Path="desktop/DroneDash_x64.MockRc/DroneDash_x64.MockRc.csproj" />
+    <Project Path="desktop/DroneDash_x64.PlanningSmoke/DroneDash_x64.PlanningSmoke.csproj" />
+    <Project Path="desktop/DroneDash_x64.ProjectSmoke/DroneDash_x64.ProjectSmoke.csproj" />
+    <Project Path="desktop/DroneDash_x64.PvSmoke/DroneDash_x64.PvSmoke.csproj" />
+    <Project Path="desktop/DroneDash_x64.SmartFarmingSmoke/DroneDash_x64.SmartFarmingSmoke.csproj" />
+    <Project Path="desktop/DroneDash_x64.Tests/DroneDash_x64.Tests.csproj" />
+    <Project Path="desktop/DroneDash_x64.ThermalSmoke/DroneDash_x64.ThermalSmoke.csproj" />
+  </Folder>
+</Solution>

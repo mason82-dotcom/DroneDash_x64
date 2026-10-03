@@ -150,11 +150,20 @@ only on loopback.
 
 `.github/workflows/ci.yml` verifies both sides of the project:
 
-- Windows: restore and Release-build the WPF desktop application and mock RC, run Planning/PV/Smart-Farming/Project smoke coverage, execute ThermalSmoke in SDK-optional mode, and run xUnit metadata/core tests;
+- Windows: restore and Release-build `DroneDash_x64.slnx` (desktop, mock RC, smoke tools and tests) with a NuGet cache, run Planning/PV/Smart-Farming/Project smoke coverage, execute ThermalSmoke in SDK-optional mode, run xUnit metadata/core tests and verify the Smart Farming Python worker;
 - Android: Java 17 + Gradle 8.12 + Android API 36, then `:app:assembleDebug`; pull requests use CI-only placeholders,
   while trusted push/manual runs consume `DJI_API_KEY` and `BRIDGE_TOKEN` repository secrets when configured.
 
 This makes SDK/dependency or compiler regressions visible immediately after a push.
+
+The same checks run locally:
+
+```powershell
+dotnet build DroneDash_x64.slnx -c Release
+python tests/python/verify_opencv_m3m_worker.py
+```
+
+Shared compiler settings for all desktop projects live in `desktop/Directory.Build.props`.
 
 
 ## NVIDIA CUDA acceleration
