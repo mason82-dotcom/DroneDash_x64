@@ -1,4 +1,4 @@
-package com.example.m3ebridge
+package com.mason82.dronedash.rcbridge
 
 import dji.sdk.keyvalue.key.BatteryKey
 import dji.sdk.keyvalue.key.CameraKey
