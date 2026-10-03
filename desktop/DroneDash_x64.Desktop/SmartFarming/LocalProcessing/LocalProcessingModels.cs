@@ -38,6 +38,10 @@ public sealed record LocalImageToolchainStatus(
 
     public bool CupyCudaAvailable { get; init; }
 
+    public bool GdalPythonAvailable { get; init; }
+
+    public string? GdalPythonVersion { get; init; }
+
     public bool IsReady =>
         Gdal.Available &&
         Otb.Available &&
@@ -60,6 +64,18 @@ public sealed record LocalImageToolchainStatus(
         CupyCudaAvailable
             ? "CUDA/CuPy (Auto-Fallback auf NumPy)"
             : "CPU/NumPy";
+
+    public bool GdalTileEngineAvailable =>
+        GdalPythonAvailable &&
+        OpenCv.Available &&
+        !string.IsNullOrWhiteSpace(PythonExecutable);
+
+    public string GeoRasterBackend =>
+        GdalTileEngineAvailable
+            ? CupyCudaAvailable
+                ? "GDAL Tiles + CUDA/CuPy"
+                : "GDAL Tiles + NumPy"
+            : "Orfeo ToolBox";
 
     public IReadOnlyList<LocalImageToolStatus> Tools =>
         [Gdal, Otb, OpenCv, Cuda];
