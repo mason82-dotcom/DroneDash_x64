@@ -459,6 +459,38 @@ public static class ProjectProcessingCoordinator
             $"CANCELED · {message}");
     }
 
+    public static void LogActive(
+        ProjectProcessingWorkerKind worker,
+        string line)
+    {
+        if (!TryGetActiveContext(
+                out var projectPath,
+                out var pipeline))
+        {
+            return;
+        }
+
+        lock (Sync)
+        {
+            var ledger =
+                Load(projectPath);
+
+            var index =
+                FindLatestJobIndex(
+                    ledger,
+                    pipeline.JobId,
+                    worker);
+
+            if (index < 0)
+                return;
+
+            AppendLog(
+                projectPath,
+                ledger.Jobs[index],
+                line);
+        }
+    }
+
     public static ProjectProcessingJob? RecordOutputActive(
         ProjectProcessingWorkerKind worker,
         string outputPath,
