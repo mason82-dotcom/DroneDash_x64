@@ -1998,26 +1998,39 @@ def geospatial_index(args):
         )
 
         if sample_backend == "cuda":
-            _index_cuda(
+            result_values = _index_cuda(
                 positive,
                 comparison,
                 args.index_epsilon,
             )
         else:
-            _index_cpu(
+            result_values = _index_cpu(
                 positive,
                 comparison,
                 args.index_epsilon,
                 np,
             )
 
+        compute_seconds = (
+            time.perf_counter() -
+            compute_started
+        )
+        write_seconds = None
+
+        if sample_index == 1:
+            write_seconds = _benchmark_geotiff_write(
+                result_values,
+                args.output,
+                gdal.GDT_Float32,
+                float("nan"),
+                args.index_type.upper(),
+            )
+
         return {
             "pixels": width * height,
             "readSeconds": read_seconds,
-            "computeSeconds": (
-                time.perf_counter() -
-                compute_started
-            ),
+            "computeSeconds": compute_seconds,
+            "writeSeconds": write_seconds,
         }
 
     backend_fallback_reason = None
@@ -2515,24 +2528,37 @@ def geospatial_zones(args):
         )
 
         if sample_backend == "cuda":
-            _zones_cuda(
+            result_zones = _zones_cuda(
                 values,
                 thresholds,
             )
         else:
-            _zones_cpu(
+            result_zones = _zones_cpu(
                 values,
                 thresholds,
                 np,
             )
 
+        compute_seconds = (
+            time.perf_counter() -
+            compute_started
+        )
+        write_seconds = None
+
+        if sample_index == 1:
+            write_seconds = _benchmark_geotiff_write(
+                result_zones,
+                args.output,
+                gdal.GDT_Byte,
+                0,
+                "NDVI_SCOUTING_ZONES",
+            )
+
         return {
             "pixels": width * height,
             "readSeconds": read_seconds,
-            "computeSeconds": (
-                time.perf_counter() -
-                compute_started
-            ),
+            "computeSeconds": compute_seconds,
+            "writeSeconds": write_seconds,
         }
 
     backend_fallback_reason = None
