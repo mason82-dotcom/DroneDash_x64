@@ -722,7 +722,7 @@ public static partial class LocalImageToolchain
         }
     }
 
-    private static Process CreateProcess(
+    internal static Process CreateProcess(
         string program,
         IReadOnlyList<string> arguments)
     {

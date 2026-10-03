@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+html,body,#map{height:100%;margin:0}
+body{background:#101318;font-family:Segoe UI,Arial,sans-serif}
+.panel{background:rgba(20,24,30,.9);color:#fff;padding:8px 11px;border-radius:5px;font-size:13px;line-height:1.45}
+#readout{position:absolute;z-index:1000;top:10px;left:50%;transform:translateX(-50%);pointer-events:none;white-space:nowrap}
+#legend{min-width:190px}
+#legend .bar{height:12px;border-radius:3px;margin:6px 0 2px;
+  background:linear-gradient(to right,rgb(38,115,77),rgb(104,166,87),rgb(209,204,112),rgb(196,145,82),rgb(150,110,90),rgb(245,245,245))}
+#legend .ends{display:flex;justify-content:space-between;font-size:12px;opacity:.85}
+#legend input{width:100%}
+#error{position:absolute;z-index:1001;top:50%;left:50%;transform:translate(-50%,-50%);display:none;max-width:70%}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="readout" class="panel">Höhenmodell wird geladen …</div>
+<div id="error" class="panel"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const BASEMAP_KEY='dronedash.maps.basemap';
+const baseLayers={
+  'OpenStreetMap':L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:22,maxNativeZoom:19,attribution:'&copy; OpenStreetMap contributors'}),
+  'Satellit (Esri)':L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
+    maxZoom:22,maxNativeZoom:19,
+    attribution:'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community'})
+};
+function readBasemap(){ try{ return localStorage.getItem(BASEMAP_KEY); }catch(_){ return null; } }
+function storeBasemap(name){ try{ localStorage.setItem(BASEMAP_KEY,name); }catch(_){} }
+
+const map=L.map('map',{zoomControl:true,maxZoom:22}).setView([51.1657,10.4515],6);
+const initialBase=baseLayers[readBasemap()]?readBasemap():'Satellit (Esri)';
+baseLayers[initialBase].addTo(map);
+const layerControl=L.control.layers(baseLayers,{},{position:'topright'}).addTo(map);
+L.control.scale({imperial:false}).addTo(map);
+map.on('baselayerchange',e=>storeBasemap(e.name));
+
+const readout=document.getElementById('readout');
+const errorBox=document.getElementById('error');
+let model=null;   // {preview, grid: Float32Array, overlay}
+
+function fmt(v,d){ return v.toLocaleString('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d}); }
+function post(m){ window.chrome.webview.postMessage(m); }
+
+function showError(text){
+  errorBox.textContent=text; errorBox.style.display='block';
+  readout.textContent='Höhenmodell nicht geladen';
+}
+
+const legend=L.control({position:'bottomright'});
+legend.onAdd=()=>{
+  const div=L.DomUtil.create('div','panel'); div.id='legend';
+  L.DomEvent.disableClickPropagation(div);
+  L.DomEvent.disableScrollPropagation(div);
+  return div;
+};
+
+function renderLegend(p, opacity){
+  const div=document.getElementById('legend');
+  div.innerHTML=
+    `<b id="legend-title"></b>`+
+    `<div class="bar"></div>`+
+    `<div class="ends"><span>${fmt(p.displayMinimum,1)} m</span><span>${fmt(p.displayMaximum,1)} m</span></div>`+
+    `<div style="margin-top:6px">Min ${fmt(p.minimum,2)} m · Max ${fmt(p.maximum,2)} m<br>`+
+    `Mittel ${fmt(p.mean,2)} m · Auflösung ${fmt(p.groundPixelSizeMeters*100,0)} cm/px</div>`+
+    `<label style="display:block;margin-top:6px">Deckkraft <span id="opacity-value">${Math.round(opacity*100)} %</span>`+
+    `<input id="opacity" type="range" min="0" max="100" value="${Math.round(opacity*100)}"></label>`;
+  document.getElementById('legend-title').textContent=model.title||'Höhenmodell';
+  document.getElementById('opacity').addEventListener('input',e=>{
+    const value=e.target.value/100;
+    model.overlay.setOpacity(value);
+    document.getElementById('opacity-value').textContent=e.target.value+' %';
+  });
+}
+
+// Elevation at a map position from the Web Mercator grid; null outside or on nodata.
+function sample(latlng){
+  if(!model) return null;
+  const p=model.preview, b=p.mercatorBounds;
+  const m=L.CRS.EPSG3857.project(latlng);
+  const col=Math.floor((m.x-b.minX)/(b.maxX-b.minX)*p.width);
+  const row=Math.floor((b.maxY-m.y)/(b.maxY-b.minY)*p.height);
+  if(col<0||row<0||col>=p.width||row>=p.height) return null;
+  const v=model.grid[row*p.width+col];
+  return Number.isFinite(v)?v:null;
+}
+
+map.on('mousemove',e=>{
+  if(!model) return;
+  const v=sample(e.latlng);
+  const pos=`${fmt(e.latlng.lat,6)}, ${fmt(e.latlng.lng,6)}`;
+  readout.textContent=v===null?`${pos} · keine Höhendaten`:`Höhe ${fmt(v,2)} m · ${pos}`;
+});
+
+async function load(m){
+  errorBox.style.display='none';
+  const p=m.preview;
+  try{
+    const response=await fetch(m.gridUrl);
+    if(!response.ok) throw new Error('HTTP '+response.status);
+    const buffer=await response.arrayBuffer();
+    if(buffer.byteLength!==p.width*p.height*4) throw new Error('Rastergröße passt nicht zu den Metadaten');
+    // Grid is little-endian float32; read explicitly so byte order never depends on the host.
+    const view=new DataView(buffer), grid=new Float32Array(p.width*p.height);
+    for(let i=0;i<grid.length;i++) grid[i]=view.getFloat32(i*4,true);
+
+    if(model){ map.removeLayer(model.overlay); layerControl.removeLayer(model.overlay); }
+    const bounds=[[p.bounds.south,p.bounds.west],[p.bounds.north,p.bounds.east]];
+    const overlay=L.imageOverlay(m.imageUrl,bounds,{opacity:.85,interactive:false}).addTo(map);
+    model={preview:p,grid,overlay,title:m.title};
+    layerControl.addOverlay(overlay,m.title||'Höhenmodell');
+    if(!document.getElementById('legend')) legend.addTo(map);
+    renderLegend(p,.85);
+    map.fitBounds(bounds,{padding:[20,20]});
+    readout.textContent='Mauszeiger über das Höhenmodell bewegen';
+    post({type:'loaded'});
+  }catch(err){
+    showError('Höhenmodell konnte nicht geladen werden: '+err.message);
+    post({type:'error',message:String(err.message)});
+  }
+}
+
+window.chrome.webview.addEventListener('message',e=>{
+  const m=e.data||{};
+  if(m.type==='load') load(m);
+});
+post({type:'ready'});
+</script>
+</body>
+</html>

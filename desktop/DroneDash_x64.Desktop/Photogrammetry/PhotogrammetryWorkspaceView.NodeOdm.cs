@@ -14,6 +14,7 @@ public partial class PhotogrammetryWorkspaceView
     private string? _odmTaskUuid;
     private bool _odmTaskCompleted;
     private CancellationTokenSource? _odmMonitorCts;
+    private OdmElevationProducts? _odmProducts;
 
     private void InitializeOdm()
     {
@@ -323,6 +324,10 @@ public partial class PhotogrammetryWorkspaceView
             products.CloudFormat is { } format ? $"Punktwolke ({format.ToString().ToUpperInvariant()})" : "Punktwolke",
             products.PointCloudPath);
         lines.AddRange(products.Warnings.Select(warning => "⚠ " + warning));
+
+        _odmProducts = products;
+        ShowDsmButton.IsEnabled = products.DsmPath is not null;
+        ShowDtmButton.IsEnabled = products.DtmPath is not null;
 
         var registration = await RegisterOdmProductsAsync(zipPath, products);
         if (registration is not null)

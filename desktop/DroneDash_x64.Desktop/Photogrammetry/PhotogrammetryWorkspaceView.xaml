@@ -105,6 +105,11 @@
             <Button x:Name="ImportOdmButton" Content="Ergebnis laden &amp; importieren" Click="ImportOdmResult_Click" IsEnabled="False"/>
             <Button Content="Vorhandenes all.zip importieren" Click="ImportExistingOdmZip_Click"/>
           </WrapPanel>
+          <WrapPanel Margin="0,4,0,0">
+            <Button x:Name="ShowDsmButton" Content="DSM auf Karte" Click="ShowDsm_Click" IsEnabled="False"/>
+            <Button x:Name="ShowDtmButton" Content="DTM auf Karte" Click="ShowDtm_Click" IsEnabled="False"/>
+            <Button Content="Höhenmodell (GeoTIFF) öffnen …" Click="OpenElevationModel_Click"/>
+          </WrapPanel>
           <ProgressBar x:Name="OdmProgress" Height="4" Margin="0,8,0,4"/>
           <TextBlock x:Name="OdmStatusText" Text="Noch kein Server geprüft." TextWrapping="Wrap"/>
           <TextBlock x:Name="OdmProductsText" Margin="0,4,0,0" TextWrapping="Wrap"/>
