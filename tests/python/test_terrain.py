@@ -45,6 +45,18 @@ def test_classify_and_runs():
     assert terrain.runs(np.array([], dtype=np.int8), np) == []
 
 
+def test_profile_indices_keep_the_tightest_sample_per_bucket():
+    clearance = np.full(1000, 50.0)
+    clearance[537] = 3.0
+    clearance[100:110] = np.nan
+
+    picked = terrain.profile_indices(clearance, 50, np)
+
+    assert 50 <= len(picked) <= 52
+    assert 537 in picked and picked[0] == 0 and picked[-1] == 999
+    assert list(terrain.profile_indices(clearance[:20], 50, np)) == list(range(20))
+
+
 def make_dsm(path, gdal, osr):
     """400 x 400 m at 0.5 m in UTM 32N: flat 100 m, a 60 m mast and a hill rising to 140 m in the east."""
     size, cell = 800, 0.5
@@ -132,6 +144,13 @@ def test_relative_route_finds_mast_and_rising_terrain(tmp_path, gis):
     assert hill and min(v["minimumClearance"] for v in hill) == pytest.approx(40.0, abs=0.2)
     statuses = {chunk["status"] for chunk in result["chunks"]}
     assert {"ok", "low"} <= statuses and "collision" not in statuses
+
+    profile = result["profile"]
+    distances = [p["distance"] for p in profile]
+    assert distances == sorted(distances) and len(profile) <= 1504
+    assert distances[-1] == pytest.approx(result["lengthMeters"], abs=1.0)
+    assert min(p["flight"] - p["obstacle"] for p in profile) == pytest.approx(20.0, abs=0.01)
+    assert all(p["flight"] == pytest.approx(180.0) for p in profile)
 
 
 def test_manual_start_and_collision(tmp_path, gis):

@@ -251,7 +251,8 @@ public partial class FlightPlanningView
                 collision = v.Collision,
                 pass = v.Pass
             }),
-            minClearance = result.MinClearance
+            minClearance = result.MinClearance,
+            profile = result.Profile ?? []
         };
     }
 

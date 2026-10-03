@@ -471,6 +471,10 @@ clearance, every stretch below the required clearance (default 30 m) and collisi
 colours the route green / orange / red / grey (no model data) and marks the critical spots. With
 *Terrain Follow* the check approximates a constant height above the model. Power lines and other
 thin objects are usually missing from surface models; the check does not replace a site survey.
+**Höhenprofil** in the map legend opens the route profile of the check (thinned to ~1500 points
+while keeping the tightest spot of every stretch): ground, highest obstacle in the buffer, flight
+level and the required clearance; the cursor position is mirrored on the map. **Höhe anpassen**
+raises the altitude to the value the tightest spot needs, re-plans the route and checks again.
 The model path, take-off point and height, clearance and buffer are saved in the `.ddplan` file
 (optional `terrain` block; older plans load unchanged).
 

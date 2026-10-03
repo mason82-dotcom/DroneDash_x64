@@ -44,7 +44,9 @@ public sealed class SurfaceProductsTests : IDisposable
     {
         var dsm = Path.Combine(_root, "dsm.tif");
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            ElevationAnalysisService.DifferenceAsync("python", "worker.py", dsm, Path.Combine(_root, ".", "dsm.tif")));
+            ElevationAnalysisService.DifferenceAsync(
+                "python", "worker.py", dsm, Path.Combine(_root, ".", "dsm.tif"),
+                cancellationToken: TestContext.Current.CancellationToken));
     }
 
     private static string PreviewJson(string? palette) =>

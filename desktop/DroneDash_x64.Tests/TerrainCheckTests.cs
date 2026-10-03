@@ -274,6 +274,15 @@ public sealed class TerrainCheckTests : IDisposable
         Assert.False(result.HasCollision);
         Assert.Contains(result.Chunks, chunk => chunk.Status == "low");
 
+        // The thinned route profile keeps the tightest spot (block of 160 m under 180 m flight level).
+        Assert.NotNull(result.Profile);
+        Assert.InRange(result.Profile!.Count, 2, 1500 + 4 * plan.Passes.Count);
+        Assert.Equal(
+            20.0,
+            result.Profile.Where(p => p.Flight is not null && p.Obstacle is not null).Min(p => p.Flight!.Value - p.Obstacle!.Value),
+            0.01);
+        Assert.Equal(result.LengthMeters, result.Profile[^1].Distance, 1.0);
+
         var low = PhotogrammetryPlanner.Generate(field, Settings(altitude: 50));
         var lowResult = await TerrainCheckService.RunAsync(
             python, TestPython.WorkerPath(), dsm, low, Options(takeOff), TestContext.Current.CancellationToken);

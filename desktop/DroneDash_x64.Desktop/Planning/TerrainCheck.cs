@@ -41,6 +41,15 @@ public sealed record TerrainChunk(
     string? Pass,
     IReadOnlyList<double[]> Points);
 
+public sealed record TerrainProfileSample(
+    double Distance,
+    double? Ground,
+    double? Obstacle,
+    double? Flight,
+    double Lon,
+    double Lat,
+    string? Pass);
+
 public sealed record TerrainCheckResult(
     string Mode,
     double Altitude,
@@ -59,7 +68,8 @@ public sealed record TerrainCheckResult(
     IReadOnlyList<TerrainPassResult> Passes,
     IReadOnlyList<TerrainViolation> Violations,
     bool ViolationsTruncated,
-    IReadOnlyList<TerrainChunk> Chunks)
+    IReadOnlyList<TerrainChunk> Chunks,
+    IReadOnlyList<TerrainProfileSample>? Profile = null)
 {
     public bool HasCollision => Violations.Any(violation => violation.Collision);
 
