@@ -1272,10 +1272,9 @@ def geospatial_index(args):
             stats
         )
 
-        absolute_output =
-            writer.finish(
-                final_stats
-            )
+        absolute_output = writer.finish(
+            final_stats
+        )
 
         elapsed_seconds = max(
             time.perf_counter() - started_at,
@@ -1581,8 +1580,7 @@ def geospatial_zones(args):
 
             tiles += 1
 
-        absolute_output =
-            writer.finish()
+        absolute_output = writer.finish()
 
         elapsed_seconds = max(
             time.perf_counter() - started_at,
