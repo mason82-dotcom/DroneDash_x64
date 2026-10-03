@@ -42,7 +42,7 @@ jobs:
 
       - name: Run Smart Farming worker unit tests
         run: |
-          python -m pip install --disable-pip-version-check --quiet numpy pytest
+          python -m pip install --disable-pip-version-check --quiet numpy pytest "laspy[lazrs]"
           python -m pytest tests/python -q
 
       - name: Verify real M3T thermal fixture with Windows PowerShell 5.1

@@ -85,6 +85,8 @@ public sealed class DemPreviewTests : IDisposable
     [Theory]
     [InlineData("../evil.png")]
     [InlineData("sub/dem-preview.png")]
+    [InlineData("..\\evil.png")]
+    [InlineData("C:evil.png")]
     [InlineData("")]
     public void Parse_RejectsFileNamesOutsidePreviewFolder(string image)
     {
@@ -142,16 +144,9 @@ public sealed class DemPreviewTests : IDisposable
     [Fact]
     public async Task RenderAsync_ProducesPreviewFromGeoTiff()
     {
-        var python = Environment.GetEnvironmentVariable("DRONEDASH_TEST_PYTHON");
-        if (string.IsNullOrWhiteSpace(python))
-            Assert.Skip("DRONEDASH_TEST_PYTHON (Python mit GDAL) ist nicht gesetzt.");
+        var python = await TestPython.RequireModuleAsync("osgeo.gdal");
 
-        var repoRoot = AppContext.BaseDirectory;
-        while (!File.Exists(Path.Combine(repoRoot, "DroneDash_x64.slnx")))
-            repoRoot = Path.GetDirectoryName(repoRoot) ?? throw new DirectoryNotFoundException("Repository root not found.");
-
-        var worker = Path.Combine(
-            repoRoot, "desktop", "DroneDash_x64.Desktop", "SmartFarming", "Workers", "opencv_m3m.py");
+        var worker = TestPython.WorkerPath();
         var dem = Path.Combine(_root, "dsm.tif");
 
         // Build a 40 x 30 UTM 32N test model with GDAL itself.
@@ -167,11 +162,7 @@ public sealed class DemPreviewTests : IDisposable
             band.WriteArray((100 + np.arange(40)[None, :] * 0.5 + np.zeros((30, 1))).astype(np.float32))
             ds = None
             """);
-        using (var make = System.Diagnostics.Process.Start(python, $"\"{script}\""))
-        {
-            await make!.WaitForExitAsync(TestContext.Current.CancellationToken);
-            Assert.Equal(0, make.ExitCode);
-        }
+        await TestPython.RunScriptAsync(python, script);
 
         var preview = await DemPreviewService.RenderAsync(
             python, worker, dem, 256, TestContext.Current.CancellationToken);
