@@ -143,13 +143,17 @@ DroneDash field-product plans now pass:
 --pipeline-depth auto
 ```
 
-The worker first snapshots currently available system RAM and, for CUDA processing, free/total VRAM. Unsafe tile candidates are removed before benchmarking. Automatic candidates are normally 512, 1024, 2048 and 4096 pixels; explicit manual values from 128 through 8192 remain supported.
+The worker first snapshots currently available system RAM and, for CUDA processing, free/total VRAM. Unsafe tile candidates are removed before benchmarking. Automatic candidates are 128, 256, 512, 1024, 2048 and 4096 pixels; explicit manual values from 128 through 8192 remain supported.
 
-The remaining candidates are benchmarked against a real sample window from the current orthomosaic. Read time and compute time are measured separately. The tuner selects the smallest tile whose measured pixels/second is within 90% of the fastest candidate, avoiding unnecessary memory use for marginal throughput gains.
+RAM and VRAM limits are hard fractions of currently free memory (20% host RAM and 30% CUDA VRAM). No minimum floor may exceed reported free memory. If no candidate fits, processing stops instead of forcing a nominal tile size. Manual tile overrides are checked against the same known-memory safety budget.
+
+The remaining candidates are benchmarked against real windows from the current orthomosaic. Each candidate gets a warm-up followed by three spatially distributed samples (top-left, center and bottom-right); median Read and Compute times are used. A failed candidate, such as a large-tile CUDA OOM, is recorded as failed without discarding successful smaller CUDA candidates. Automatic backend fallback moves to CPU/NumPy only when no CUDA candidate succeeds.
+
+The tuner selects the smallest tile whose measured pixels/second is within 90% of the fastest successful candidate, avoiding unnecessary memory use for marginal throughput gains.
 
 Pipeline depth is then selected from 1–4. Small jobs use depth 1. I/O-bound jobs may use depth 3 or 4, compute-bound jobs can use depth 1, and balanced workloads normally use depth 2. The result is clamped again by the host-memory budget.
 
-The sidecar `tuning` object records requested and resolved values, available RAM/VRAM and all benchmark measurements. `processingElapsedSeconds` and `tilesPerSecond` exclude the tuning benchmark itself so production throughput remains comparable between runs.
+The sidecar `tuning` object records requested and resolved values, available RAM/VRAM and all benchmark measurements. `processingElapsedSeconds`, `tilesPerSecond` and `pixelsPerSecond` exclude the tuning benchmark itself so production throughput remains comparable even when tile sizes differ. If CUDA fails later during production, the sidecar records the tile coordinates and fallback reason.
 
 Manual overrides remain available, for example:
 
