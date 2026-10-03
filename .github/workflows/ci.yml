@@ -40,9 +40,105 @@ jobs:
               $Help -notmatch "--geo-index" -or
               $Help -notmatch "--geo-zones" -or
               $Help -notmatch "--tile-size" -or
+              $Help -notmatch "--pipeline-depth" -or
               $Help -notmatch "--backend") {
-            throw "Smart Farming worker CLI is missing CUDA/GDAL tile options."
+            throw "Smart Farming worker CLI is missing CUDA/GDAL pipeline options."
           }
+
+          $PipelineTest = @'
+          import importlib.util
+
+          path = r"desktop/DroneDash_x64.Desktop/SmartFarming/Workers/opencv_m3m.py"
+          spec = importlib.util.spec_from_file_location("dronedash_worker", path)
+          worker = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(worker)
+
+          windows = list(worker._tile_windows(5, 3, 2))
+          expected = [
+              (0, 0, 2, 2),
+              (2, 0, 2, 2),
+              (4, 0, 1, 2),
+              (0, 2, 2, 1),
+              (2, 2, 2, 1),
+              (4, 2, 1, 1),
+          ]
+          if windows != expected:
+              raise RuntimeError(f"unexpected tile windows: {windows}")
+
+          observed = list(
+              worker._prefetched_tiles(
+                  windows,
+                  lambda window: ("payload", window),
+                  2,
+              )
+          )
+          if [window for window, _ in observed] != expected:
+              raise RuntimeError("read-ahead pipeline changed tile ordering")
+          if [payload[1] for _, payload in observed] != expected:
+              raise RuntimeError("read-ahead pipeline payload mismatch")
+
+          writes = []
+          statistics = []
+          replacements = []
+
+          class FakeBand:
+              def WriteArray(self, values, x, y):
+                  writes.append((x, y, values))
+
+              def SetStatistics(self, minimum, maximum, average, deviation):
+                  statistics.append((minimum, maximum, average, deviation))
+
+          class FakeTarget:
+              def FlushCache(self):
+                  writes.append(("flush",))
+
+          fake_band = FakeBand()
+          fake_target = FakeTarget()
+
+          worker._create_geotiff_from_profile = (
+              lambda *args, **kwargs:
+                  ("output.tif", "temp.tif", fake_target, fake_band)
+          )
+          worker.os.replace = (
+              lambda source, target:
+                  replacements.append((source, target))
+          )
+
+          writer = worker._AsyncGeoTiffWriter(
+              {"width": 4, "height": 2, "transform": None, "projection": None},
+              "output.tif",
+              6,
+              float("nan"),
+              "NDVI",
+              2,
+          )
+          writer.submit((0, 0, 2, 2), "tile-a")
+          writer.submit((2, 0, 2, 2), "tile-b")
+          writer.submit((0, 2, 2, 2), "tile-c")
+          result = writer.finish(
+              {
+                  "minimum": -1.0,
+                  "maximum": 1.0,
+                  "average": 0.25,
+                  "standardDeviation": 0.5,
+              }
+          )
+          writer.abort()
+
+          if result != "output.tif":
+              raise RuntimeError("async writer returned wrong output path")
+          if [entry for entry in writes if len(entry) == 3] != [
+              (0, 0, "tile-a"),
+              (2, 0, "tile-b"),
+              (0, 2, "tile-c"),
+          ]:
+              raise RuntimeError("async writer changed tile ordering")
+          if statistics != [(-1.0, 1.0, 0.25, 0.5)]:
+              raise RuntimeError("async writer did not preserve raster statistics")
+          if replacements != [("temp.tif", "output.tif")]:
+              raise RuntimeError("async writer did not atomically publish output")
+          '@
+          $PipelineTest | python -
 
       - name: Verify real M3T thermal fixture with Windows PowerShell 5.1
         shell: powershell

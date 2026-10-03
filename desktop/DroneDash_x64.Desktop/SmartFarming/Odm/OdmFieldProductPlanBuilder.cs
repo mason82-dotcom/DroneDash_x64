@@ -134,7 +134,8 @@ public static class OdmFieldProductPlanBuilder
                         products,
                         "ndvi_scouting_zones.json"),
                     "--backend", "auto",
-                    "--tile-size", "2048"
+                    "--tile-size", "2048",
+                    "--pipeline-depth", "2"
                 ],
                 zones,
                 $"NDVI tileweise in fünf Scouting-Zonen klassifizieren · Backend: {toolchain.GeoRasterBackend}."));
@@ -194,7 +195,7 @@ public static class OdmFieldProductPlanBuilder
             steps,
             [
                 "Die Index-Raster übernehmen Georeferenzierung und Rastergeometrie des ODM-Multiband-Orthomosaiks.",
-                $"Raster-Backend: {toolchain.GeoRasterBackend}. GDAL-Tile-Engine verarbeitet große Orthomosaike fensterweise und nutzt CUDA/CuPy nur für die Pixelarithmetik.",
+                $"Raster-Backend: {toolchain.GeoRasterBackend}. GDAL-Tile-Engine verarbeitet große Orthomosaike mit 2048-Pixel-Tiles und Read-Ahead-Pipeline (Tiefe 2); CUDA/CuPy übernimmt nur die Pixelarithmetik.",
                 "Scouting-Zonen basieren ausschließlich auf den eingestellten NDVI-Schwellen und sind keine agronomische Diagnose oder Dosierempfehlung.",
                 $"Bandzuordnung: {orthophoto.BandMap.ToDisplayText()}"
             ]);
@@ -243,7 +244,8 @@ public static class OdmFieldProductPlanBuilder
                 "--output", output,
                 "--metadata", metadata,
                 "--backend", "auto",
-                "--tile-size", "2048"
+                "--tile-size", "2048",
+                "--pipeline-depth", "2"
             ],
             output,
             $"{indexType.ToUpperInvariant()} tileweise als georeferenziertes GeoTIFF erzeugen · Backend: {toolchain.GeoRasterBackend}."));
