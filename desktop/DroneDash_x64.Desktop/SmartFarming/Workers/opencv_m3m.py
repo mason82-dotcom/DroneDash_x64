@@ -903,16 +903,6 @@ def geospatial_index(args):
             "requested source band index is outside the GDAL raster"
         )
 
-    positive_band = source.GetRasterBand(
-        positive_index
-    )
-    comparison_band = source.GetRasterBand(
-        comparison_index
-    )
-
-    positive_nodata = positive_band.GetNoDataValue()
-    comparison_nodata = comparison_band.GetNoDataValue()
-
     backend, cupy = _resolve_index_backend(
         args.backend
     )
@@ -952,20 +942,59 @@ def geospatial_index(args):
             args.index_type.upper(),
         )
 
+        reader_state = {}
+
         def read_index_tile(window):
+            if "source" not in reader_state:
+                reader_source = gdal.Open(
+                    source_path,
+                    gdal.GA_ReadOnly,
+                )
+
+                if reader_source is None:
+                    raise RuntimeError(
+                        f"GDAL read-ahead thread cannot open source raster: {source_path}"
+                    )
+
+                reader_state["source"] = reader_source
+                reader_state["positive"] = (
+                    reader_source.GetRasterBand(
+                        positive_index
+                    )
+                )
+                reader_state["comparison"] = (
+                    reader_source.GetRasterBand(
+                        comparison_index
+                    )
+                )
+                reader_state["positiveNoData"] = (
+                    reader_state["positive"]
+                    .GetNoDataValue()
+                )
+                reader_state["comparisonNoData"] = (
+                    reader_state["comparison"]
+                    .GetNoDataValue()
+                )
+
             x, y, width, height = window
 
-            positive = positive_band.ReadAsArray(
-                x,
-                y,
-                width,
-                height,
+            positive = (
+                reader_state["positive"]
+                .ReadAsArray(
+                    x,
+                    y,
+                    width,
+                    height,
+                )
             )
-            comparison = comparison_band.ReadAsArray(
-                x,
-                y,
-                width,
-                height,
+            comparison = (
+                reader_state["comparison"]
+                .ReadAsArray(
+                    x,
+                    y,
+                    width,
+                    height,
+                )
             )
 
             if positive is None or comparison is None:
@@ -976,12 +1005,12 @@ def geospatial_index(args):
             return (
                 _prepare_source_tile(
                     positive,
-                    positive_nodata,
+                    reader_state["positiveNoData"],
                     np,
                 ),
                 _prepare_source_tile(
                     comparison,
-                    comparison_nodata,
+                    reader_state["comparisonNoData"],
                     np,
                 ),
             )
@@ -1230,9 +1259,6 @@ def geospatial_zones(args):
             f"GDAL cannot open NDVI source raster: {source_path}"
         )
 
-    input_band = source.GetRasterBand(1)
-    input_nodata = input_band.GetNoDataValue()
-
     backend, cupy = _resolve_index_backend(
         args.backend
     )
@@ -1264,14 +1290,39 @@ def geospatial_zones(args):
             "NDVI_SCOUTING_ZONES",
         )
 
+        reader_state = {}
+
         def read_zone_tile(window):
+            if "source" not in reader_state:
+                reader_source = gdal.Open(
+                    source_path,
+                    gdal.GA_ReadOnly,
+                )
+
+                if reader_source is None:
+                    raise RuntimeError(
+                        f"GDAL read-ahead thread cannot open NDVI raster: {source_path}"
+                    )
+
+                reader_state["source"] = reader_source
+                reader_state["band"] = (
+                    reader_source.GetRasterBand(1)
+                )
+                reader_state["nodata"] = (
+                    reader_state["band"]
+                    .GetNoDataValue()
+                )
+
             x, y, width, height = window
 
-            values = input_band.ReadAsArray(
-                x,
-                y,
-                width,
-                height,
+            values = (
+                reader_state["band"]
+                .ReadAsArray(
+                    x,
+                    y,
+                    width,
+                    height,
+                )
             )
 
             if values is None:
@@ -1281,7 +1332,7 @@ def geospatial_zones(args):
 
             return _prepare_source_tile(
                 values,
-                input_nodata,
+                reader_state["nodata"],
                 np,
             )
 
