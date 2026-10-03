@@ -263,6 +263,168 @@ try
         rebasedPath,
         rebased);
 
+    var sessionRoot =
+        Path.Combine(
+            root,
+            "session");
+
+    Directory.CreateDirectory(
+        sessionRoot);
+
+    var sessionProjectPath =
+        Path.Combine(
+            sessionRoot,
+            "integrated.ddproj");
+
+    var sessionProject =
+        DroneDashProjectStore.Create(
+            "Integrated Workflow");
+
+    DroneDashProjectStore.Save(
+        sessionProjectPath,
+        sessionProject);
+
+    sessionProject =
+        DroneDashProjectStore.Load(
+            sessionProjectPath);
+
+    var sessionChangeCount = 0;
+    DroneDashProjectSession.Changed += (_, _) =>
+        sessionChangeCount++;
+
+    DroneDashProjectSession.Activate(
+        sessionProjectPath,
+        sessionProject,
+        "smoke");
+
+    var sessionPlan =
+        Path.Combine(
+            sessionRoot,
+            "mission.ddplan");
+
+    var sessionDataset =
+        Path.Combine(
+            sessionRoot,
+            "photogrammetry-manifest.json");
+
+    var sessionProcessing =
+        Path.Combine(
+            sessionRoot,
+            "local-processing-plan.json");
+
+    var sessionAnalysis =
+        Path.Combine(
+            sessionRoot,
+            "pv-analysis.json");
+
+    File.WriteAllText(
+        sessionPlan,
+        """{"schemaVersion":1}""");
+
+    File.WriteAllText(
+        sessionDataset,
+        """{"schemaVersion":1}""");
+
+    File.WriteAllText(
+        sessionProcessing,
+        """{"schemaVersion":1}""");
+
+    File.WriteAllText(
+        sessionAnalysis,
+        """{"schemaVersion":1}""");
+
+    await DroneDashProjectSession.RegisterFileAsync(
+        sessionPlan,
+        ProjectArtifactKind.FlightPlan);
+
+    await DroneDashProjectSession.RegisterFileAsync(
+        sessionDataset,
+        ProjectArtifactKind.PhotogrammetryManifest);
+
+    await DroneDashProjectSession.RegisterFileAsync(
+        sessionProcessing,
+        ProjectArtifactKind.LocalProcessingPlan);
+
+    await DroneDashProjectSession.RegisterFileAsync(
+        sessionAnalysis,
+        ProjectArtifactKind.PvAnalysis);
+
+    var active =
+        DroneDashProjectSession.CurrentProject
+        ?? throw new InvalidDataException(
+            "Project session lost active project.");
+
+    if (active.Artifacts.Count != 4)
+        throw new InvalidDataException(
+            $"Expected 4 auto-registered artifacts, got {active.Artifacts.Count}.");
+
+    var workflow =
+        ProjectWorkflowAnalyzer.Analyze(
+            active);
+
+    if (workflow.PresentStageCount != 4 ||
+        !workflow.Planning.Present ||
+        !workflow.Dataset.Present ||
+        !workflow.Processing.Present ||
+        !workflow.Analysis.Present)
+    {
+        throw new InvalidDataException(
+            "Integrated project workflow did not cover all four stages.");
+    }
+
+    File.AppendAllText(
+        sessionAnalysis,
+        Environment.NewLine + """{"refresh":true}""");
+
+    await DroneDashProjectSession.RegisterFileAsync(
+        sessionAnalysis,
+        ProjectArtifactKind.PvAnalysis);
+
+    active =
+        DroneDashProjectSession.CurrentProject
+        ?? throw new InvalidDataException(
+            "Project session lost project after refresh.");
+
+    if (active.Artifacts.Count != 4)
+        throw new InvalidDataException(
+            "Re-registering the same artifact created a duplicate.");
+
+    var refreshedAnalysis =
+        active.Artifacts.Single(
+            artifact =>
+                artifact.Kind ==
+                ProjectArtifactKind.PvAnalysis);
+
+    var refreshedVerification =
+        await ProjectArtifactService.VerifyAsync(
+            sessionProjectPath,
+            refreshedAnalysis);
+
+    if (refreshedVerification.Integrity !=
+        ProjectArtifactIntegrity.Ok)
+    {
+        throw new InvalidDataException(
+            "Re-registered artifact snapshot was not refreshed.");
+    }
+
+    await DroneDashProjectSession.SaveMetadataAsync(
+        "Integrated Workflow Updated",
+        "session smoke");
+
+    if (DroneDashProjectSession.CurrentProject?.Name !=
+        "Integrated Workflow Updated")
+    {
+        throw new InvalidDataException(
+            "Project session metadata save failed.");
+    }
+
+    if (sessionChangeCount < 6)
+        throw new InvalidDataException(
+            "Project session change notifications were not emitted.");
+
+    Console.WriteLine(
+        $"PASS project session · workflow={workflow.SummaryText} · events={sessionChangeCount}");
+
     Console.WriteLine(
         $"PASS DroneDash project · id={loaded.ProjectId} · artifacts={loaded.Artifacts.Count} · discovered={discovered.Count}");
 }

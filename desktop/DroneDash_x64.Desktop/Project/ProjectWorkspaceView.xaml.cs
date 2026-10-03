@@ -16,43 +16,105 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
     {
         InitializeComponent();
         ArtifactGrid.ItemsSource = _rows;
+
+        Loaded += ProjectWorkspaceView_Loaded;
+        Unloaded += ProjectWorkspaceView_Unloaded;
     }
 
-    private void NewProject_Click(object sender, RoutedEventArgs e)
+    private void ProjectWorkspaceView_Loaded(
+        object sender,
+        RoutedEventArgs e)
     {
-        using var dialog = new WinForms.SaveFileDialog
-        {
-            Title = "Neues DroneDash-Projekt",
-            Filter = "DroneDash Projekt (*.ddproj)|*.ddproj|JSON (*.json)|*.json",
-            AddExtension = true,
-            DefaultExt = "ddproj",
-            FileName = "DroneDash-Project.ddproj",
-            OverwritePrompt = true
-        };
+        DroneDashProjectSession.Changed -=
+            ProjectSession_Changed;
 
-        if (dialog.ShowDialog() != WinForms.DialogResult.OK)
+        DroneDashProjectSession.Changed +=
+            ProjectSession_Changed;
+
+        ApplySession(
+            DroneDashProjectSession.CurrentProjectPath,
+            DroneDashProjectSession.CurrentProject,
+            DroneDashProjectSession.IsOpen
+                ? "Aktives Projekt synchronisiert."
+                : "Kein Projekt geladen.");
+    }
+
+    private void ProjectWorkspaceView_Unloaded(
+        object sender,
+        RoutedEventArgs e)
+    {
+        DroneDashProjectSession.Changed -=
+            ProjectSession_Changed;
+    }
+
+    private void ProjectSession_Changed(
+        object? sender,
+        ProjectSessionChangedEventArgs e)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(() =>
+                ApplySession(
+                    e.ProjectPath,
+                    e.Project,
+                    e.Reason));
+
             return;
+        }
+
+        ApplySession(
+            e.ProjectPath,
+            e.Project,
+            e.Reason);
+    }
+
+    private void NewProject_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        using var dialog =
+            new WinForms.SaveFileDialog
+            {
+                Title = "Neues DroneDash-Projekt",
+                Filter = "DroneDash Projekt (*.ddproj)|*.ddproj|JSON (*.json)|*.json",
+                AddExtension = true,
+                DefaultExt = "ddproj",
+                FileName = "DroneDash-Project.ddproj",
+                OverwritePrompt = true
+            };
+
+        if (dialog.ShowDialog() !=
+            WinForms.DialogResult.OK)
+        {
+            return;
+        }
 
         try
         {
+            var path =
+                Path.GetFullPath(
+                    dialog.FileName);
+
             var name =
-                Path.GetFileNameWithoutExtension(dialog.FileName);
+                Path.GetFileNameWithoutExtension(
+                    path);
 
-            _project =
-                DroneDashProjectStore.Create(name);
-
-            _projectPath =
-                Path.GetFullPath(dialog.FileName);
+            var project =
+                DroneDashProjectStore.Create(
+                    name);
 
             DroneDashProjectStore.Save(
-                _projectPath,
-                _project);
+                path,
+                project);
 
-            _project =
+            var loaded =
                 DroneDashProjectStore.Load(
-                    _projectPath);
+                    path);
 
-            LoadProjectIntoUi();
+            DroneDashProjectSession.Activate(
+                path,
+                loaded,
+                "Neues DroneDash-Projekt angelegt.");
         }
         catch (Exception ex)
         {
@@ -62,30 +124,39 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         }
     }
 
-    private void OpenProject_Click(object sender, RoutedEventArgs e)
+    private void OpenProject_Click(
+        object sender,
+        RoutedEventArgs e)
     {
-        using var dialog = new WinForms.OpenFileDialog
-        {
-            Title = "DroneDash-Projekt öffnen",
-            Filter = "DroneDash Projekt (*.ddproj)|*.ddproj|JSON (*.json)|*.json|Alle Dateien (*.*)|*.*",
-            CheckFileExists = true,
-            Multiselect = false
-        };
+        using var dialog =
+            new WinForms.OpenFileDialog
+            {
+                Title = "DroneDash-Projekt öffnen",
+                Filter = "DroneDash Projekt (*.ddproj)|*.ddproj|JSON (*.json)|*.json|Alle Dateien (*.*)|*.*",
+                CheckFileExists = true,
+                Multiselect = false
+            };
 
-        if (dialog.ShowDialog() != WinForms.DialogResult.OK)
+        if (dialog.ShowDialog() !=
+            WinForms.DialogResult.OK)
+        {
             return;
+        }
 
         try
         {
-            _projectPath =
+            var path =
                 Path.GetFullPath(
                     dialog.FileName);
 
-            _project =
+            var project =
                 DroneDashProjectStore.Load(
-                    _projectPath);
+                    path);
 
-            LoadProjectIntoUi();
+            DroneDashProjectSession.Activate(
+                path,
+                project,
+                "DroneDash-Projekt geöffnet.");
         }
         catch (Exception ex)
         {
@@ -95,33 +166,18 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         }
     }
 
-    private void SaveProject_Click(object sender, RoutedEventArgs e)
+    private async void SaveProject_Click(
+        object sender,
+        RoutedEventArgs e)
     {
-        if (_project is null ||
-            string.IsNullOrWhiteSpace(_projectPath))
-        {
+        if (!EnsureProjectLoaded())
             return;
-        }
 
         try
         {
-            _project =
-                DroneDashProjectStore.WithMetadata(
-                    _project,
-                    ProjectNameBox.Text,
-                    ProjectDescriptionBox.Text);
-
-            DroneDashProjectStore.Save(
-                _projectPath,
-                _project);
-
-            _project =
-                DroneDashProjectStore.Load(
-                    _projectPath);
-
-            RefreshRows();
-            ProjectSummaryText.Text =
-                BuildSummary("Projekt gespeichert.");
+            await DroneDashProjectSession.SaveMetadataAsync(
+                ProjectNameBox.Text,
+                ProjectDescriptionBox.Text);
         }
         catch (Exception ex)
         {
@@ -131,57 +187,38 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         }
     }
 
-    private void SaveProjectAs_Click(object sender, RoutedEventArgs e)
+    private async void SaveProjectAs_Click(
+        object sender,
+        RoutedEventArgs e)
     {
-        if (_project is null ||
-            string.IsNullOrWhiteSpace(_projectPath))
+        if (!EnsureProjectLoaded())
+            return;
+
+        using var dialog =
+            new WinForms.SaveFileDialog
+            {
+                Title = "DroneDash-Projekt speichern unter",
+                Filter = "DroneDash Projekt (*.ddproj)|*.ddproj|JSON (*.json)|*.json",
+                AddExtension = true,
+                DefaultExt = "ddproj",
+                FileName =
+                    Path.GetFileName(
+                        _projectPath),
+                OverwritePrompt = true
+            };
+
+        if (dialog.ShowDialog() !=
+            WinForms.DialogResult.OK)
         {
             return;
         }
 
-        using var dialog = new WinForms.SaveFileDialog
-        {
-            Title = "DroneDash-Projekt speichern unter",
-            Filter = "DroneDash Projekt (*.ddproj)|*.ddproj|JSON (*.json)|*.json",
-            AddExtension = true,
-            DefaultExt = "ddproj",
-            FileName = Path.GetFileName(_projectPath),
-            OverwritePrompt = true
-        };
-
-        if (dialog.ShowDialog() != WinForms.DialogResult.OK)
-            return;
-
         try
         {
-            var newPath =
-                Path.GetFullPath(
-                    dialog.FileName);
-
-            var metadata =
-                DroneDashProjectStore.WithMetadata(
-                    _project,
-                    ProjectNameBox.Text,
-                    ProjectDescriptionBox.Text);
-
-            var rebased =
-                DroneDashProjectStore.Rebase(
-                    _projectPath,
-                    newPath,
-                    metadata);
-
-            DroneDashProjectStore.Save(
-                newPath,
-                rebased);
-
-            _projectPath =
-                newPath;
-
-            _project =
-                DroneDashProjectStore.Load(
-                    newPath);
-
-            LoadProjectIntoUi();
+            await DroneDashProjectSession.SaveAsAsync(
+                dialog.FileName,
+                ProjectNameBox.Text,
+                ProjectDescriptionBox.Text);
         }
         catch (Exception ex)
         {
@@ -191,69 +228,70 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         }
     }
 
-    private async void AddFiles_Click(object sender, RoutedEventArgs e)
+    private async void AddFiles_Click(
+        object sender,
+        RoutedEventArgs e)
     {
         if (!EnsureProjectLoaded())
             return;
 
-        using var dialog = new WinForms.OpenFileDialog
-        {
-            Title = "DroneDash-Projektartefakte hinzufügen",
-            Filter = "Alle unterstützten Dateien (*.*)|*.*",
-            CheckFileExists = true,
-            Multiselect = true
-        };
+        using var dialog =
+            new WinForms.OpenFileDialog
+            {
+                Title = "DroneDash-Projektartefakte hinzufügen",
+                Filter = "Alle unterstützten Dateien (*.*)|*.*",
+                CheckFileExists = true,
+                Multiselect = true
+            };
 
-        if (dialog.ShowDialog() != WinForms.DialogResult.OK)
+        if (dialog.ShowDialog() !=
+            WinForms.DialogResult.OK)
+        {
             return;
+        }
 
         await AddFilesAsync(
             dialog.FileNames);
     }
 
-    private void AddFolder_Click(object sender, RoutedEventArgs e)
+    private async void AddFolder_Click(
+        object sender,
+        RoutedEventArgs e)
     {
         if (!EnsureProjectLoaded())
             return;
 
-        using var dialog = new WinForms.FolderBrowserDialog
-        {
-            Description = "Quell-/Datenordner zum DroneDash-Projekt hinzufügen",
-            ShowNewFolderButton = false
-        };
+        using var dialog =
+            new WinForms.FolderBrowserDialog
+            {
+                Description = "Quell-/Datenordner zum DroneDash-Projekt hinzufügen",
+                ShowNewFolderButton = false
+            };
 
-        if (dialog.ShowDialog() != WinForms.DialogResult.OK)
+        if (dialog.ShowDialog() !=
+            WinForms.DialogResult.OK)
+        {
             return;
+        }
 
         try
         {
-            var artifact =
-                ProjectArtifactService.CreateDirectoryArtifact(
-                    _projectPath!,
-                    dialog.SelectedPath);
-
-            if (ContainsResolvedPath(
+            if (DroneDashProjectSession.ContainsResolvedPath(
                     dialog.SelectedPath))
             {
                 ProjectSummaryText.Text =
                     BuildSummary(
                         "Der Ordner ist bereits im Projekt referenziert.");
+
                 return;
             }
 
-            _project =
-                _project! with
-                {
-                    Artifacts =
-                        _project.Artifacts
-                            .Append(artifact)
-                            .ToArray()
-                };
+            await DroneDashProjectSession.RegisterDirectoryAsync(
+                dialog.SelectedPath);
 
-            RefreshRows();
             ProjectSummaryText.Text =
                 BuildSummary(
-                    "Datenordner hinzugefügt. Projekt noch speichern.");
+                    "Datenordner hinzugefügt und Projekt gespeichert.");
         }
         catch (Exception ex)
         {
@@ -263,16 +301,22 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         }
     }
 
-    private async void Discover_Click(object sender, RoutedEventArgs e)
+    private async void Discover_Click(
+        object sender,
+        RoutedEventArgs e)
     {
         if (!EnsureProjectLoaded())
             return;
 
         var projectDirectory =
-            Path.GetDirectoryName(_projectPath!);
+            Path.GetDirectoryName(
+                _projectPath!);
 
-        if (string.IsNullOrWhiteSpace(projectDirectory))
+        if (string.IsNullOrWhiteSpace(
+                projectDirectory))
+        {
             return;
+        }
 
         try
         {
@@ -284,7 +328,8 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
             var pending =
                 discovered
                     .Where(path =>
-                        !ContainsResolvedPath(path))
+                        !DroneDashProjectSession.ContainsResolvedPath(
+                            path))
                     .ToArray();
 
             if (pending.Length == 0)
@@ -292,6 +337,7 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
                 ProjectSummaryText.Text =
                     BuildSummary(
                         "Keine neuen bekannten DroneDash-Artefakte im Projektordner gefunden.");
+
                 return;
             }
 
@@ -300,7 +346,7 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
 
             ProjectSummaryText.Text =
                 BuildSummary(
-                    $"{pending.Length} bekannte Artefakte aus dem Projektordner hinzugefügt.");
+                    $"{pending.Length} bekannte Artefakte aus dem Projektordner registriert.");
         }
         catch (Exception ex)
         {
@@ -310,7 +356,9 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         }
     }
 
-    private void RemoveArtifact_Click(object sender, RoutedEventArgs e)
+    private async void RemoveArtifact_Click(
+        object sender,
+        RoutedEventArgs e)
     {
         if (_project is null)
             return;
@@ -318,30 +366,33 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         var selected =
             ArtifactGrid.SelectedItems
                 .Cast<ProjectArtifactRow>()
-                .Select(row => row.Id)
-                .ToHashSet();
+                .Select(row =>
+                    row.Id)
+                .ToArray();
 
-        if (selected.Count == 0)
+        if (selected.Length == 0)
             return;
 
-        _project =
-            _project with
-            {
-                Artifacts =
-                    _project.Artifacts
-                        .Where(artifact =>
-                            !selected.Contains(artifact.Id))
-                        .ToArray()
-            };
+        try
+        {
+            await DroneDashProjectSession.RemoveArtifactsAsync(
+                selected);
 
-        RefreshRows();
-
-        ProjectSummaryText.Text =
-            BuildSummary(
-                $"{selected.Count} Referenz(en) entfernt. Dateien auf Datenträger wurden nicht gelöscht.");
+            ProjectSummaryText.Text =
+                BuildSummary(
+                    $"{selected.Length} Referenz(en) entfernt. Dateien auf Datenträger wurden nicht gelöscht.");
+        }
+        catch (Exception ex)
+        {
+            ShowError(
+                "Projektartefakt entfernen",
+                ex);
+        }
     }
 
-    private async void Verify_Click(object sender, RoutedEventArgs e)
+    private async void Verify_Click(
+        object sender,
+        RoutedEventArgs e)
     {
         if (!EnsureProjectLoaded())
             return;
@@ -358,7 +409,9 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
                 new List<ProjectArtifactVerification>(
                     artifacts.Length);
 
-            for (var index = 0; index < artifacts.Length; index++)
+            for (var index = 0;
+                 index < artifacts.Length;
+                 index++)
             {
                 var verification =
                     await ProjectArtifactService.VerifyAsync(
@@ -371,7 +424,8 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
                 ProjectProgress.Value =
                     artifacts.Length == 0
                         ? 100
-                        : (index + 1) * 100d / artifacts.Length;
+                        : (index + 1) * 100d /
+                          artifacts.Length;
 
                 ProjectSummaryText.Text =
                     $"Integrität {index + 1}/{artifacts.Length}: {verification.Artifact.Label}";
@@ -408,18 +462,18 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
     private async Task AddFilesAsync(
         IEnumerable<string> paths)
     {
-        if (_project is null ||
-            string.IsNullOrWhiteSpace(_projectPath))
-        {
+        if (!EnsureProjectLoaded())
             return;
-        }
 
         var uniquePaths =
             paths
-                .Select(Path.GetFullPath)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(
+                    Path.GetFullPath)
+                .Distinct(
+                    StringComparer.OrdinalIgnoreCase)
                 .Where(path =>
-                    !ContainsResolvedPath(path))
+                    !DroneDashProjectSession.ContainsResolvedPath(
+                        path))
                 .ToArray();
 
         if (uniquePaths.Length == 0)
@@ -427,6 +481,7 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
             ProjectSummaryText.Text =
                 BuildSummary(
                     "Keine neuen Dateien hinzuzufügen.");
+
             return;
         }
 
@@ -434,44 +489,19 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
 
         try
         {
-            var artifacts =
-                _project.Artifacts.ToList();
+            ProjectSummaryText.Text =
+                $"{uniquePaths.Length} Artefakt(e) werden registriert …";
 
-            for (var index = 0;
-                 index < uniquePaths.Length;
-                 index++)
-            {
-                var path =
-                    uniquePaths[index];
+            var count =
+                await DroneDashProjectSession.RegisterFilesAsync(
+                    uniquePaths);
 
-                ProjectSummaryText.Text =
-                    $"Artefakt {index + 1}/{uniquePaths.Length}: {Path.GetFileName(path)}";
-
-                var artifact =
-                    await ProjectArtifactService.CreateFileArtifactAsync(
-                        _projectPath,
-                        path);
-
-                artifacts.Add(
-                    artifact);
-
-                ProjectProgress.Value =
-                    (index + 1) * 100d /
-                    uniquePaths.Length;
-            }
-
-            _project =
-                _project with
-                {
-                    Artifacts =
-                        artifacts.ToArray()
-                };
-
-            RefreshRows();
+            ProjectProgress.IsIndeterminate = false;
+            ProjectProgress.Value = 100;
 
             ProjectSummaryText.Text =
                 BuildSummary(
-                    $"{uniquePaths.Length} Datei(en) hinzugefügt. Projekt noch speichern.");
+                    $"{count} Datei(en) registriert und Projekt gespeichert.");
         }
         catch (Exception ex)
         {
@@ -485,11 +515,24 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         }
     }
 
-    private void LoadProjectIntoUi()
+    private void ApplySession(
+        string? projectPath,
+        DroneDashProject? project,
+        string reason)
     {
+        _projectPath =
+            projectPath;
+
+        _project =
+            project;
+
         if (_project is null ||
-            string.IsNullOrWhiteSpace(_projectPath))
+            string.IsNullOrWhiteSpace(
+                _projectPath))
         {
+            ResetUi(
+                reason);
+
             return;
         }
 
@@ -515,10 +558,39 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         VerifyButton.IsEnabled = true;
 
         RefreshRows();
+        RefreshWorkflow();
 
         ProjectSummaryText.Text =
             BuildSummary(
-                "Projekt geladen.");
+                reason);
+    }
+
+    private void ResetUi(
+        string reason)
+    {
+        _rows.Clear();
+
+        ProjectPathText.Text =
+            "Noch kein Projekt geöffnet.";
+
+        ProjectNameBox.Text = "";
+        ProjectDescriptionBox.Text = "";
+        ProjectIdText.Text = "—";
+
+        ProjectNameBox.IsEnabled = false;
+        ProjectDescriptionBox.IsEnabled = false;
+        SaveProjectButton.IsEnabled = false;
+        SaveProjectAsButton.IsEnabled = false;
+        AddFilesButton.IsEnabled = false;
+        AddFolderButton.IsEnabled = false;
+        DiscoverButton.IsEnabled = false;
+        RemoveArtifactButton.IsEnabled = false;
+        VerifyButton.IsEnabled = false;
+
+        RefreshWorkflow();
+
+        ProjectSummaryText.Text =
+            reason;
     }
 
     private void RefreshRows()
@@ -526,12 +598,14 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         _rows.Clear();
 
         if (_project is null ||
-            string.IsNullOrWhiteSpace(_projectPath))
+            string.IsNullOrWhiteSpace(
+                _projectPath))
         {
             return;
         }
 
-        foreach (var artifact in _project.Artifacts)
+        foreach (var artifact in
+                 _project.Artifacts)
         {
             string resolved;
 
@@ -561,7 +635,39 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
                 });
         }
 
-        RemoveArtifactButton.IsEnabled = false;
+        RemoveArtifactButton.IsEnabled =
+            false;
+    }
+
+    private void RefreshWorkflow()
+    {
+        var snapshot =
+            ProjectWorkflowAnalyzer.Analyze(
+                _project);
+
+        PlanningStageStateText.Text =
+            snapshot.Planning.StateText;
+
+        PlanningStageDetailText.Text =
+            snapshot.Planning.Detail;
+
+        DatasetStageStateText.Text =
+            snapshot.Dataset.StateText;
+
+        DatasetStageDetailText.Text =
+            snapshot.Dataset.Detail;
+
+        ProcessingStageStateText.Text =
+            snapshot.Processing.StateText;
+
+        ProcessingStageDetailText.Text =
+            snapshot.Processing.Detail;
+
+        AnalysisStageStateText.Text =
+            snapshot.Analysis.StateText;
+
+        AnalysisStageDetailText.Text =
+            snapshot.Analysis.Detail;
     }
 
     private void ApplyVerification(
@@ -569,7 +675,8 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
     {
         var map =
             verifications.ToDictionary(
-                item => item.Artifact.Id);
+                item =>
+                    item.Artifact.Id);
 
         foreach (var row in _rows)
         {
@@ -616,55 +723,22 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
                 row.Integrity ==
                 ProjectArtifactIntegrity.Error);
 
+        var workflow =
+            ProjectWorkflowAnalyzer.Analyze(
+                _project);
+
         return
             $"{prefix} · Artefakte {_project.Artifacts.Count:N0} · " +
+            $"{workflow.SummaryText} · " +
             $"OK {ok:N0} · geändert {modified:N0} · fehlt {missing:N0} · Fehler {errors:N0}";
     }
-
-    private bool ContainsResolvedPath(
-        string path)
-    {
-        if (_project is null ||
-            string.IsNullOrWhiteSpace(_projectPath))
-        {
-            return false;
-        }
-
-        var candidate =
-            NormalizePath(
-                path);
-
-        return _project.Artifacts.Any(
-            artifact =>
-            {
-                try
-                {
-                    var resolved =
-                        DroneDashProjectStore.ResolveArtifactPath(
-                            _projectPath,
-                            artifact);
-
-                    return NormalizePath(resolved)
-                        .Equals(
-                            candidate,
-                            StringComparison.OrdinalIgnoreCase);
-                }
-                catch
-                {
-                    return false;
-                }
-            });
-    }
-
-    private static string NormalizePath(
-        string path) =>
-        Path.TrimEndingDirectorySeparator(
-            Path.GetFullPath(path));
 
     private bool EnsureProjectLoaded()
     {
         if (_project is not null &&
-            !string.IsNullOrWhiteSpace(_projectPath))
+            !string.IsNullOrWhiteSpace(
+                _projectPath) &&
+            DroneDashProjectSession.IsOpen)
         {
             return true;
         }
@@ -678,16 +752,33 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         return false;
     }
 
-    private void SetBusy(bool busy)
+    private void SetBusy(
+        bool busy)
     {
-        ProjectProgress.IsIndeterminate = busy;
-        AddFilesButton.IsEnabled = !busy && _project is not null;
-        AddFolderButton.IsEnabled = !busy && _project is not null;
-        DiscoverButton.IsEnabled = !busy && _project is not null;
-        VerifyButton.IsEnabled = !busy && _project is not null;
+        ProjectProgress.IsIndeterminate =
+            busy;
+
+        AddFilesButton.IsEnabled =
+            !busy &&
+            _project is not null;
+
+        AddFolderButton.IsEnabled =
+            !busy &&
+            _project is not null;
+
+        DiscoverButton.IsEnabled =
+            !busy &&
+            _project is not null;
+
+        VerifyButton.IsEnabled =
+            !busy &&
+            _project is not null;
 
         if (!busy)
-            ProjectProgress.IsIndeterminate = false;
+        {
+            ProjectProgress.IsIndeterminate =
+                false;
+        }
     }
 
     private void ShowError(

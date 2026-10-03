@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Media.Imaging;
 using DroneDash_x64.Desktop.SmartFarming.LocalProcessing;
 using DroneDash_x64.Desktop.SmartFarming.Odm;
+using DroneDash_x64.Desktop.Project;
 using WinForms = System.Windows.Forms;
 
 namespace DroneDash_x64.Desktop.SmartFarming;
@@ -192,7 +193,7 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         }
     }
 
-    private void ExportDataset_Click(object sender, RoutedEventArgs e)
+    private async void ExportDataset_Click(object sender, RoutedEventArgs e)
     {
         if (_dataset is null)
             return;
@@ -208,8 +209,38 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
 
         try
         {
-            var output = SmartFarmingExporter.ExportDataset(dialog.SelectedPath, _dataset);
-            StatusText.Text = $"Datensatz-QA exportiert: {output.JsonPath} · {output.CsvPath}";
+            var output = SmartFarmingExporter.ExportDataset(
+                dialog.SelectedPath,
+                _dataset);
+
+            var registered = false;
+            string? registrationError = null;
+
+            if (DroneDashProjectSession.IsOpen)
+            {
+                try
+                {
+                    registered = await DroneDashProjectSession.RegisterFileAsync(
+                        output.JsonPath,
+                        ProjectArtifactKind.SmartFarmingDataset);
+
+                    await DroneDashProjectSession.RegisterDirectoryAsync(
+                        _dataset.SourceFolder,
+                        ProjectArtifactKind.SourceDataFolder);
+                }
+                catch (Exception ex)
+                {
+                    registrationError = ex.Message;
+                }
+            }
+
+            StatusText.Text =
+                $"Datensatz-QA exportiert: {output.JsonPath} · {output.CsvPath}" +
+                (registered
+                    ? " · im aktiven DroneDash-Projekt registriert"
+                    : registrationError is not null
+                        ? $" · Projektregistrierung fehlgeschlagen: {registrationError}"
+                        : "");
         }
         catch (Exception ex)
         {
@@ -334,6 +365,27 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
             LocalProcessingProgress.Value = 0;
             LocalProcessingStatusText.Text = "Processing-Plan bereit zur Ausführung.";
 
+            var registered = false;
+            string? registrationError = null;
+
+            if (DroneDashProjectSession.IsOpen)
+            {
+                try
+                {
+                    registered = await DroneDashProjectSession.RegisterFileAsync(
+                        output.JsonPath,
+                        ProjectArtifactKind.LocalProcessingPlan);
+
+                    await DroneDashProjectSession.RegisterDirectoryAsync(
+                        workspace,
+                        ProjectArtifactKind.ProcessingWorkspace);
+                }
+                catch (Exception ex)
+                {
+                    registrationError = ex.Message;
+                }
+            }
+
             PlanPreviewText.Text =
                 string.Join(
                     Environment.NewLine,
@@ -350,7 +402,12 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
                     plan.Warnings.Select(warning => "• " + warning));
 
             StatusText.Text =
-                $"Lokaler Processing-Workspace erzeugt: {output.JsonPath} · {output.ScriptPath}";
+                $"Lokaler Processing-Workspace erzeugt: {output.JsonPath} · {output.ScriptPath}" +
+                (registered
+                    ? " · im aktiven DroneDash-Projekt registriert"
+                    : registrationError is not null
+                        ? $" · Projektregistrierung fehlgeschlagen: {registrationError}"
+                        : "");
         }
         catch (Exception ex)
         {
@@ -684,8 +741,32 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
                 progress);
 
             _lastNodeOdmZipPath = path;
+
+            var registered = false;
+            string? registrationError = null;
+
+            if (DroneDashProjectSession.IsOpen)
+            {
+                try
+                {
+                    registered = await DroneDashProjectSession.RegisterFileAsync(
+                        path,
+                        ProjectArtifactKind.NodeOdmResultArchive);
+                }
+                catch (Exception ex)
+                {
+                    registrationError = ex.Message;
+                }
+            }
+
             NodeOdmStatusText.Text =
-                $"NodeODM-Ergebnis gespeichert: {path}";
+                $"NodeODM-Ergebnis gespeichert: {path}" +
+                (registered
+                    ? " · im aktiven DroneDash-Projekt registriert"
+                    : registrationError is not null
+                        ? $" · Projektregistrierung fehlgeschlagen: {registrationError}"
+                        : "");
+
             OdmImportedStatusText.Text =
                 $"NodeODM ZIP heruntergeladen und bereit zum Import: {path}";
         }
@@ -782,6 +863,26 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
             _lastNodeOdmZipPath =
                 zipPath;
 
+            string? registrationError = null;
+
+            if (DroneDashProjectSession.IsOpen)
+            {
+                try
+                {
+                    await DroneDashProjectSession.RegisterFileAsync(
+                        zipPath,
+                        ProjectArtifactKind.NodeOdmResultArchive);
+
+                    await DroneDashProjectSession.RegisterDirectoryAsync(
+                        extracted,
+                        ProjectArtifactKind.ProcessingWorkspace);
+                }
+                catch (Exception ex)
+                {
+                    registrationError = ex.Message;
+                }
+            }
+
             OdmImportedStatusText.Text =
                 $"Importiert: {zipPath}\n" +
                 $"Orthomosaik: {info.SummaryText}\n" +
@@ -790,6 +891,9 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
                 (info.Warnings.Count > 0
                     ? "\nHinweise: " +
                       string.Join(" | ", info.Warnings)
+                    : "") +
+                (registrationError is not null
+                    ? $"\nProjektregistrierung fehlgeschlagen: {registrationError}"
                     : "");
 
             GenerateOdmFieldProductsButton.IsEnabled = true;
@@ -898,11 +1002,25 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
             LocalProcessingPlanExporter.Export(
                 plan);
 
-        var manifest =
-            OdmFieldProductExporter.ExportManifest(
-                workspace,
-                _odmImported.Orthophoto,
-                zoneSettings);
+        string? planRegistrationError = null;
+
+        if (DroneDashProjectSession.IsOpen)
+        {
+            try
+            {
+                await DroneDashProjectSession.RegisterFileAsync(
+                    output.JsonPath,
+                    ProjectArtifactKind.LocalProcessingPlan);
+
+                await DroneDashProjectSession.RegisterDirectoryAsync(
+                    workspace,
+                    ProjectArtifactKind.ProcessingWorkspace);
+            }
+            catch (Exception ex)
+            {
+                planRegistrationError = ex.Message;
+            }
+        }
 
         var confirmation =
             System.Windows.MessageBox.Show(
@@ -918,7 +1036,10 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
             MessageBoxResult.Yes)
         {
             OdmFieldProductStatusText.Text =
-                $"Plan erzeugt: {output.JsonPath} · Manifest: {manifest}";
+                $"Processing-Plan erzeugt: {output.JsonPath}" +
+                (planRegistrationError is not null
+                    ? $" · Projektregistrierung fehlgeschlagen: {planRegistrationError}"
+                    : "");
             return;
         }
 
@@ -966,12 +1087,54 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
                     ? 100
                     : OdmFieldProductProgress.Value;
 
-            OdmFieldProductStatusText.Text =
-                result.Success
-                    ? $"Feldprodukte abgeschlossen · {manifest} · Log: {result.LogPath}"
-                    : result.Canceled
+            if (result.Success)
+            {
+                var manifest =
+                    OdmFieldProductExporter.ExportManifest(
+                        workspace,
+                        _odmImported.Orthophoto,
+                        zoneSettings);
+
+                var productPaths =
+                    plan.Steps
+                        .Select(step => step.OutputPath)
+                        .Where(path => !string.IsNullOrWhiteSpace(path))
+                        .Cast<string>()
+                        .Prepend(manifest)
+                        .ToArray();
+
+                var registered = 0;
+                string? registrationError = null;
+
+                if (DroneDashProjectSession.IsOpen)
+                {
+                    try
+                    {
+                        registered =
+                            await DroneDashProjectSession.RegisterFilesAsync(
+                                productPaths);
+                    }
+                    catch (Exception ex)
+                    {
+                        registrationError = ex.Message;
+                    }
+                }
+
+                OdmFieldProductStatusText.Text =
+                    $"Feldprodukte abgeschlossen · {manifest} · Log: {result.LogPath}" +
+                    (registered > 0
+                        ? $" · {registered} Ergebnisartefakt(e) im aktiven DroneDash-Projekt registriert"
+                        : registrationError is not null
+                            ? $" · Projektregistrierung fehlgeschlagen: {registrationError}"
+                            : "");
+            }
+            else
+            {
+                OdmFieldProductStatusText.Text =
+                    result.Canceled
                         ? $"Feldproduktberechnung abgebrochen · Log: {result.LogPath}"
                         : $"Feldproduktberechnung fehlgeschlagen bei {result.FailedStepId} · ExitCode {result.ExitCode} · Log: {result.LogPath}";
+            }
         }
         catch (Exception ex)
         {

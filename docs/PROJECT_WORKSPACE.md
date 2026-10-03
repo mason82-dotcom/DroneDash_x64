@@ -39,3 +39,33 @@ disk is never deleted.
 `Projektordner scannen` finds known DroneDash control/processing artifacts recursively, but does
 not automatically register thousands of raw JPG/TIFF source images. Raw datasets should normally
 be linked as a source-data directory, keeping the `.ddproj` compact.
+
+## Active project session and automatic registration
+
+Opening or creating a `.ddproj` now activates a process-wide DroneDash project session. Workflow
+modules can register successful outputs through this single serialized session rather than writing
+the project file independently. Re-registering the same resolved path refreshes its integrity
+snapshot while preserving the artifact ID and original `addedAtUtc`; it does not create a duplicate.
+
+Automatic registrations currently include:
+
+- Flight Planning: saved `.ddplan` files and KMZ exports that pass DroneDash KMZ validation;
+- Photogrammetry: `photogrammetry-manifest.json` plus the source dataset directory;
+- PV Analysis: `pv-analysis.json` plus the source dataset directory;
+- Smart Farming: dataset manifests, local processing plans/workspaces, NodeODM result ZIPs and
+  successful ODM vegetation field products.
+
+Registration is best-effort from the producing module: failure to update `.ddproj` is surfaced in
+the module status but does not retroactively invalidate an already successful file export.
+
+## Workflow dashboard
+
+The Project tab derives four descriptive stages from the artifacts currently linked to the project:
+
+1. Planning — `.ddplan` and/or validated DJI KMZ;
+2. Dataset — photogrammetry/Smart-Farming manifests, source folders or explicitly linked source imagery;
+3. Processing — local processing plans/workspaces and NodeODM result archives;
+4. Analysis / field product — PV analyses, Smart-Farming field-product manifests and vegetation rasters.
+
+The dashboard reports whether each stage has referenced artifacts and how many. It is a project
+organization view, not a scientific quality score: integrity and domain-specific QA remain separate.

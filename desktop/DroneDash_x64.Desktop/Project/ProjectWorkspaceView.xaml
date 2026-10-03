@@ -103,6 +103,50 @@
                  IsEnabled="False"/>
       </Grid>
 
+      <UniformGrid Columns="4"
+                   Margin="4,0,4,8">
+        <GroupBox Header="1 · Planung" Margin="3">
+          <StackPanel Margin="8">
+            <TextBlock x:Name="PlanningStageStateText"
+                       Text="Offen"
+                       FontWeight="SemiBold"/>
+            <TextBlock x:Name="PlanningStageDetailText"
+                       Text="Noch kein Planungsartefakt."
+                       TextWrapping="Wrap"/>
+          </StackPanel>
+        </GroupBox>
+        <GroupBox Header="2 · Datensatz" Margin="3">
+          <StackPanel Margin="8">
+            <TextBlock x:Name="DatasetStageStateText"
+                       Text="Offen"
+                       FontWeight="SemiBold"/>
+            <TextBlock x:Name="DatasetStageDetailText"
+                       Text="Noch kein Datensatzartefakt."
+                       TextWrapping="Wrap"/>
+          </StackPanel>
+        </GroupBox>
+        <GroupBox Header="3 · Processing" Margin="3">
+          <StackPanel Margin="8">
+            <TextBlock x:Name="ProcessingStageStateText"
+                       Text="Offen"
+                       FontWeight="SemiBold"/>
+            <TextBlock x:Name="ProcessingStageDetailText"
+                       Text="Noch kein Processing-Artefakt."
+                       TextWrapping="Wrap"/>
+          </StackPanel>
+        </GroupBox>
+        <GroupBox Header="4 · Analyse / Feldprodukt" Margin="3">
+          <StackPanel Margin="8">
+            <TextBlock x:Name="AnalysisStageStateText"
+                       Text="Offen"
+                       FontWeight="SemiBold"/>
+            <TextBlock x:Name="AnalysisStageDetailText"
+                       Text="Noch kein Analyseartefakt."
+                       TextWrapping="Wrap"/>
+          </StackPanel>
+        </GroupBox>
+      </UniformGrid>
+
       <Border Margin="4,0,4,8"
               Padding="10"
               Background="#EEF5F7"

@@ -4,6 +4,7 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using DroneDash_x64.Desktop.Project;
 using DroneDash_x64.Desktop.Planning;
 using DroneDash_x64.Desktop.Thermal;
 using Microsoft.Web.WebView2.Core;
@@ -288,7 +289,7 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
         }
     }
 
-    private void Export_Click(object sender, RoutedEventArgs e)
+    private async void Export_Click(object sender, RoutedEventArgs e)
     {
         if (_dataset is null)
             return;
@@ -311,9 +312,35 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
                 dialog.SelectedPath,
                 _dataset);
 
+            var registered = false;
+            string? registrationError = null;
+
+            if (DroneDashProjectSession.IsOpen)
+            {
+                try
+                {
+                    registered = await DroneDashProjectSession.RegisterFileAsync(
+                        output.JsonPath,
+                        ProjectArtifactKind.PvAnalysis);
+
+                    await DroneDashProjectSession.RegisterDirectoryAsync(
+                        _dataset.SourceFolder,
+                        ProjectArtifactKind.SourceDataFolder);
+                }
+                catch (Exception ex)
+                {
+                    registrationError = ex.Message;
+                }
+            }
+
             StatusText.Text =
                 $"PV-Analyse exportiert: {output.JsonPath} · " +
-                $"{output.ImagesCsvPath} · {output.CandidatesCsvPath} · Bericht: {report}";
+                $"{output.ImagesCsvPath} · {output.CandidatesCsvPath} · Bericht: {report}" +
+                (registered
+                    ? " · im aktiven DroneDash-Projekt registriert"
+                    : registrationError is not null
+                        ? $" · Projektregistrierung fehlgeschlagen: {registrationError}"
+                        : "");
         }
         catch (Exception ex)
         {

@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Web.WebView2.Core;
+using DroneDash_x64.Desktop.Project;
 using WinForms = System.Windows.Forms;
 
 namespace DroneDash_x64.Desktop.Planning;
@@ -80,7 +81,7 @@ public partial class FlightPlanningView : System.Windows.Controls.UserControl
         }
     }
 
-    private void SaveProject_Click(object sender, RoutedEventArgs e)
+    private async void SaveProject_Click(object sender, RoutedEventArgs e)
     {
         try
         {
@@ -104,7 +105,31 @@ public partial class FlightPlanningView : System.Windows.Controls.UserControl
             FlightPlanProjectStore.Save(dialog.FileName, ReadSettings(), _geometry);
             _currentProjectPath = dialog.FileName;
             ProjectInfoText.Text = $"Gespeichert: {_currentProjectPath}";
-            PlanningStatusText.Text = "DroneDash-Flugplan gespeichert.";
+
+            var registered = false;
+            string? registrationError = null;
+
+            if (DroneDashProjectSession.IsOpen)
+            {
+                try
+                {
+                    registered = await DroneDashProjectSession.RegisterFileAsync(
+                        _currentProjectPath,
+                        ProjectArtifactKind.FlightPlan);
+                }
+                catch (Exception ex)
+                {
+                    registrationError = ex.Message;
+                }
+            }
+
+            PlanningStatusText.Text =
+                "DroneDash-Flugplan gespeichert." +
+                (registered
+                    ? " Im aktiven DroneDash-Projekt registriert."
+                    : registrationError is not null
+                        ? $" Projektregistrierung fehlgeschlagen: {registrationError}"
+                        : "");
         }
         catch (Exception ex)
         {
@@ -277,7 +302,7 @@ public partial class FlightPlanningView : System.Windows.Controls.UserControl
         }
     }
 
-    private void ExportKmz_Click(object sender, RoutedEventArgs e)
+    private async void ExportKmz_Click(object sender, RoutedEventArgs e)
     {
         try
         {
@@ -299,8 +324,31 @@ public partial class FlightPlanningView : System.Windows.Controls.UserControl
             var report = DjiKmzValidator.Validate(dialog.FileName);
             RenderValidationReport(report, dialog.FileName);
 
+            var registered = false;
+            string? registrationError = null;
+
+            if (report.IsValid &&
+                DroneDashProjectSession.IsOpen)
+            {
+                try
+                {
+                    registered = await DroneDashProjectSession.RegisterFileAsync(
+                        dialog.FileName,
+                        ProjectArtifactKind.DjiWaylineKmz);
+                }
+                catch (Exception ex)
+                {
+                    registrationError = ex.Message;
+                }
+            }
+
             PlanningStatusText.Text = report.IsValid
-                ? $"DJI KMZ exportiert und validiert: {dialog.FileName}"
+                ? $"DJI KMZ exportiert und validiert: {dialog.FileName}" +
+                  (registered
+                      ? " · im aktiven DroneDash-Projekt registriert"
+                      : registrationError is not null
+                          ? $" · Projektregistrierung fehlgeschlagen: {registrationError}"
+                          : "")
                 : $"DJI KMZ exportiert, aber Validierung meldet Fehler: {dialog.FileName}";
 
             if (!report.IsValid)

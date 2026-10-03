@@ -123,7 +123,7 @@ public partial class PhotogrammetryWorkspaceView : System.Windows.Controls.UserC
         }
     }
 
-    private void ExportManifest_Click(object sender, RoutedEventArgs e)
+    private async void ExportManifest_Click(object sender, RoutedEventArgs e)
     {
         if (_dataset is null || _dataset.Images.Count == 0)
             return;
@@ -143,8 +143,34 @@ public partial class PhotogrammetryWorkspaceView : System.Windows.Controls.UserC
                 dialog.SelectedPath,
                 _dataset);
 
+            var registered = false;
+            string? registrationError = null;
+
+            if (DroneDashProjectSession.IsOpen)
+            {
+                try
+                {
+                    registered = await DroneDashProjectSession.RegisterFileAsync(
+                        output.JsonPath,
+                        ProjectArtifactKind.PhotogrammetryManifest);
+
+                    await DroneDashProjectSession.RegisterDirectoryAsync(
+                        _dataset.SourceFolder,
+                        ProjectArtifactKind.SourceDataFolder);
+                }
+                catch (Exception ex)
+                {
+                    registrationError = ex.Message;
+                }
+            }
+
             DatasetStatusText.Text =
-                $"Manifest exportiert: {output.JsonPath} · CSV: {output.CsvPath} · Bildliste: {output.ImageListPath}";
+                $"Manifest exportiert: {output.JsonPath} · CSV: {output.CsvPath} · Bildliste: {output.ImageListPath}" +
+                (registered
+                    ? " · im aktiven DroneDash-Projekt registriert"
+                    : registrationError is not null
+                        ? $" · Projektregistrierung fehlgeschlagen: {registrationError}"
+                        : "");
         }
         catch (Exception ex)
         {

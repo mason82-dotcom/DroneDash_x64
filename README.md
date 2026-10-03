@@ -364,3 +364,15 @@ automatic hashing is skipped for files above 256 MiB in favor of size/time metad
 
 Removing an artifact from `.ddproj` never deletes the underlying file. See
 `docs/PROJECT_WORKSPACE.md` for the project schema behavior and integrity model.
+
+### Active project integration
+
+An open `.ddproj` is now the shared project context across the desktop workflows. Successful core
+outputs are registered automatically: flight plans, validated DJI KMZ, photogrammetry manifests,
+PV analyses, Smart Farming dataset/processing artifacts, NodeODM archives and completed vegetation
+field products. Re-exporting the same path updates its integrity snapshot instead of creating
+duplicate project entries.
+
+The Project tab also shows a four-stage workflow dashboard for **Planning → Dataset → Processing →
+Analysis / field product**. The stage display is descriptive and artifact-based; scientific QA,
+mission validation and analysis confidence remain in their respective modules.
