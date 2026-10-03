@@ -913,6 +913,20 @@ try
         ?? throw new InvalidDataException(
             "Final processing job was not retained.");
 
+    var staleProgress =
+        ProjectProcessingCoordinator.ReportActive(
+            ProjectProcessingWorkerKind.SmartFarmingFieldProducts,
+            12d,
+            "late progress must not revive a terminal job",
+            "late");
+
+    if (staleProgress?.Status !=
+            ProjectProcessingJobStatus.Succeeded)
+    {
+        throw new InvalidDataException(
+            "A terminal processing job was revived by stale progress.");
+    }
+
     var processingLedger =
         ProjectProcessingCoordinator.Load(
             processingProjectPath);
@@ -954,6 +968,47 @@ try
         throw new InvalidDataException(
             $"Processing outputs did not release gates: dataset={finalProcessingGates.Dataset.State}, " +
             $"processing={finalProcessingGates.Processing.State}, results={finalProcessingGates.Results.State}");
+    }
+
+    var invalidLedgerRoot =
+        Path.Combine(
+            root,
+            "invalid-processing-ledger");
+
+    Directory.CreateDirectory(
+        invalidLedgerRoot);
+
+    var invalidLedgerProjectPath =
+        Path.Combine(
+            invalidLedgerRoot,
+            "invalid.ddproj");
+
+    DroneDashProjectStore.Save(
+        invalidLedgerProjectPath,
+        DroneDashProjectStore.Create(
+            "Invalid Processing Ledger"));
+
+    File.WriteAllText(
+        ProjectProcessingCoordinator.GetLedgerPath(
+            invalidLedgerProjectPath),
+        """{"schemaVersion":99,"currentJobId":null,"jobs":[]}""");
+
+    var rejectedUnsupportedLedger = false;
+
+    try
+    {
+        ProjectProcessingCoordinator.Load(
+            invalidLedgerProjectPath);
+    }
+    catch (InvalidDataException)
+    {
+        rejectedUnsupportedLedger = true;
+    }
+
+    if (!rejectedUnsupportedLedger)
+    {
+        throw new InvalidDataException(
+            "Unsupported processing ledger schema was not rejected.");
     }
 
     var processingCopyRoot =
