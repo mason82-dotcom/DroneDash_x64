@@ -1,4 +1,4 @@
-package com.example.m3ebridge
+package com.mason82.dronedash.rcbridge
 
 import android.content.Context
 import dji.sdk.keyvalue.value.camera.CameraStorageLocation
