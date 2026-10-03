@@ -205,20 +205,85 @@ class BridgeServer(
             }
         }
 
-        val contentLength = headers["content-length"]?.toIntOrNull() ?: 0
-        if (contentLength !in 0..65_536) {
-            throw IllegalArgumentException("request body too large")
+        val body = readRequestBody(input, headers)
+
+        return Request(method, path, headers, body)
+    }
+
+    private fun readRequestBody(
+        input: BufferedInputStream,
+        headers: Map<String, String>
+    ): ByteArray {
+        val contentLengthHeader = headers["content-length"]
+        if (contentLengthHeader != null) {
+            val contentLength = contentLengthHeader.toIntOrNull()
+                ?: throw IllegalArgumentException("invalid content-length")
+            if (contentLength !in 0..65_536) {
+                throw IllegalArgumentException("request body too large")
+            }
+            return readExactly(input, contentLength)
         }
 
-        val body = ByteArray(contentLength)
+        val transferEncoding = headers["transfer-encoding"]
+            ?.lowercase(Locale.ROOT)
+            ?.split(',')
+            ?.map { it.trim() }
+            .orEmpty()
+
+        if ("chunked" in transferEncoding) {
+            return readChunkedBody(input)
+        }
+
+        return ByteArray(0)
+    }
+
+    private fun readChunkedBody(input: BufferedInputStream): ByteArray {
+        val body = ByteArrayOutputStream()
+
+        while (true) {
+            val sizeLine = readLine(input)
+                ?: throw EOFException("unexpected EOF while reading chunk size")
+            val sizeText = sizeLine.substringBefore(';').trim()
+            val chunkSize = sizeText.toIntOrNull(16)
+                ?: throw IllegalArgumentException("invalid chunk size")
+
+            if (chunkSize < 0 || body.size() + chunkSize > 65_536) {
+                throw IllegalArgumentException("request body too large")
+            }
+
+            if (chunkSize == 0) {
+                while (true) {
+                    val trailer = readLine(input)
+                        ?: throw EOFException("unexpected EOF while reading chunk trailer")
+                    if (trailer.isEmpty()) break
+                }
+                break
+            }
+
+            body.write(readExactly(input, chunkSize))
+
+            val separator = readLine(input)
+                ?: throw EOFException("unexpected EOF after chunk")
+            if (separator.isNotEmpty()) {
+                throw IllegalArgumentException("invalid chunk separator")
+            }
+        }
+
+        return body.toByteArray()
+    }
+
+    private fun readExactly(
+        input: BufferedInputStream,
+        length: Int
+    ): ByteArray {
+        val body = ByteArray(length)
         var offset = 0
-        while (offset < contentLength) {
-            val read = input.read(body, offset, contentLength - offset)
+        while (offset < length) {
+            val read = input.read(body, offset, length - offset)
             if (read < 0) throw EOFException("unexpected EOF")
             offset += read
         }
-
-        return Request(method, path, headers, body)
+        return body
     }
 
     private fun readLine(input: BufferedInputStream): String? {
