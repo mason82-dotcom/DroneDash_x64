@@ -233,6 +233,8 @@ public static partial class LocalImageToolchain
             cancellationToken);
 
         string? version = null;
+        var openCvAvailable = false;
+        var numpyAvailable = false;
         var cudaAvailable = false;
         var cudaDeviceCount = 0;
         string? cudaDeviceName = null;
@@ -256,8 +258,32 @@ public static partial class LocalImageToolchain
                     document.RootElement;
 
                 if (root.TryGetProperty(
+                        "opencvAvailable",
+                        out var openCvAvailableElement) &&
+                    openCvAvailableElement.ValueKind is
+                        JsonValueKind.True or
+                        JsonValueKind.False)
+                {
+                    openCvAvailable =
+                        openCvAvailableElement.GetBoolean();
+                }
+
+                if (root.TryGetProperty(
+                        "numpyAvailable",
+                        out var numpyAvailableElement) &&
+                    numpyAvailableElement.ValueKind is
+                        JsonValueKind.True or
+                        JsonValueKind.False)
+                {
+                    numpyAvailable =
+                        numpyAvailableElement.GetBoolean();
+                }
+
+                if (root.TryGetProperty(
                         "opencv",
-                        out var opencv))
+                        out var opencv) &&
+                    opencv.ValueKind ==
+                        JsonValueKind.String)
                 {
                     version =
                         opencv.GetString();
@@ -381,12 +407,16 @@ public static partial class LocalImageToolchain
             new LocalImageToolStatus(
                 LocalImageToolKind.PythonOpenCv,
                 "Python + OpenCV",
-                result.Success,
+                result.Success &&
+                openCvAvailable,
                 version,
                 python,
-                result.Success
+                result.Success &&
+                openCvAvailable
                     ? "OpenCV-ECC-Worker verfügbar."
-                    : $"OpenCV-Probe fehlgeschlagen: {result.Output}");
+                    : result.Success
+                        ? "Python-Worker verfügbar, OpenCV jedoch nicht. GDAL-Tile-Engine kann unabhängig davon verfügbar sein."
+                        : $"Python-Worker-Probe fehlgeschlagen: {result.Output}");
 
         return new(
             status,
@@ -400,7 +430,8 @@ public static partial class LocalImageToolchain
             cupyVersion,
             cupyDeviceCount,
             cupyDeviceName,
-            gdalPythonAvailable,
+            gdalPythonAvailable &&
+            numpyAvailable,
             gdalPythonVersion);
     }
 
