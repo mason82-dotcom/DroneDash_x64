@@ -38,6 +38,7 @@ public partial class PhotogrammetryWorkspaceView
             !running;
         CancelOdmButton.IsEnabled = running;
         ImportOdmButton.IsEnabled = _odmTaskUuid is not null && _odmTaskCompleted;
+        UpdateColmapButtons();
     }
 
     private PhotogrammetryOdmPreset SelectedOdmPreset() =>

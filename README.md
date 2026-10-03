@@ -420,6 +420,16 @@ configured Python has GDAL:
 
 Terrain checks for flight planning build on these products in a later step.
 
+### Local DSM and point cloud with COLMAP (CUDA)
+
+Without a NodeODM server, *DSM / Punktwolke lokal mit COLMAP (CUDA) berechnen* reconstructs the
+analyzed dataset on the local NVIDIA GPU with COLMAP: GPU features and GPS-guided matching, sparse
+reconstruction with the DJI XMP calibration held fixed, CUDA PatchMatch stereo and fusion. The
+DroneDash worker then georeferences the result against the image GPS/RTK positions (robust
+similarity fit, residuals reported) and writes `products/colmap_georeferenced_model.laz` and
+`products/dsm.tif` (UTM), which open in the same map, 3D viewer and measuring tools. Install COLMAP
+with `scripts\install-colmap.ps1`; see `docs/COLMAP_CUDA.md`.
+
 ## PV analysis
 
 The Windows client now contains a dedicated **PV-Analyse** module for radiometric M3T

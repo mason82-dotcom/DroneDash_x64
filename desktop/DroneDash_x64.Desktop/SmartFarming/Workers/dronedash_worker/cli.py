@@ -5,6 +5,7 @@ import json
 import sys
 
 from .analysis import canopy_height, dem_profile, dem_volume
+from .colmap_support import colmap_georef, colmap_products
 from .dem import dem_preview
 from .geospatial import geospatial_index, geospatial_zones
 from .indices import vegetation_index
@@ -113,6 +114,14 @@ def main(argv=None):
     parser.add_argument("--dsm")
     parser.add_argument("--dtm")
     parser.add_argument("--max-samples", type=int, default=2000)
+    parser.add_argument("--colmap-georef", action="store_true")
+    parser.add_argument("--colmap-products", action="store_true")
+    parser.add_argument("--images")
+    parser.add_argument("--ply")
+    parser.add_argument("--georef")
+    parser.add_argument("--sparse")
+    parser.add_argument("--resolution", type=float, default=0.1)
+    parser.add_argument("--fill-distance", type=int, default=10)
     parser.add_argument("--reference")
     parser.add_argument("--moving")
     parser.add_argument("--positive-band")
@@ -180,12 +189,14 @@ def main(argv=None):
             bool(args.dem_profile),
             bool(args.dem_volume),
             bool(args.chm),
+            bool(args.colmap_georef),
+            bool(args.colmap_products),
         ]
     )
 
     if selected_modes != 1:
         parser.error(
-            "choose exactly one of --serve-jsonl, --probe, --register, --index, --geo-index, --geo-zones, --dem-preview, --pointcloud-preview, --dem-profile, --dem-volume or --chm"
+            "choose exactly one of --serve-jsonl, --probe, --register, --index, --geo-index, --geo-zones, --dem-preview, --pointcloud-preview, --dem-profile, --dem-volume, --chm, --colmap-georef or --colmap-products"
         )
 
     if args.serve_jsonl:
@@ -235,6 +246,18 @@ def main(argv=None):
         if not args.source or not args.polygon:
             parser.error("--dem-volume requires --source and --polygon")
         dem_volume(args)
+        return
+
+    if args.colmap_georef:
+        if not args.images or not args.output_dir:
+            parser.error("--colmap-georef requires --images and --output-dir")
+        colmap_georef(args)
+        return
+
+    if args.colmap_products:
+        if not args.ply or not args.georef or not args.sparse or not args.output_dir:
+            parser.error("--colmap-products requires --ply, --sparse, --georef and --output-dir")
+        colmap_products(args)
         return
 
     if args.chm:

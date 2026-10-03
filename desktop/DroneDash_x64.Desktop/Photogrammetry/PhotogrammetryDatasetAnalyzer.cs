@@ -179,7 +179,11 @@ public static class PhotogrammetryDatasetAnalyzer
             passName,
             segmentIndex,
             routeDistance,
-            issues);
+            issues)
+        {
+            OpticalCenterX = Number(fields, "CalibratedOpticalCenterX"),
+            OpticalCenterY = Number(fields, "CalibratedOpticalCenterY")
+        };
     }
 
     private static double? Number(
