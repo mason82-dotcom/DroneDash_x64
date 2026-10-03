@@ -1,15 +1,12 @@
 using System.IO;
 using System.Globalization;
-using System.Text;
-using System.Xml.Linq;
+using DroneDash_x64.Desktop.Imaging;
 using DroneDash_x64.Desktop.Planning;
 
 namespace DroneDash_x64.Desktop.Photogrammetry;
 
 public static class PhotogrammetryDatasetAnalyzer
 {
-    private const int MaxXmpScanBytes = 32 * 1024 * 1024;
-
     private static readonly HashSet<string> SupportedExtensions =
         new(StringComparer.OrdinalIgnoreCase)
         {
@@ -18,7 +15,9 @@ public static class PhotogrammetryDatasetAnalyzer
 
     public static PhotogrammetryDatasetResult Analyze(
         string sourceFolder,
-        string? flightPlanProjectPath = null)
+        string? flightPlanProjectPath = null,
+        CancellationToken cancellationToken = default,
+        IProgress<DatasetScanProgress>? progress = null)
     {
         if (!Directory.Exists(sourceFolder))
             throw new DirectoryNotFoundException(sourceFolder);
@@ -30,15 +29,32 @@ public static class PhotogrammetryDatasetAnalyzer
             plan = PhotogrammetryPlanner.Generate(project.Geometry, project.Settings);
         }
 
-        var files = Directory
-            .EnumerateFiles(sourceFolder, "*", SearchOption.AllDirectories)
-            .Where(path => SupportedExtensions.Contains(Path.GetExtension(path)))
+        var files = SafeDatasetFileEnumerator
+            .EnumerateFiles(
+                sourceFolder,
+                path => SupportedExtensions.Contains(Path.GetExtension(path)),
+                cancellationToken)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
+        progress?.Report(new DatasetScanProgress(
+            files.Length,
+            0,
+            null));
+
         var images = new List<PhotogrammetryImageRecord>(files.Length);
-        foreach (var path in files)
+        for (var index = 0; index < files.Length; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var path = files[index];
             images.Add(AnalyzeImage(path, sourceFolder, plan));
+
+            progress?.Report(new DatasetScanProgress(
+                files.Length,
+                index + 1,
+                Path.GetFileName(path)));
+        }
 
         var plannedCount = plan?.EstimatedPhotos;
         double? ratio = plannedCount is > 0
@@ -72,8 +88,12 @@ public static class PhotogrammetryDatasetAnalyzer
         string root,
         FlightPlanResult? plan)
     {
-        var fields = ReadXmpFields(path);
+        var xmp = DjiXmpMetadataReader.Read(path);
+        var fields = xmp.Fields;
         var issues = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(xmp.Error))
+            issues.Add(xmp.Error);
 
         var latitude = Number(fields, "GPSLatitude");
         var longitude = Number(fields, "GPSLongitude");
@@ -162,46 +182,6 @@ public static class PhotogrammetryDatasetAnalyzer
             issues);
     }
 
-    private static Dictionary<string, string> ReadXmpFields(string path)
-    {
-        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var xmp = TryReadXmp(path);
-        if (string.IsNullOrWhiteSpace(xmp))
-            return result;
-
-        try
-        {
-            var document = XDocument.Parse(xmp, LoadOptions.None);
-            foreach (var element in document.Descendants())
-            {
-                foreach (var attribute in element.Attributes()
-                             .Where(attribute => !attribute.IsNamespaceDeclaration))
-                {
-                    AddField(result, attribute.Name.LocalName, attribute.Value);
-                }
-
-                if (!element.HasElements)
-                    AddField(result, element.Name.LocalName, element.Value);
-            }
-        }
-        catch
-        {
-            // Broken XMP is represented by missing fields and surfaced through QA issues.
-        }
-
-        return result;
-    }
-
-    private static void AddField(
-        IDictionary<string, string> fields,
-        string key,
-        string rawValue)
-    {
-        var value = rawValue.Trim();
-        if (value.Length > 0)
-            fields.TryAdd(key, value);
-    }
-
     private static double? Number(
         IReadOnlyDictionary<string, string> fields,
         string key)
@@ -218,45 +198,5 @@ public static class PhotogrammetryDatasetAnalyzer
             double.IsFinite(result)
                 ? result
                 : null;
-    }
-
-    private static string? TryReadXmp(string path)
-    {
-        using var stream = File.OpenRead(path);
-        var length = (int)Math.Min(stream.Length, MaxXmpScanBytes);
-        var bytes = new byte[length];
-
-        var offset = 0;
-        while (offset < bytes.Length)
-        {
-            var read = stream.Read(bytes, offset, bytes.Length - offset);
-            if (read == 0)
-                break;
-            offset += read;
-        }
-
-        var text = Encoding.UTF8.GetString(bytes, 0, offset);
-        var start = text.IndexOf("<x:xmpmeta", StringComparison.OrdinalIgnoreCase);
-        if (start < 0)
-            start = text.IndexOf("<xmpmeta", StringComparison.OrdinalIgnoreCase);
-        if (start < 0)
-            return null;
-
-        var endTag = text.IndexOf(
-            "</x:xmpmeta>",
-            start,
-            StringComparison.OrdinalIgnoreCase) >= 0
-                ? "</x:xmpmeta>"
-                : "</xmpmeta>";
-
-        var end = text.IndexOf(
-            endTag,
-            start,
-            StringComparison.OrdinalIgnoreCase);
-        if (end < 0)
-            return null;
-
-        end += endTag.Length;
-        return text[start..end];
     }
 }
