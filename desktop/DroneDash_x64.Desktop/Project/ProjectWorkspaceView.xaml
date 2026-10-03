@@ -103,45 +103,128 @@
                  IsEnabled="False"/>
       </Grid>
 
+      <TextBlock Margin="4,2,4,3"
+                 Text="Workflow · Stufe anklicken, um direkt in das passende Modul zu wechseln"
+                 FontWeight="SemiBold"/>
+
       <UniformGrid Columns="4"
                    Margin="4,0,4,8">
-        <GroupBox Header="1 · Planung" Margin="3">
+        <Button x:Name="PlanningStageButton"
+                Tag="Planning"
+                Click="WorkflowStage_Click"
+                Margin="3"
+                Padding="0">
+          <Border Padding="10">
+            <StackPanel>
+              <TextBlock Text="1 · Planung" FontWeight="SemiBold"/>
+              <TextBlock x:Name="PlanningStageStateText"
+                         Margin="0,4,0,0"
+                         Text="Offen"
+                         FontWeight="SemiBold"/>
+              <TextBlock x:Name="PlanningStageDetailText"
+                         Text="Noch kein Planungsartefakt."
+                         TextWrapping="Wrap"/>
+            </StackPanel>
+          </Border>
+        </Button>
+        <Button x:Name="DatasetStageButton"
+                Tag="Dataset"
+                Click="WorkflowStage_Click"
+                Margin="3"
+                Padding="0">
+          <Border Padding="10">
+            <StackPanel>
+              <TextBlock Text="2 · Datensatz" FontWeight="SemiBold"/>
+              <TextBlock x:Name="DatasetStageStateText"
+                         Margin="0,4,0,0"
+                         Text="Offen"
+                         FontWeight="SemiBold"/>
+              <TextBlock x:Name="DatasetStageDetailText"
+                         Text="Noch kein Datensatzartefakt."
+                         TextWrapping="Wrap"/>
+            </StackPanel>
+          </Border>
+        </Button>
+        <Button x:Name="ProcessingStageButton"
+                Tag="Processing"
+                Click="WorkflowStage_Click"
+                Margin="3"
+                Padding="0">
+          <Border Padding="10">
+            <StackPanel>
+              <TextBlock Text="3 · Processing" FontWeight="SemiBold"/>
+              <TextBlock x:Name="ProcessingStageStateText"
+                         Margin="0,4,0,0"
+                         Text="Offen"
+                         FontWeight="SemiBold"/>
+              <TextBlock x:Name="ProcessingStageDetailText"
+                         Text="Noch kein Processing-Artefakt."
+                         TextWrapping="Wrap"/>
+            </StackPanel>
+          </Border>
+        </Button>
+        <Button x:Name="AnalysisStageButton"
+                Tag="Analysis"
+                Click="WorkflowStage_Click"
+                Margin="3"
+                Padding="0">
+          <Border Padding="10">
+            <StackPanel>
+              <TextBlock Text="4 · Ergebnis / QA" FontWeight="SemiBold"/>
+              <TextBlock x:Name="AnalysisStageStateText"
+                         Margin="0,4,0,0"
+                         Text="Offen"
+                         FontWeight="SemiBold"/>
+              <TextBlock x:Name="AnalysisStageDetailText"
+                         Text="Noch kein Analyseartefakt."
+                         TextWrapping="Wrap"/>
+            </StackPanel>
+          </Border>
+        </Button>
+      </UniformGrid>
+
+      <TextBlock Margin="4,2,4,3"
+                 Text="Projekt-Dashboard"
+                 FontWeight="SemiBold"/>
+      <UniformGrid Columns="4"
+                   Margin="4,0,4,8">
+        <GroupBox Header="RTK-QA" Margin="3">
           <StackPanel Margin="8">
-            <TextBlock x:Name="PlanningStageStateText"
+            <TextBlock x:Name="RtkQaStateText"
                        Text="Offen"
                        FontWeight="SemiBold"/>
-            <TextBlock x:Name="PlanningStageDetailText"
-                       Text="Noch kein Planungsartefakt."
+            <TextBlock x:Name="RtkQaDetailText"
+                       Text="Noch keine RTK-QA."
                        TextWrapping="Wrap"/>
           </StackPanel>
         </GroupBox>
-        <GroupBox Header="2 · Datensatz" Margin="3">
+        <GroupBox Header="Datensatz-QA" Margin="3">
           <StackPanel Margin="8">
-            <TextBlock x:Name="DatasetStageStateText"
+            <TextBlock x:Name="DatasetQaStateText"
                        Text="Offen"
                        FontWeight="SemiBold"/>
-            <TextBlock x:Name="DatasetStageDetailText"
-                       Text="Noch kein Datensatzartefakt."
+            <TextBlock x:Name="DatasetQaDetailText"
+                       Text="Noch keine Datensatz-QA."
                        TextWrapping="Wrap"/>
           </StackPanel>
         </GroupBox>
-        <GroupBox Header="3 · Processing" Margin="3">
+        <GroupBox Header="Processing" Margin="3">
           <StackPanel Margin="8">
-            <TextBlock x:Name="ProcessingStageStateText"
+            <TextBlock x:Name="ProcessingQaStateText"
                        Text="Offen"
                        FontWeight="SemiBold"/>
-            <TextBlock x:Name="ProcessingStageDetailText"
-                       Text="Noch kein Processing-Artefakt."
+            <TextBlock x:Name="ProcessingQaDetailText"
+                       Text="Noch keine Processing-QA."
                        TextWrapping="Wrap"/>
           </StackPanel>
         </GroupBox>
-        <GroupBox Header="4 · Analyse / Feldprodukt" Margin="3">
+        <GroupBox Header="Ergebnis-QA" Margin="3">
           <StackPanel Margin="8">
-            <TextBlock x:Name="AnalysisStageStateText"
+            <TextBlock x:Name="ResultsQaStateText"
                        Text="Offen"
                        FontWeight="SemiBold"/>
-            <TextBlock x:Name="AnalysisStageDetailText"
-                       Text="Noch kein Analyseartefakt."
+            <TextBlock x:Name="ResultsQaDetailText"
+                       Text="Noch keine Ergebnis-QA."
                        TextWrapping="Wrap"/>
           </StackPanel>
         </GroupBox>
