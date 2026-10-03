@@ -32,6 +32,11 @@ public sealed record ThermalAnalysisResult(
     int MaximumY,
     float AverageC,
     float CenterC,
+    int ValidPixelCount,
+    float StandardDeviationC,
+    float P05C,
+    float MedianC,
+    float P95C,
     float DistanceM,
     float Humidity,
     float Emissivity,
@@ -61,13 +66,95 @@ public sealed record ThermalAnalysisResult(
         new("Thermal", "Maximum", $"{MaximumC:F2} °C @ {MaximumX},{MaximumY}"),
         new("Thermal", "Mittelwert", $"{AverageC:F2} °C"),
         new("Thermal", "Bildmitte", $"{CenterC:F2} °C"),
+        new("Thermal", "Gültige Pixel", ValidPixelCount.ToString("N0")),
+        new("Thermal", "Standardabweichung", $"{StandardDeviationC:F2} °C"),
+        new("Thermal", "P05", $"{P05C:F2} °C"),
+        new("Thermal", "Median (P50)", $"{MedianC:F2} °C"),
+        new("Thermal", "P95", $"{P95C:F2} °C"),
         new("Thermal Parameter", "Distanz", $"{DistanceM:F2} m"),
         new("Thermal Parameter", "Luftfeuchte", $"{Humidity:F2}"),
         new("Thermal Parameter", "Emissivität", $"{Emissivity:F3}"),
         new("Thermal Parameter", "Reflexion", $"{ReflectionC:F2} °C"),
         new("Thermal Parameter", "Umgebung", $"{AmbientTemperatureC:F2} °C")
     ];
+
+    public IReadOnlyList<ThermalHistogramBin> BuildHistogram(int binCount = 64)
+    {
+        if (binCount is < 4 or > 512)
+            throw new ArgumentOutOfRangeException(nameof(binCount), "Histogramm-Binanzahl muss zwischen 4 und 512 liegen.");
+
+        var minimum = MinimumC;
+        var maximum = MaximumC;
+        var span = maximum - minimum;
+
+        if (!float.IsFinite(minimum) ||
+            !float.IsFinite(maximum) ||
+            span < 0)
+        {
+            throw new InvalidDataException("Ungültiger Temperaturbereich für Histogramm.");
+        }
+
+        if (span == 0)
+        {
+            return
+            [
+                new ThermalHistogramBin(
+                    0,
+                    minimum,
+                    maximum,
+                    ValidPixelCount,
+                    ValidPixelCount == 0 ? 0d : 1d)
+            ];
+        }
+
+        var counts = new int[binCount];
+        var valid = 0;
+
+        foreach (var value in Temperatures)
+        {
+            if (!float.IsFinite(value))
+                continue;
+
+            var normalized = (value - minimum) / span;
+            var index = Math.Clamp(
+                (int)Math.Floor(normalized * binCount),
+                0,
+                binCount - 1);
+
+            counts[index]++;
+            valid++;
+        }
+
+        var bins = new ThermalHistogramBin[binCount];
+        var width = span / binCount;
+
+        for (var index = 0; index < binCount; index++)
+        {
+            var lower = minimum + index * width;
+            var upper = index == binCount - 1
+                ? maximum
+                : minimum + (index + 1) * width;
+
+            bins[index] = new ThermalHistogramBin(
+                index,
+                lower,
+                upper,
+                counts[index],
+                valid == 0
+                    ? 0d
+                    : counts[index] / (double)valid);
+        }
+
+        return bins;
+    }
 }
+
+public sealed record ThermalHistogramBin(
+    int Index,
+    float LowerC,
+    float UpperC,
+    int Count,
+    double Fraction);
 
 public sealed class ThermalSdkException : Exception
 {
@@ -229,6 +316,11 @@ public sealed class DjiThermalSdk : IDisposable
                 statistics.MaximumY,
                 statistics.AverageC,
                 statistics.CenterC,
+                statistics.ValidPixelCount,
+                statistics.StandardDeviationC,
+                statistics.P05C,
+                statistics.MedianC,
+                statistics.P95C,
                 measurementParams.Distance,
                 measurementParams.Humidity,
                 measurementParams.Emissivity,
@@ -349,6 +441,7 @@ public sealed class DjiThermalSdk : IDisposable
         var minimumIndex = -1;
         var maximumIndex = -1;
         double sum = 0;
+        var finiteValues = new float[values.Length];
         var count = 0;
 
         for (var index = 0; index < values.Length; index++)
@@ -356,6 +449,8 @@ public sealed class DjiThermalSdk : IDisposable
             var value = values[index];
             if (!float.IsFinite(value))
                 continue;
+
+            finiteValues[count++] = value;
 
             if (value < minimum)
             {
@@ -370,11 +465,26 @@ public sealed class DjiThermalSdk : IDisposable
             }
 
             sum += value;
-            count++;
         }
 
         if (count == 0 || minimumIndex < 0 || maximumIndex < 0)
             throw new InvalidDataException("DJI TSDK lieferte keine gültigen Temperaturpixel.");
+
+        Array.Resize(ref finiteValues, count);
+
+        var average = (float)(sum / count);
+        double squaredDeviationSum = 0;
+
+        foreach (var value in finiteValues)
+        {
+            var deviation = value - average;
+            squaredDeviationSum += deviation * deviation;
+        }
+
+        var standardDeviation =
+            (float)Math.Sqrt(squaredDeviationSum / count);
+
+        Array.Sort(finiteValues);
 
         var centerIndex = (height / 2) * width + (width / 2);
         var center = values[Math.Clamp(centerIndex, 0, values.Length - 1)];
@@ -386,8 +496,33 @@ public sealed class DjiThermalSdk : IDisposable
             maximum,
             maximumIndex % width,
             maximumIndex / width,
-            (float)(sum / count),
-            center);
+            average,
+            center,
+            count,
+            standardDeviation,
+            Percentile(finiteValues, 0.05),
+            Percentile(finiteValues, 0.50),
+            Percentile(finiteValues, 0.95));
+    }
+
+    private static float Percentile(
+        IReadOnlyList<float> sortedValues,
+        double percentile)
+    {
+        if (sortedValues.Count == 0)
+            throw new ArgumentException("Leere Temperaturverteilung.", nameof(sortedValues));
+
+        percentile = Math.Clamp(percentile, 0d, 1d);
+        var position = (sortedValues.Count - 1) * percentile;
+        var lowerIndex = (int)Math.Floor(position);
+        var upperIndex = (int)Math.Ceiling(position);
+
+        if (lowerIndex == upperIndex)
+            return sortedValues[lowerIndex];
+
+        var weight = (float)(position - lowerIndex);
+        return sortedValues[lowerIndex] +
+               (sortedValues[upperIndex] - sortedValues[lowerIndex]) * weight;
     }
 
     private static string FormatApiVersion(DirpApiVersion version)
@@ -485,7 +620,12 @@ public sealed class DjiThermalSdk : IDisposable
         int MaximumX,
         int MaximumY,
         float AverageC,
-        float CenterC);
+        float CenterC,
+        int ValidPixelCount,
+        float StandardDeviationC,
+        float P05C,
+        float MedianC,
+        float P95C);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int CreateFromRjpegDelegate(IntPtr data, int size, out IntPtr handle);

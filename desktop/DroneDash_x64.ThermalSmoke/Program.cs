@@ -31,10 +31,24 @@ if (!float.IsFinite(result.MinimumC) ||
     !float.IsFinite(result.MaximumC) ||
     !float.IsFinite(result.AverageC) ||
     !float.IsFinite(result.CenterC) ||
-    result.Temperatures.Length != result.Width * result.Height)
+    !float.IsFinite(result.StandardDeviationC) ||
+    !float.IsFinite(result.P05C) ||
+    !float.IsFinite(result.MedianC) ||
+    !float.IsFinite(result.P95C) ||
+    result.Temperatures.Length != result.Width * result.Height ||
+    result.ValidPixelCount <= 0 ||
+    result.P05C > result.MedianC ||
+    result.MedianC > result.P95C)
 {
-    Console.Error.WriteLine("DIRP returned an invalid temperature matrix.");
+    Console.Error.WriteLine("DIRP returned an invalid temperature matrix or distribution.");
     return 5;
+}
+
+var histogram = result.BuildHistogram(64);
+if (histogram.Sum(bin => bin.Count) != result.ValidPixelCount)
+{
+    Console.Error.WriteLine("Thermal histogram does not account for every valid pixel.");
+    return 6;
 }
 
 var output = new
@@ -52,6 +66,12 @@ var output = new
     maximum = new { x = result.MaximumX, y = result.MaximumY },
     averageC = result.AverageC,
     centerC = result.CenterC,
+    validPixels = result.ValidPixelCount,
+    standardDeviationC = result.StandardDeviationC,
+    p05C = result.P05C,
+    medianC = result.MedianC,
+    p95C = result.P95C,
+    histogramBins = histogram.Count,
     measurement = new
     {
         distanceM = result.DistanceM,
