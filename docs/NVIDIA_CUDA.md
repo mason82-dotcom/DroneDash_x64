@@ -25,7 +25,7 @@ The worker accepts:
 
 DroneDash-generated processing plans use `--backend auto`.
 
-`auto` selects the available CUDA implementation independently per operation. Registration uses OpenCV-CUDA when `cv2.cuda.getCudaEnabledDeviceCount()` reports a device. Vegetation-index raster arithmetic uses CuPy when CuPy exposes a CUDA device. Each path falls back to CPU independently. Explicit `--backend cuda` fails instead of silently falling back.
+`auto` selects the available CUDA implementation independently per operation. Registration uses OpenCV-CUDA when `cv2.cuda.getCudaEnabledDeviceCount()` reports a device. Vegetation-index raster arithmetic uses CuPy when CuPy exposes a CUDA device. For index/zone arithmetic, auto mode keeps work below `--cuda-min-pixels` on CPU (default: 1,048,576 pixels) so PCIe transfer and kernel-launch overhead do not dominate small tiles; explicit `--backend cuda` bypasses this threshold and fails instead of silently falling back.
 
 The generated registration and vegetation-index JSON sidecars record:
 
@@ -150,6 +150,8 @@ RAM and VRAM limits are hard fractions of currently free memory (20% host RAM an
 The remaining candidates are benchmarked against real windows from the current orthomosaic. Each candidate gets a warm-up followed by three spatially distributed samples (top-left, center and bottom-right); median Read and Compute times are used. A failed candidate, such as a large-tile CUDA OOM, is recorded as failed without discarding successful smaller CUDA candidates. Automatic backend fallback moves to CPU/NumPy only when no CUDA candidate succeeds.
 
 The tuner selects the smallest tile whose measured pixels/second is within 90% of the fastest successful candidate, avoiding unnecessary memory use for marginal throughput gains.
+
+For auto backend selection, the same resolved tile size is also checked against `--cuda-min-pixels`. Small candidate tiles are benchmarked and processed on NumPy/CPU, while sufficiently large tiles use CuPy/CUDA. Edge tiles can therefore be CPU while interior tiles are CUDA; sidecars report `backendUsed` as `cpu`, `cuda` or `mixed` together with `cudaTiles` and `cpuTiles`.
 
 Pipeline depth is then selected from 1–4. Small jobs use depth 1. I/O-bound jobs may use depth 3 or 4, compute-bound jobs can use depth 1, and balanced workloads normally use depth 2. The result is clamped again by the host-memory budget.
 
