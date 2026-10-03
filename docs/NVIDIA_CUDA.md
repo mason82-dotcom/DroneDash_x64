@@ -159,6 +159,13 @@ python ...\opencv_m3m.py --geo-index ... --tile-size 2048 --pipeline-depth 3
 
 When both values are manual, no tuning benchmark is executed.
 
+### Reused CUDA buffers and persistent Python worker
+
+CuPy vegetation-index and scouting-zone arithmetic now uses fused `ElementwiseKernel` operations. Device buffers are reused while tile dimensions remain unchanged, reducing repeated GPU allocation and intermediate-array churn. GDAL still owns the CPU-side source windows, so host/device transfer remains explicit. The worker relies on the device-to-host `cp.asnumpy()` copy for the required synchronization instead of issuing a second explicit stream synchronization.
+
+For direct DroneDash local-processing plans, the desktop keeps one compatible Python worker process alive across OpenCV/CuPy steps through the line-delimited JSON protocol exposed by `--serve-jsonl`. Python imports, the CUDA context and reusable buffers can therefore survive across compatible steps instead of being rebuilt for every command. External OTB/GDAL commands remain isolated processes, and cancellation still terminates the Python process tree.
+
+
 Requirements for this optional path:
 
 - Python + NumPy
