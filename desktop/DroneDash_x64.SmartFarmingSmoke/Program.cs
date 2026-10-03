@@ -416,6 +416,118 @@ try
         throw new InvalidDataException(
             "ZIP path traversal was not rejected.");
 
+    var nonEmptyTarget =
+        Path.Combine(
+            zipSmokeRoot,
+            "non-empty");
+
+    Directory.CreateDirectory(
+        nonEmptyTarget);
+
+    var sentinel =
+        Path.Combine(
+            nonEmptyTarget,
+            "keep.txt");
+
+    File.WriteAllText(
+        sentinel,
+        "preserve");
+
+    var nonEmptyRejected = false;
+
+    try
+    {
+        OdmResultImporter.ExtractSafely(
+            safeZip,
+            nonEmptyTarget);
+    }
+    catch (IOException)
+    {
+        nonEmptyRejected = true;
+    }
+
+    if (!nonEmptyRejected ||
+        !File.Exists(sentinel))
+    {
+        throw new InvalidDataException(
+            "Non-empty ODM extraction target must be rejected without deleting existing data.");
+    }
+
+    var multiEntryZip =
+        Path.Combine(
+            zipSmokeRoot,
+            "many.zip");
+
+    using (var archive =
+           ZipFile.Open(
+               multiEntryZip,
+               ZipArchiveMode.Create))
+    {
+        using (var writer =
+               new StreamWriter(
+                   archive.CreateEntry(
+                           "one.txt")
+                       .Open()))
+        {
+            writer.Write("one");
+        }
+
+        using (var writer =
+               new StreamWriter(
+                   archive.CreateEntry(
+                           "two.txt")
+                       .Open()))
+        {
+            writer.Write("two");
+        }
+    }
+
+    var entryLimitRejected = false;
+
+    try
+    {
+        OdmResultImporter.ExtractSafely(
+            multiEntryZip,
+            Path.Combine(
+                zipSmokeRoot,
+                "entry-limit"),
+            maxEntries: 1);
+    }
+    catch (InvalidDataException)
+    {
+        entryLimitRejected = true;
+    }
+
+    if (!entryLimitRejected)
+        throw new InvalidDataException(
+            "ODM ZIP entry-count limit was not enforced.");
+
+    var sizeLimitRoot =
+        Path.Combine(
+            zipSmokeRoot,
+            "size-limit");
+
+    var sizeLimitRejected = false;
+
+    try
+    {
+        OdmResultImporter.ExtractSafely(
+            safeZip,
+            sizeLimitRoot,
+            maxExtractedBytes: 4);
+    }
+    catch (InvalidDataException)
+    {
+        sizeLimitRejected = true;
+    }
+
+    if (!sizeLimitRejected ||
+        Directory.Exists(sizeLimitRoot))
+    {
+        throw new InvalidDataException(
+            "Oversized ODM ZIP extraction must fail without publishing a partial destination.");
+    }
+
     Console.WriteLine(
         $"PASS ODM field products · {describedOrthophoto.BandMap.ToDisplayText()} · {zones.LegendText}");
 }

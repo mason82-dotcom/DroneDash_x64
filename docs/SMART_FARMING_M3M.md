@@ -137,6 +137,12 @@ those descriptions are authoritative. For a four-band orthophoto produced by the
 M3M-only NodeODM path, missing descriptions may fall back to ODM's current normalized
 multispectral order: Red, Green, NIR, Red Edge. The UI surfaces this fallback as a warning.
 
+NodeODM ZIP import is staged into a temporary sibling directory and published only after a complete
+successful extraction. Existing non-empty extraction targets are rejected rather than mixed with
+new output. The importer rejects path traversal and Unix symlinks and limits archives to 100,000
+entries and 100 GiB of extracted data by default; partial staging directories are removed after
+failure or cancellation.
+
 From the georeferenced ODM orthophoto DroneDash builds a four-step OTB field-product plan:
 
 1. NDVI GeoTIFF from NIR and Red;

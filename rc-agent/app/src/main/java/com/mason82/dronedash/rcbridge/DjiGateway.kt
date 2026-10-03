@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.sqrt
 
 class DjiGateway {
+    private val configurationWriteLock = Any()
     private val keys get() = KeyManager.getInstance()
 
     fun status(runtime: DjiRuntime): JSONObject {
@@ -152,27 +153,92 @@ class DjiGateway {
     fun isFlying(): Boolean =
         keys.getValue(KeyTools.createKey(FlightControllerKey.KeyIsFlying)) == true
 
-    fun updateConfiguration(payload: JSONObject): JSONObject {
+    fun updateConfiguration(payload: JSONObject): JSONObject =
+        synchronized(configurationWriteLock) {
         val heightLimit = readOptionalAltitude(payload, "heightLimitMeters")
         val goHomeHeight = readOptionalAltitude(payload, "goHomeHeightMeters")
 
-        if (heightLimit != null) {
-            setIntKey(
-                KeyTools.createKey(FlightControllerKey.KeyHeightLimit),
-                heightLimit,
-                "heightLimitMeters"
-            )
+        val heightKey =
+            KeyTools.createKey(FlightControllerKey.KeyHeightLimit)
+        val goHomeKey =
+            KeyTools.createKey(FlightControllerKey.KeyGoHomeHeight)
+
+        if (heightLimit != null && goHomeHeight != null) {
+            val originalHeight =
+                keys.getValue(heightKey)
+                    ?: throw IllegalStateException(
+                        "Current heightLimitMeters is unavailable; refusing multi-setting update"
+                    )
+            val originalGoHome =
+                keys.getValue(goHomeKey)
+                    ?: throw IllegalStateException(
+                        "Current goHomeHeightMeters is unavailable; refusing multi-setting update"
+                    )
+
+            try {
+                setIntKey(
+                    heightKey,
+                    heightLimit,
+                    "heightLimitMeters"
+                )
+                setIntKey(
+                    goHomeKey,
+                    goHomeHeight,
+                    "goHomeHeightMeters"
+                )
+            } catch (error: Throwable) {
+                val rollbackErrors = mutableListOf<String>()
+
+                runCatching {
+                    setIntKey(
+                        goHomeKey,
+                        originalGoHome,
+                        "rollback goHomeHeightMeters"
+                    )
+                }.exceptionOrNull()?.let {
+                    rollbackErrors += it.message ?: it.javaClass.simpleName
+                }
+
+                runCatching {
+                    setIntKey(
+                        heightKey,
+                        originalHeight,
+                        "rollback heightLimitMeters"
+                    )
+                }.exceptionOrNull()?.let {
+                    rollbackErrors += it.message ?: it.javaClass.simpleName
+                }
+
+                if (rollbackErrors.isNotEmpty()) {
+                    throw IllegalStateException(
+                        (error.message ?: "DJI configuration update failed") +
+                            "; rollback incomplete: " +
+                            rollbackErrors.joinToString(" | "),
+                        error
+                    )
+                }
+
+                throw error
+            }
+        } else {
+            if (heightLimit != null) {
+                setIntKey(
+                    heightKey,
+                    heightLimit,
+                    "heightLimitMeters"
+                )
+            }
+
+            if (goHomeHeight != null) {
+                setIntKey(
+                    goHomeKey,
+                    goHomeHeight,
+                    "goHomeHeightMeters"
+                )
+            }
         }
 
-        if (goHomeHeight != null) {
-            setIntKey(
-                KeyTools.createKey(FlightControllerKey.KeyGoHomeHeight),
-                goHomeHeight,
-                "goHomeHeightMeters"
-            )
-        }
-
-        return configuration()
+        configuration()
     }
 
     private fun readOptionalAltitude(payload: JSONObject, name: String): Int? {
@@ -200,7 +266,9 @@ class DjiGateway {
             }
 
             override fun onFailure(djiError: IDJIError) {
-                error.set(djiError.description())
+                error.set(
+                    "${djiError.errorCode()}: ${djiError.description()}"
+                )
                 latch.countDown()
             }
         })
