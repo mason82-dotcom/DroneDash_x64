@@ -494,9 +494,8 @@ public static partial class LocalImageToolchain
         }
 
         var available =
-            openCv.Status.Available &&
-            (openCv.CudaAvailable ||
-             openCv.CupyAvailable);
+            openCv.CudaAvailable ||
+            openCv.CupyAvailable;
 
         var version =
             toolkitVersion ??
@@ -504,12 +503,7 @@ public static partial class LocalImageToolchain
 
         string detail;
 
-        if (!openCv.Status.Available)
-        {
-            detail =
-                "CUDA optional: Python/OpenCV-Worker ist nicht verfügbar.";
-        }
-        else if (available)
+        if (available)
         {
             var device =
                 openCv.CudaDeviceName ??
@@ -519,7 +513,9 @@ public static partial class LocalImageToolchain
             var registration =
                 openCv.CudaAvailable
                     ? "OpenCV-Registrierung: CUDA Resize/Warp"
-                    : "OpenCV-Registrierung: CPU";
+                    : openCv.Status.Available
+                        ? "OpenCV-Registrierung: CPU"
+                        : "OpenCV-Registrierung: nicht verfügbar";
 
             var indices =
                 openCv.CupyAvailable
