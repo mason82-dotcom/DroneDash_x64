@@ -82,6 +82,7 @@ public sealed record VegetationIndexResult(
 
 public sealed record SmartFarmingManifest(
     int SchemaVersion, DateTimeOffset CreatedAtUtc, string SourceFolder,
+    string? FlightPlanProjectPath,
     M3mDatasetSummary Summary, IReadOnlyList<M3mCaptureGroup> Captures)
 {
     public const int CurrentSchemaVersion = 1;
