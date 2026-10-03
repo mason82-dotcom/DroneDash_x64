@@ -79,6 +79,26 @@ def _cupy_probe():
     }
 
 
+def _gdal_python_probe():
+    try:
+        from osgeo import gdal
+    except Exception:
+        return {
+            "gdalPythonAvailable": False,
+            "gdalPythonVersion": None,
+        }
+
+    try:
+        version = gdal.VersionInfo("RELEASE_NAME")
+    except Exception:
+        version = None
+
+    return {
+        "gdalPythonAvailable": True,
+        "gdalPythonVersion": version,
+    }
+
+
 def probe():
     import cv2
     import numpy as np
@@ -89,6 +109,7 @@ def probe():
     }
     result.update(_cuda_probe(cv2))
     result.update(_cupy_probe())
+    result.update(_gdal_python_probe())
     print(json.dumps(result))
 
 
@@ -586,6 +607,707 @@ def vegetation_index(args):
     )
 
 
+def _copy_gdal_georeference(source, target):
+    transform = source.GetGeoTransform(can_return_null=True)
+    if transform is not None:
+        target.SetGeoTransform(transform)
+
+    projection = source.GetProjection()
+    if projection:
+        target.SetProjection(projection)
+
+
+def _prepare_source_tile(array, nodata, np):
+    values = array.astype(np.float32, copy=False)
+
+    if nodata is not None and np.isfinite(nodata):
+        values = values.copy()
+        values[values == np.float32(nodata)] = np.nan
+
+    return values
+
+
+def _write_json(path, payload):
+    if not path:
+        return
+
+    os.makedirs(
+        os.path.dirname(
+            os.path.abspath(path)
+        ),
+        exist_ok=True,
+    )
+
+    temp = (
+        os.path.abspath(path)
+        + "."
+        + os.urandom(8).hex()
+        + ".tmp"
+    )
+
+    try:
+        with open(
+            temp,
+            "w",
+            encoding="utf-8",
+        ) as handle:
+            json.dump(
+                payload,
+                handle,
+                indent=2,
+            )
+
+        os.replace(
+            temp,
+            os.path.abspath(path),
+        )
+    finally:
+        try:
+            if os.path.exists(temp):
+                os.remove(temp)
+        except Exception:
+            pass
+
+
+def _create_geotiff(source, output, data_type, nodata, description):
+    from osgeo import gdal
+
+    driver = gdal.GetDriverByName("GTiff")
+    if driver is None:
+        raise RuntimeError("GDAL GTiff driver is unavailable")
+
+    absolute_output = os.path.abspath(output)
+    os.makedirs(
+        os.path.dirname(absolute_output),
+        exist_ok=True,
+    )
+
+    temp = (
+        absolute_output
+        + "."
+        + os.urandom(8).hex()
+        + ".tmp.tif"
+    )
+
+    target = driver.Create(
+        temp,
+        source.RasterXSize,
+        source.RasterYSize,
+        1,
+        data_type,
+        options=[
+            "TILED=YES",
+            "COMPRESS=DEFLATE",
+            "BIGTIFF=IF_SAFER",
+            "BLOCKXSIZE=512",
+            "BLOCKYSIZE=512",
+        ],
+    )
+
+    if target is None:
+        raise RuntimeError(
+            f"GDAL failed to create output: {temp}"
+        )
+
+    _copy_gdal_georeference(
+        source,
+        target,
+    )
+
+    band = target.GetRasterBand(1)
+    band.SetNoDataValue(nodata)
+    band.SetDescription(description)
+
+    return absolute_output, temp, target, band
+
+
+def _finish_geotiff(absolute_output, temp, target):
+    target.FlushCache()
+    target = None
+    os.replace(
+        temp,
+        absolute_output,
+    )
+
+
+def _cleanup_temp(path):
+    try:
+        if path and os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass
+
+
+def _update_stats(values, np, stats):
+    finite = np.isfinite(values)
+
+    if not finite.any():
+        return
+
+    selected = values[finite].astype(
+        np.float64,
+        copy=False,
+    )
+
+    count = int(selected.size)
+    tile_sum = float(np.sum(selected))
+    tile_sum_squares = float(
+        np.sum(selected * selected)
+    )
+    tile_min = float(np.min(selected))
+    tile_max = float(np.max(selected))
+
+    stats["count"] += count
+    stats["sum"] += tile_sum
+    stats["sumSquares"] += tile_sum_squares
+    stats["minimum"] = (
+        tile_min
+        if stats["minimum"] is None
+        else min(stats["minimum"], tile_min)
+    )
+    stats["maximum"] = (
+        tile_max
+        if stats["maximum"] is None
+        else max(stats["maximum"], tile_max)
+    )
+
+
+def _final_stats(stats):
+    count = stats["count"]
+
+    if count <= 0:
+        raise RuntimeError(
+            "geospatial raster contains no finite output pixels"
+        )
+
+    average = stats["sum"] / count
+    variance = max(
+        0.0,
+        stats["sumSquares"] / count
+        - average * average,
+    )
+
+    return {
+        "validPixels": count,
+        "minimum": stats["minimum"],
+        "maximum": stats["maximum"],
+        "average": average,
+        "standardDeviation": variance ** 0.5,
+    }
+
+
+def geospatial_index(args):
+    import numpy as np
+    from osgeo import gdal
+
+    source_path = os.path.abspath(
+        args.source
+    )
+
+    source = gdal.Open(
+        source_path,
+        gdal.GA_ReadOnly,
+    )
+
+    if source is None:
+        raise RuntimeError(
+            f"GDAL cannot open source raster: {source_path}"
+        )
+
+    positive_index = int(args.positive_band_index)
+    comparison_index = int(args.comparison_band_index)
+
+    if (
+        positive_index < 1
+        or positive_index > source.RasterCount
+        or comparison_index < 1
+        or comparison_index > source.RasterCount
+    ):
+        raise RuntimeError(
+            "requested source band index is outside the GDAL raster"
+        )
+
+    positive_band = source.GetRasterBand(
+        positive_index
+    )
+    comparison_band = source.GetRasterBand(
+        comparison_index
+    )
+
+    positive_nodata = positive_band.GetNoDataValue()
+    comparison_nodata = comparison_band.GetNoDataValue()
+
+    backend, cupy = _resolve_index_backend(
+        args.backend
+    )
+
+    absolute_output = None
+    temp = None
+    target = None
+
+    stats = {
+        "count": 0,
+        "sum": 0.0,
+        "sumSquares": 0.0,
+        "minimum": None,
+        "maximum": None,
+    }
+
+    tiles = 0
+    tile_size = max(
+        128,
+        min(
+            int(args.tile_size),
+            8192,
+        ),
+    )
+
+    try:
+        (
+            absolute_output,
+            temp,
+            target,
+            output_band,
+        ) = _create_geotiff(
+            source,
+            args.output,
+            gdal.GDT_Float32,
+            float("nan"),
+            args.index_type.upper(),
+        )
+
+        for y in range(
+            0,
+            source.RasterYSize,
+            tile_size,
+        ):
+            height = min(
+                tile_size,
+                source.RasterYSize - y,
+            )
+
+            for x in range(
+                0,
+                source.RasterXSize,
+                tile_size,
+            ):
+                width = min(
+                    tile_size,
+                    source.RasterXSize - x,
+                )
+
+                positive = positive_band.ReadAsArray(
+                    x,
+                    y,
+                    width,
+                    height,
+                )
+                comparison = comparison_band.ReadAsArray(
+                    x,
+                    y,
+                    width,
+                    height,
+                )
+
+                if positive is None or comparison is None:
+                    raise RuntimeError(
+                        f"GDAL failed reading tile x={x} y={y}"
+                    )
+
+                positive = _prepare_source_tile(
+                    positive,
+                    positive_nodata,
+                    np,
+                )
+                comparison = _prepare_source_tile(
+                    comparison,
+                    comparison_nodata,
+                    np,
+                )
+
+                if backend == "cuda":
+                    try:
+                        values = _index_cuda(
+                            positive,
+                            comparison,
+                            args.index_epsilon,
+                        )
+                    except Exception:
+                        if args.backend == "cuda":
+                            raise
+
+                        backend = "cpu"
+                        values = _index_cpu(
+                            positive,
+                            comparison,
+                            args.index_epsilon,
+                            np,
+                        )
+                else:
+                    values = _index_cpu(
+                        positive,
+                        comparison,
+                        args.index_epsilon,
+                        np,
+                    )
+
+                output_band.WriteArray(
+                    values,
+                    x,
+                    y,
+                )
+
+                _update_stats(
+                    values,
+                    np,
+                    stats,
+                )
+
+                tiles += 1
+
+        final_stats = _final_stats(
+            stats
+        )
+
+        output_band.SetStatistics(
+            final_stats["minimum"],
+            final_stats["maximum"],
+            final_stats["average"],
+            final_stats["standardDeviation"],
+        )
+
+        _finish_geotiff(
+            absolute_output,
+            temp,
+            target,
+        )
+        target = None
+        temp = None
+
+        metadata = {
+            "schemaVersion": 1,
+            "operation": "geospatial-index",
+            "index": args.index_type.upper(),
+            "source": source_path,
+            "positiveBandIndex": positive_index,
+            "comparisonBandIndex": comparison_index,
+            "output": absolute_output,
+            "width": int(source.RasterXSize),
+            "height": int(source.RasterYSize),
+            "tileSize": tile_size,
+            "tilesProcessed": tiles,
+            "backendRequested": args.backend,
+            "backendUsed": backend,
+            "gdalVersion": gdal.VersionInfo(
+                "RELEASE_NAME"
+            ),
+            "cupyVersion": cupy["cupyVersion"],
+            "cudaDeviceCount": int(
+                cupy["cupyDeviceCount"]
+            ),
+            "cudaDeviceName": cupy["cupyDeviceName"],
+            **final_stats,
+            "note": (
+                "Tile-based geospatial vegetation-index product. "
+                "GDAL preserves source raster geometry/CRS; "
+                "CuPy accelerates tile arithmetic when available."
+            ),
+        }
+
+        _write_json(
+            args.metadata,
+            metadata,
+        )
+
+        print(
+            json.dumps(
+                metadata
+            )
+        )
+    finally:
+        source = None
+        target = None
+        _cleanup_temp(
+            temp
+        )
+
+
+def _zones_cpu(values, thresholds, np):
+    finite = np.isfinite(values)
+    output = np.zeros(
+        values.shape,
+        dtype=np.uint8,
+    )
+
+    output[
+        finite & (values < thresholds[0])
+    ] = 1
+    output[
+        finite
+        & (values >= thresholds[0])
+        & (values < thresholds[1])
+    ] = 2
+    output[
+        finite
+        & (values >= thresholds[1])
+        & (values < thresholds[2])
+    ] = 3
+    output[
+        finite
+        & (values >= thresholds[2])
+        & (values < thresholds[3])
+    ] = 4
+    output[
+        finite & (values >= thresholds[3])
+    ] = 5
+
+    return output
+
+
+def _zones_cuda(values, thresholds):
+    import cupy as cp
+
+    gpu = cp.asarray(
+        values,
+        dtype=cp.float32,
+    )
+    finite = cp.isfinite(gpu)
+    output = cp.zeros(
+        gpu.shape,
+        dtype=cp.uint8,
+    )
+
+    output[
+        finite & (gpu < thresholds[0])
+    ] = 1
+    output[
+        finite
+        & (gpu >= thresholds[0])
+        & (gpu < thresholds[1])
+    ] = 2
+    output[
+        finite
+        & (gpu >= thresholds[1])
+        & (gpu < thresholds[2])
+    ] = 3
+    output[
+        finite
+        & (gpu >= thresholds[2])
+        & (gpu < thresholds[3])
+    ] = 4
+    output[
+        finite & (gpu >= thresholds[3])
+    ] = 5
+
+    cp.cuda.get_current_stream().synchronize()
+    return cp.asnumpy(
+        output
+    )
+
+
+def geospatial_zones(args):
+    import numpy as np
+    from osgeo import gdal
+
+    thresholds = [
+        float(args.threshold1),
+        float(args.threshold2),
+        float(args.threshold3),
+        float(args.threshold4),
+    ]
+
+    if any(
+        not np.isfinite(value)
+        or value < -1.0
+        or value > 1.0
+        for value in thresholds
+    ) or not (
+        thresholds[0]
+        < thresholds[1]
+        < thresholds[2]
+        < thresholds[3]
+    ):
+        raise RuntimeError(
+            "scouting thresholds must be finite, within [-1, 1], and strictly increasing"
+        )
+
+    source_path = os.path.abspath(
+        args.source
+    )
+
+    source = gdal.Open(
+        source_path,
+        gdal.GA_ReadOnly,
+    )
+
+    if source is None or source.RasterCount < 1:
+        raise RuntimeError(
+            f"GDAL cannot open NDVI source raster: {source_path}"
+        )
+
+    input_band = source.GetRasterBand(1)
+    input_nodata = input_band.GetNoDataValue()
+
+    backend, cupy = _resolve_index_backend(
+        args.backend
+    )
+
+    absolute_output = None
+    temp = None
+    target = None
+    tile_size = max(
+        128,
+        min(
+            int(args.tile_size),
+            8192,
+        ),
+    )
+    tiles = 0
+    counts = [0, 0, 0, 0, 0]
+
+    try:
+        (
+            absolute_output,
+            temp,
+            target,
+            output_band,
+        ) = _create_geotiff(
+            source,
+            args.output,
+            gdal.GDT_Byte,
+            0,
+            "NDVI_SCOUTING_ZONES",
+        )
+
+        for y in range(
+            0,
+            source.RasterYSize,
+            tile_size,
+        ):
+            height = min(
+                tile_size,
+                source.RasterYSize - y,
+            )
+
+            for x in range(
+                0,
+                source.RasterXSize,
+                tile_size,
+            ):
+                width = min(
+                    tile_size,
+                    source.RasterXSize - x,
+                )
+
+                values = input_band.ReadAsArray(
+                    x,
+                    y,
+                    width,
+                    height,
+                )
+
+                if values is None:
+                    raise RuntimeError(
+                        f"GDAL failed reading NDVI tile x={x} y={y}"
+                    )
+
+                values = _prepare_source_tile(
+                    values,
+                    input_nodata,
+                    np,
+                )
+
+                if backend == "cuda":
+                    try:
+                        zones = _zones_cuda(
+                            values,
+                            thresholds,
+                        )
+                    except Exception:
+                        if args.backend == "cuda":
+                            raise
+
+                        backend = "cpu"
+                        zones = _zones_cpu(
+                            values,
+                            thresholds,
+                            np,
+                        )
+                else:
+                    zones = _zones_cpu(
+                        values,
+                        thresholds,
+                        np,
+                    )
+
+                output_band.WriteArray(
+                    zones,
+                    x,
+                    y,
+                )
+
+                for zone in range(1, 6):
+                    counts[zone - 1] += int(
+                        np.count_nonzero(
+                            zones == zone
+                        )
+                    )
+
+                tiles += 1
+
+        _finish_geotiff(
+            absolute_output,
+            temp,
+            target,
+        )
+        target = None
+        temp = None
+
+        metadata = {
+            "schemaVersion": 1,
+            "operation": "geospatial-zones",
+            "source": source_path,
+            "output": absolute_output,
+            "width": int(source.RasterXSize),
+            "height": int(source.RasterYSize),
+            "tileSize": tile_size,
+            "tilesProcessed": tiles,
+            "thresholds": thresholds,
+            "zonePixelCounts": counts,
+            "backendRequested": args.backend,
+            "backendUsed": backend,
+            "gdalVersion": gdal.VersionInfo(
+                "RELEASE_NAME"
+            ),
+            "cupyVersion": cupy["cupyVersion"],
+            "cudaDeviceCount": int(
+                cupy["cupyDeviceCount"]
+            ),
+            "cudaDeviceName": cupy["cupyDeviceName"],
+            "note": (
+                "Tile-based geospatial NDVI scouting zones. "
+                "Zone 0 is NoData; zones 1-5 follow configured thresholds."
+            ),
+        }
+
+        _write_json(
+            args.metadata,
+            metadata,
+        )
+
+        print(
+            json.dumps(
+                metadata
+            )
+        )
+    finally:
+        source = None
+        target = None
+        _cleanup_temp(
+            temp
+        )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="DroneDash M3M OpenCV/CUDA processing worker"
@@ -593,11 +1315,20 @@ def main():
     parser.add_argument("--probe", action="store_true")
     parser.add_argument("--register", action="store_true")
     parser.add_argument("--index", action="store_true")
+    parser.add_argument("--geo-index", action="store_true")
+    parser.add_argument("--geo-zones", action="store_true")
     parser.add_argument("--reference")
     parser.add_argument("--moving")
     parser.add_argument("--positive-band")
     parser.add_argument("--comparison-band")
+    parser.add_argument("--source")
+    parser.add_argument("--positive-band-index", type=int)
+    parser.add_argument("--comparison-band-index", type=int)
     parser.add_argument("--index-type", choices=["ndvi", "ndre", "gndvi"])
+    parser.add_argument("--threshold1", type=float)
+    parser.add_argument("--threshold2", type=float)
+    parser.add_argument("--threshold3", type=float)
+    parser.add_argument("--threshold4", type=float)
     parser.add_argument("--output")
     parser.add_argument("--transform")
     parser.add_argument("--metadata")
@@ -619,6 +1350,7 @@ def main():
     parser.add_argument("--iterations", type=int, default=150)
     parser.add_argument("--epsilon", type=float, default=1e-6)
     parser.add_argument("--index-epsilon", type=float, default=1e-12)
+    parser.add_argument("--tile-size", type=int, default=2048)
     args = parser.parse_args()
 
     selected_modes = sum(
@@ -626,12 +1358,14 @@ def main():
             bool(args.probe),
             bool(args.register),
             bool(args.index),
+            bool(args.geo_index),
+            bool(args.geo_zones),
         ]
     )
 
     if selected_modes != 1:
         parser.error(
-            "choose exactly one of --probe, --register or --index"
+            "choose exactly one of --probe, --register, --index, --geo-index or --geo-zones"
         )
 
     if args.probe:
@@ -650,6 +1384,37 @@ def main():
                 "--register requires --reference, --moving, --output and --transform"
             )
         register(args)
+        return
+
+    if args.geo_index:
+        required = [
+            args.source,
+            args.positive_band_index,
+            args.comparison_band_index,
+            args.index_type,
+            args.output,
+        ]
+        if any(value is None or value == "" for value in required):
+            parser.error(
+                "--geo-index requires --source, --positive-band-index, --comparison-band-index, --index-type and --output"
+            )
+        geospatial_index(args)
+        return
+
+    if args.geo_zones:
+        required = [
+            args.source,
+            args.threshold1,
+            args.threshold2,
+            args.threshold3,
+            args.threshold4,
+            args.output,
+        ]
+        if any(value is None or value == "" for value in required):
+            parser.error(
+                "--geo-zones requires --source, --threshold1..4 and --output"
+            )
+        geospatial_zones(args)
         return
 
     required = [
