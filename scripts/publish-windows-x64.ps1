@@ -134,8 +134,10 @@ $RequiredFiles = @(
     "DroneDash_x64.Desktop.runtimeconfig.json",
     "planning\route-editor.html",
     "pv\pv-map.html",
+    "maps\dem-map.html",
     "smart-farming\opencv_m3m.py",
-    "smart-farming\dronedash_worker\cli.py"
+    "smart-farming\dronedash_worker\cli.py",
+    "smart-farming\dronedash_worker\dem.py"
 )
 
 foreach ($RelativePath in $RequiredFiles) {
