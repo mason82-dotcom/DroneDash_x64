@@ -49,9 +49,33 @@ class MediaGateway {
                 ?: throw IllegalArgumentException("Media index $index not found")
 
             val safeName = sanitizeFileName(mediaFile.fileName ?: "DJI_MEDIA_$index")
-            val target = File(context.cacheDir, "m3e_${System.nanoTime()}_$safeName")
-            download(mediaFile, target)
-            DownloadedFile(target, safeName, mediaFile.fileSize)
+            val expectedSize = mediaFile.fileSize
+            val cacheDir = context.cacheDir
+            if (expectedSize > 0 && cacheDir.usableSpace < expectedSize + CACHE_HEADROOM_BYTES) {
+                throw IllegalStateException(
+                    "Not enough free space on the controller for ${mediaFile.fileName}: " +
+                        "${expectedSize} bytes needed, ${cacheDir.usableSpace} bytes available"
+                )
+            }
+
+            val target = File(cacheDir, "m3e_${System.nanoTime()}_$safeName")
+            try {
+                download(mediaFile, target)
+
+                // A short file would otherwise be served with a correct-looking Content-Length.
+                val actualSize = target.length()
+                if (expectedSize > 0 && actualSize != expectedSize) {
+                    throw IllegalStateException(
+                        "Incomplete DJI media download for ${mediaFile.fileName}: " +
+                            "$actualSize of $expectedSize bytes"
+                    )
+                }
+            } catch (e: Throwable) {
+                target.delete()
+                throw e
+            }
+
+            DownloadedFile(target, safeName, expectedSize)
         }
 
     private fun refreshList(): List<MediaFile> {
@@ -190,6 +214,10 @@ class MediaGateway {
 
     private fun sanitizeFileName(name: String): String =
         name.replace(Regex("[\\\\/:*?\\\"<>|]"), "_")
+
+    private companion object {
+        const val CACHE_HEADROOM_BYTES = 64L * 1024 * 1024
+    }
 
     data class DownloadedFile(
         val file: File,

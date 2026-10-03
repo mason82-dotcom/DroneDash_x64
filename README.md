@@ -37,6 +37,11 @@ Version 0.2 hardens the bridge and build path:
 - concurrent desktop requests no longer mutate shared `HttpClient` headers/base address;
 - media downloads are written to `.part` files and promoted only after a complete transfer;
 - the RC bridge binds to `127.0.0.1` by default, which is ideal for USB + `adb forward`;
+- the RC bridge runs as an Android foreground service (persistent "Bridge aktiv" notification), so
+  it keeps serving while DJI Pilot 2 or another app is in front;
+- RC-side media downloads check free cache space up front, verify the received size against the
+  DJI file size and remove partial or orphaned temporary files;
+- the desktop status poll times out after 5 s, so a lost bridge is reported promptly;
 - LAN binding requires an explicit `BRIDGE_BIND_ADDRESS`, and the server refuses non-loopback
   exposure while the default token `change-me-now` is still configured;
 - Android Gradle compatibility flags are aligned with DJI's current MSDK integration guidance;

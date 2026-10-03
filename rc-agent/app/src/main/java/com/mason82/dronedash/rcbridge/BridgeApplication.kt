@@ -18,6 +18,8 @@ class BridgeApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        deleteStaleMediaDownloads()
+
         djiRuntime = DjiRuntime(this)
         djiRuntime.start()
 
@@ -29,6 +31,15 @@ class BridgeApplication : Application() {
             port = 49152
         )
         bridgeServer.start()
+    }
+
+    // Downloads interrupted by a process kill would otherwise stay in the cache forever.
+    // Only untouched files are removed so an active download in another process survives.
+    private fun deleteStaleMediaDownloads() {
+        val cutoff = System.currentTimeMillis() - 30L * 60 * 1000
+        cacheDir.listFiles { file ->
+            file.isFile && file.name.startsWith("m3e_") && file.lastModified() < cutoff
+        }?.forEach { it.delete() }
     }
 
     override fun onTerminate() {

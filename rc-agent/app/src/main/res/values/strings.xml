@@ -1,3 +1,5 @@
 <resources>
   <string name="app_name">DroneDash RC Bridge</string>
+  <string name="bridge_channel_name">Bridge-Dienst</string>
+  <string name="bridge_notification_text">Bridge aktiv · DroneDash kann den Controller erreichen</string>
 </resources>
