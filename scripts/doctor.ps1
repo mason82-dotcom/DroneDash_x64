@@ -173,6 +173,76 @@ else {
     Write-Check WARN "ADB" "adb is not available in PATH; RC installation/USB forwarding will not work."
 }
 
+$NvidiaSmi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
+if ($NvidiaSmi) {
+    $GpuText = (& $NvidiaSmi.Source --query-gpu=name,driver_version --format=csv,noheader 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($GpuText)) {
+        Write-Check OK "NVIDIA GPU/driver" (($GpuText -split "\r?\n")[0])
+    }
+    else {
+        Write-Check WARN "NVIDIA GPU/driver" "nvidia-smi exists but the GPU/driver query failed."
+    }
+}
+else {
+    Write-Check WARN "NVIDIA GPU/driver" "Optional CUDA acceleration unavailable: nvidia-smi not found."
+}
+
+$Nvcc = Get-Command nvcc -ErrorAction SilentlyContinue
+if (-not $Nvcc -and -not [string]::IsNullOrWhiteSpace($env:CUDA_PATH)) {
+    $CudaNvcc = Join-Path $env:CUDA_PATH "bin\nvcc.exe"
+    if (Test-Path $CudaNvcc) {
+        $Nvcc = Get-Item $CudaNvcc
+    }
+}
+
+if ($Nvcc) {
+    $NvccPath = if ($Nvcc.PSObject.Properties.Name -contains "Source") { $Nvcc.Source } else { $Nvcc.FullName }
+    $NvccText = (& $NvccPath --version 2>&1 | Out-String).Trim()
+    $CudaRelease = if ($NvccText -match 'release\s+([0-9]+(?:\.[0-9]+){1,2})') { $Matches[1] } else { "version unknown" }
+    Write-Check OK "CUDA Toolkit" $CudaRelease
+}
+else {
+    Write-Check WARN "CUDA Toolkit" "Optional nvcc not found. Set CUDA_PATH/DRONEDASH_CUDA_BIN after installing the toolkit."
+}
+
+$CudaWorker = Join-Path $Root "desktop\DroneDash_x64.Desktop\SmartFarming\Workers\opencv_m3m.py"
+$PythonCommand = $null
+
+if (-not [string]::IsNullOrWhiteSpace($env:DRONEDASH_PYTHON) -and (Test-Path $env:DRONEDASH_PYTHON)) {
+    $PythonCommand = $env:DRONEDASH_PYTHON
+}
+elseif (Get-Command python -ErrorAction SilentlyContinue) {
+    $PythonCommand = (Get-Command python).Source
+}
+elseif (Get-Command python3 -ErrorAction SilentlyContinue) {
+    $PythonCommand = (Get-Command python3).Source
+}
+
+if ($PythonCommand -and (Test-Path $CudaWorker)) {
+    try {
+        $ProbeText = (& $PythonCommand $CudaWorker --probe 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -eq 0) {
+            $Probe = $ProbeText | ConvertFrom-Json
+            if ($Probe.cudaAvailable -and [int]$Probe.cudaDeviceCount -gt 0) {
+                $Device = if ([string]::IsNullOrWhiteSpace([string]$Probe.cudaDeviceName)) { "$($Probe.cudaDeviceCount) CUDA device(s)" } else { [string]$Probe.cudaDeviceName }
+                Write-Check OK "OpenCV CUDA" "$Device · OpenCV $($Probe.opencv)"
+            }
+            else {
+                Write-Check WARN "OpenCV CUDA" "OpenCV $($Probe.opencv) is available, but no CUDA-enabled device is exposed. CPU fallback will be used."
+            }
+        }
+        else {
+            Write-Check WARN "OpenCV CUDA" "Worker probe failed. Install Python + NumPy + a CUDA-enabled OpenCV build for GPU acceleration."
+        }
+    }
+    catch {
+        Write-Check WARN "OpenCV CUDA" "Worker probe failed: $($_.Exception.Message)"
+    }
+}
+else {
+    Write-Check WARN "OpenCV CUDA" "Python worker could not be probed. CUDA acceleration remains optional."
+}
+
 $ThermalDll = Join-Path $Root "desktop\DroneDash_x64.Desktop\third_party\dji-tsdk\runtime\libdirp.dll"
 if (Test-Path $ThermalDll) {
     Write-Check OK "DJI Thermal SDK" "Runtime staged locally."
