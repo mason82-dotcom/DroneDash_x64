@@ -300,6 +300,27 @@ folders for Mapping 3D, checks Smart Oblique and real-time terrain-follow fields
 the Mapping Strip `LineString` representation.
 
 
+### Geometry editor, import and basemaps
+
+The planning map is an editor rather than a click-only sketchpad:
+
+- drag a vertex to move it, drag or click the small midpoint handle on an edge to insert a vertex,
+  and right-click a vertex to delete it; this works for survey polygons and strip centerlines;
+- area (ha) and perimeter, or the corridor length, are shown live on the map and in the side panel,
+  using the same `GeometryMetrics` calculation as the route statistics;
+- self-intersecting ("bow tie") polygons are flagged, because they produce a wrong area and grid;
+- the view only re-fits on import, project load and route calculation, not after every edit.
+
+**Importieren (KML/KMZ/GeoJSON)** loads a field boundary or corridor centerline. Polygons become a
+Mapping 2D area, lines switch the planner to Strip mode. If a file contains several geometries the
+largest polygon (otherwise the longest line) is used and the rest is reported; inner rings (holes)
+are ignored with a warning. Only WGS84 is accepted: projected data such as UTM / EPSG:25832, which
+many agricultural portals export, is rejected with a clear message instead of being placed in the
+wrong location. KML is parsed without DTD processing, and file/KMZ entry sizes are limited.
+
+The basemap can be switched between OpenStreetMap and Esri World Imagery (satellite), with an
+optional Esri label overlay; the last choice is remembered.
+
 ### Planning project files and KMZ validation
 
 Flight-planning work can be saved as a versioned DroneDash \`.ddplan\` JSON project and loaded
@@ -339,6 +360,27 @@ QA findings. **Processing-Manifest export** creates:
 This is the handoff point for future Orthomosaic, DSM/DTM, 3D reconstruction and M3M
 multispectral processing. The current implementation does not copy, rename or alter source images.
 
+
+### DSM, DTM and point clouds with NodeODM
+
+An analyzed photogrammetry dataset can be processed on a NodeODM server directly from the
+**Photogrammetrie** workspace (*DSM / DTM / Punktwolke mit NodeODM berechnen*):
+
+- only RGB survey images with GPS are sent; DJI thermal (`_T`), zoom (`_Z`) and M3M multispectral
+  bands are excluded, and the JPEG is preferred over DNG/TIFF copies of the same capture;
+- three presets (Schnell / Standard / Hoch) set `pc-quality`, `feature-quality`, `dem-resolution`
+  (10 / 5 / 2 cm/px) and `orthophoto-resolution`; `dsm` and `dtm` are always requested;
+- optional options such as `pc-copc` (cloud-optimized point cloud) and `auto-boundary` are only
+  sent when the server's `GET /options` lists them, so older NodeODM versions keep working;
+- the task is monitored with progress and console log and can be cancelled;
+- the result `all.zip` (downloaded, or an existing one) is extracted with the same zip-slip and
+  size guards as the Smart Farming import, then `odm_dem/dsm.tif`, `odm_dem/dtm.tif`,
+  `odm_orthophoto/odm_orthophoto.tif` and the georeferenced point cloud (COPC preferred over
+  LAZ/LAS/PLY) are located and registered in the open project as *Oberflächenmodell (DSM)*,
+  *Geländemodell (DTM)*, *Orthomosaik* and *Punktwolke*.
+
+Map display, a 3D point-cloud viewer, profile/volume/canopy-height analysis and terrain checks
+for flight planning build on these products in later steps.
 
 ## PV analysis
 

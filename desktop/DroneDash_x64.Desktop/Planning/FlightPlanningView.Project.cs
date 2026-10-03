@@ -123,7 +123,7 @@ public partial class FlightPlanningView
             }
 
             UpdateGeometryInfo();
-            RenderMap();
+            RenderMap(fitBounds: true);
         }
         catch (Exception ex)
         {

@@ -50,8 +50,11 @@
               <Button Content="Zeichnen beenden" Click="StopDrawing_Click"/>
               <Button Content="Punkt zurück" Click="UndoPoint_Click"/>
               <Button Content="Löschen" Click="ClearPlan_Click"/>
+              <Button Content="Importieren (KML/KMZ/GeoJSON)" Click="ImportGeometry_Click"/>
             </WrapPanel>
-            <TextBlock x:Name="PolygonInfoText" Margin="4,7,0,0" Text="0 Punkte"/>
+            <TextBlock x:Name="PolygonInfoText" Margin="4,7,0,0" Text="0 Punkte" TextWrapping="Wrap"/>
+            <TextBlock Margin="4,4,0,0" TextWrapping="Wrap" Opacity="0.7" FontSize="11"
+                       Text="Eckpunkte auf der Karte ziehen zum Verschieben · Mittelpunkt-Griff ziehen fügt einen Punkt ein · Rechtsklick auf einen Eckpunkt löscht ihn. Hintergrundkarte oben rechts umschalten."/>
           </StackPanel>
         </GroupBox>
 
