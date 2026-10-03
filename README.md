@@ -167,6 +167,7 @@ DroneDash-generated processing plans select GPU backends independently per stage
 - Python GDAL bindings optionally provide a pipelined tile-based geospatial engine for large ODM orthomosaics;
 - a dedicated GDAL read-ahead thread prefetches future tiles while the main thread computes the current tile;
 - a dedicated GDAL writer thread writes the previous tile concurrently, giving a bounded read → compute → write pipeline;
+- tile size and pipeline depth are auto-tuned from raster size, available RAM/VRAM and a short real-data Read+Compute benchmark;
 - GDAL preserves raster windows, CRS/geotransform and GeoTIFF output while CuPy/NumPy computes each tile;
 - OpenCV ECC transform estimation remains CPU-based;
 - each CUDA stage falls back independently to CPU when unavailable.
@@ -177,7 +178,7 @@ bindings are available and falls back to the existing OTB path otherwise. No CUD
 Python GDAL package or CuPy package is bundled in the repository.
 
 See `docs/NVIDIA_CUDA.md` for Windows setup, `DRONEDASH_CUDA_BIN`, OpenCV `WITH_CUDA=ON`,
-CuPy/Python-GDAL setup, bounded read-ahead pipelining, tile processing, runtime probing and backend behavior.
+CuPy/Python-GDAL setup, adaptive tile/pipeline tuning, bounded pipelining, runtime probing and backend behavior.
 
 
 ## DJI Thermal SDK v1.8
@@ -364,7 +365,7 @@ Smart Farming can probe optional local GDAL, Orfeo ToolBox and Python/OpenCV ins
 The repository does not bundle those native distributions. A selected complete M3M capture can be
 turned into a reviewable processing workspace:
 
-OpenCV ECC registration -> OTB DJI-DN compensation -> GDAL 4-band VRT -> OTB NDVI/NDRE/GNDVI.
+OpenCV ECC registration -> OTB DJI-DN compensation -> GDAL 4-band VRT -> CUDA/NumPy NDVI/NDRE/GNDVI quicklooks.
 
 The generated PowerShell pipeline is review-first and is not started automatically. Environment
 overrides are DRONEDASH_GDAL_BIN, DRONEDASH_OTB_BIN and DRONEDASH_PYTHON. See
@@ -391,9 +392,10 @@ M3M Red/Green/NIR/Red-Edge band mapping. Band descriptions are preferred; a cont
 four-band ODM M3M fallback is surfaced as a warning when descriptions are absent.
 
 DroneDash can then generate georeferenced NDVI, NDRE and GNDVI GeoTIFFs plus a configurable
-five-class NDVI scouting-zone GeoTIFF through OTB. The defaults are 0.20 / 0.40 / 0.60 / 0.80,
-and the UI explicitly treats these as scouting classes rather than agronomic diagnosis or
-machine-ready application rates.
+five-class NDVI scouting-zone GeoTIFF. When Python GDAL bindings are available, the preferred path
+uses adaptive GDAL tiles with CUDA/CuPy or NumPy; otherwise the existing OTB implementation remains
+the fallback. The defaults are 0.20 / 0.40 / 0.60 / 0.80, and the UI explicitly treats these as
+scouting classes rather than agronomic diagnosis or machine-ready application rates.
 
 ## Unified DroneDash project workspace
 

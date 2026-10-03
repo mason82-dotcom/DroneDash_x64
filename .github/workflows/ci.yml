@@ -137,6 +137,89 @@ jobs:
               raise RuntimeError("async writer did not preserve raster statistics")
           if replacements != [("temp.tif", "output.tif")]:
               raise RuntimeError("async writer did not atomically publish output")
+
+          worker._system_available_memory_bytes = (
+              lambda: 16 * 1024 ** 3
+          )
+          worker._cuda_memory_snapshot = (
+              lambda backend: {
+                  "freeBytes": 8 * 1024 ** 3,
+                  "totalBytes": 12 * 1024 ** 3,
+              }
+          )
+
+          timings = {
+              512: (0.02, 0.02),
+              1024: (0.02, 0.02),
+              2048: (0.08, 0.08),
+              4096: (0.80, 0.80),
+          }
+
+          def benchmark(tile_size):
+              read_seconds, compute_seconds = timings[tile_size]
+              return {
+                  "pixels": tile_size * tile_size,
+                  "readSeconds": read_seconds,
+                  "computeSeconds": compute_seconds,
+              }
+
+          tuning = worker._auto_tune_geospatial(
+              "auto",
+              "auto",
+              12000,
+              12000,
+              "index",
+              "cuda",
+              benchmark,
+          )
+
+          if tuning["tileSize"] != 1024:
+              raise RuntimeError(
+                  f"auto tuner selected unexpected tile size: {tuning}"
+              )
+          if tuning["pipelineDepth"] != 2:
+              raise RuntimeError(
+                  f"auto tuner selected unexpected pipeline depth: {tuning}"
+              )
+          if tuning["mode"] != "auto":
+              raise RuntimeError("auto tuner did not report auto mode")
+
+          manual = worker._auto_tune_geospatial(
+              "2048",
+              "3",
+              12000,
+              12000,
+              "index",
+              "cuda",
+              lambda tile_size: (_ for _ in ()).throw(
+                  RuntimeError("manual tuning must not benchmark")
+              ),
+          )
+
+          if (
+              manual["tileSize"] != 2048
+              or manual["pipelineDepth"] != 3
+              or manual["mode"] != "manual"
+              or manual["benchmarkResults"]
+          ):
+              raise RuntimeError(
+                  f"manual GDAL tuning override is inconsistent: {manual}"
+              )
+
+          safe = worker._safe_tile_candidates(
+              20000,
+              20000,
+              "index",
+              2,
+              "cuda",
+              1 * 1024 ** 3,
+              512 * 1024 ** 2,
+          )
+
+          if 4096 in safe or 2048 not in safe:
+              raise RuntimeError(
+                  f"memory guard returned unexpected candidates: {safe}"
+              )
           '@
           $PipelineTest | python -
 

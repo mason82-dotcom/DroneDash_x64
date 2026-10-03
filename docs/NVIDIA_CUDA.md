@@ -108,13 +108,15 @@ DroneDash does not require or assume a native CUDA backend inside GDAL itself. I
 ```text
 GDAL read-ahead thread
         ↓
-bounded queue (depth 2)
+bounded queue (auto depth 1..4)
         ↓
-2048 × 2048 tiles
+auto-tuned tiles (512..4096 typical)
         ↓
 CuPy/CUDA or NumPy
         ↓
-GDAL tiled GeoTIFF output
+GDAL async writer
+        ↓
+tiled GeoTIFF output
 ```
 
 The worker modes are:
@@ -126,13 +128,36 @@ The worker modes are:
 
 For `--geo-index`, GDAL reads only the requested source-band windows. NDVI, NDRE and GNDVI are calculated tile-by-tile and immediately written to a tiled DEFLATE-compressed GeoTIFF. The source geotransform and projection are copied to the result. This prevents large ODM orthomosaics from being loaded completely into CPU or GPU memory.
 
-The source raster is opened a second time by a dedicated read-ahead worker. That worker is the only thread that accesses its GDAL dataset instance. A separate writer thread owns the output GeoTIFF dataset, while the main thread performs CUDA/NumPy calculation. By default, the bounded pipeline depth is two, allowing source I/O for tile N+1, compute for tile N, and output I/O for tile N-1 to overlap without sharing a GDAL dataset instance across threads.
+The source raster is opened a second time by a dedicated read-ahead worker. That worker is the only thread that accesses its GDAL dataset instance. A separate writer thread owns the output GeoTIFF dataset, while the main thread performs CUDA/NumPy calculation. This allows source I/O for tile N+1, compute for tile N, and output I/O for tile N-1 to overlap without sharing a GDAL dataset instance across threads.
 
 `--geo-zones` classifies the NDVI result into the configured five scouting zones using the same tile pipeline. Zone 0 is reserved for NoData.
 
-Both operations use unique temporary GeoTIFFs and publish the final output only after the writer thread has flushed and closed its GDAL dataset. JSON sidecars record tile size, tile count, pipeline depth, read-ahead/async-write status, elapsed time, tiles/second, backend, GDAL version, CUDA/CuPy device data and raster statistics.
+Both operations use unique temporary GeoTIFFs and publish the final output only after the writer thread has flushed and closed its GDAL dataset. JSON sidecars record tile size, tile count, pipeline depth, read-ahead/async-write status, elapsed time, processing tiles/second, backend, GDAL version, CUDA/CuPy device data, raster statistics and the complete auto-tuning decision.
 
-The worker exposes `--pipeline-depth` with a bounded range of 1–4. The same bound controls pending source reads and pending output writes. DroneDash plans currently use depth 2 to limit memory while still overlapping read, compute and write stages.
+### Adaptive tile and pipeline tuning
+
+DroneDash field-product plans now pass:
+
+```text
+--tile-size auto
+--pipeline-depth auto
+```
+
+The worker first snapshots currently available system RAM and, for CUDA processing, free/total VRAM. Unsafe tile candidates are removed before benchmarking. Automatic candidates are normally 512, 1024, 2048 and 4096 pixels; explicit manual values from 128 through 8192 remain supported.
+
+The remaining candidates are benchmarked against a real sample window from the current orthomosaic. Read time and compute time are measured separately. The tuner selects the smallest tile whose measured pixels/second is within 90% of the fastest candidate, avoiding unnecessary memory use for marginal throughput gains.
+
+Pipeline depth is then selected from 1–4. Small jobs use depth 1. I/O-bound jobs may use depth 3 or 4, compute-bound jobs can use depth 1, and balanced workloads normally use depth 2. The result is clamped again by the host-memory budget.
+
+The sidecar `tuning` object records requested and resolved values, available RAM/VRAM and all benchmark measurements. `processingElapsedSeconds` and `tilesPerSecond` exclude the tuning benchmark itself so production throughput remains comparable between runs.
+
+Manual overrides remain available, for example:
+
+```powershell
+python ...\opencv_m3m.py --geo-index ... --tile-size 2048 --pipeline-depth 3
+```
+
+When both values are manual, no tuning benchmark is executed.
 
 Requirements for this optional path:
 

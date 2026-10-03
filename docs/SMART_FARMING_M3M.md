@@ -60,15 +60,16 @@ engines. None of their native binaries are committed to the repository.
 
 - GDAL: gdalinfo is used for probing and gdalbuildvrt -separate builds the corrected
   Green/Red/Red-Edge/NIR stack.
-- Orfeo ToolBox (OTB): otbcli_BandMath applies the per-band DJI DN compensation and
-  otbcli_BandMathX calculates NDVI, NDRE and GNDVI from the corrected four-band stack.
-- Python + OpenCV: the bundled opencv_m3m.py worker uses ECC affine registration to align
-  Green, Red and Red Edge to the NIR band. It writes both the registered TIFF and a JSON file
-  containing the ECC score and transform matrix.
+- Orfeo ToolBox (OTB): otbcli_BandMath applies the per-band DJI DN compensation. OTB also
+  remains the fallback for georeferenced field-product arithmetic when Python GDAL is unavailable.
+- Python + OpenCV/CuPy/GDAL: the bundled opencv_m3m.py worker uses ECC affine registration to align
+  Green, Red and Red Edge to the NIR band, calculates local NDVI/NDRE/GNDVI through CuPy or NumPy,
+  and can process large georeferenced ODM rasters through a windowed GDAL tile pipeline.
 
-The worker is copied into the Windows output as smart-farming/opencv_m3m.py. It requires a local
-Python environment with opencv-python and numpy; DroneDash does not download packages or modify
-the user's Python installation.
+The worker is copied into the Windows output as smart-farming/opencv_m3m.py. Local quicklooks
+require Python, OpenCV and NumPy. CUDA vegetation-index acceleration additionally uses CuPy, and
+the georeferenced tile engine uses Python GDAL bindings (osgeo.gdal). DroneDash does not download
+packages or modify the user's Python installation.
 
 Optional environment overrides:
 
@@ -143,12 +144,22 @@ new output. The importer rejects path traversal and Unix symlinks and limits arc
 entries and 100 GiB of extracted data by default; partial staging directories are removed after
 failure or cancellation.
 
-From the georeferenced ODM orthophoto DroneDash builds a four-step OTB field-product plan:
+From the georeferenced ODM orthophoto DroneDash builds a four-step field-product plan:
 
 1. NDVI GeoTIFF from NIR and Red;
 2. NDRE GeoTIFF from NIR and Red Edge;
 3. GNDVI GeoTIFF from NIR and Green;
 4. a five-class NDVI scouting-zone GeoTIFF.
+
+When Python GDAL bindings are available, DroneDash prefers the GDAL tile engine. It reads the
+orthomosaic window-by-window, runs CuPy/CUDA or NumPy arithmetic, and writes tiled georeferenced
+GeoTIFFs through a separate GDAL writer thread. OTB remains the compatible fallback.
+
+Tile size and read/write pipeline depth default to auto. Before production processing, the worker
+uses available RAM/VRAM as safety bounds and benchmarks real source windows at candidate tile sizes.
+It selects the smallest candidate within 90% of the best measured Read+Compute pixel throughput,
+then derives a bounded pipeline depth from raster size and the measured I/O/compute ratio.
+Resolved parameters and all benchmark measurements are stored in each JSON sidecar.
 
 The default scouting thresholds are 0.20, 0.40, 0.60 and 0.80. They are operator-editable and
 are intentionally described as scouting classes, not crop diagnosis, fertilizer rates,

@@ -1070,6 +1070,481 @@ def _prefetched_tiles(windows, reader, pipeline_depth):
             yield (window, payload)
 
 
+def _parse_auto_or_int(value, minimum, maximum, name):
+    text = str(value).strip().lower()
+
+    if text == "auto":
+        return None
+
+    try:
+        parsed = int(text)
+    except (TypeError, ValueError):
+        raise RuntimeError(
+            f"{name} must be 'auto' or an integer"
+        )
+
+    if parsed < minimum or parsed > maximum:
+        raise RuntimeError(
+            f"{name} must be within {minimum}..{maximum}"
+        )
+
+    return parsed
+
+
+def _system_available_memory_bytes():
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            class MemoryStatusEx(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            status = MemoryStatusEx()
+            status.dwLength = ctypes.sizeof(
+                MemoryStatusEx
+            )
+
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(
+                ctypes.byref(status)
+            ):
+                return int(status.ullAvailPhys)
+        except Exception:
+            return None
+
+    try:
+        pages = os.sysconf("SC_AVPHYS_PAGES")
+        page_size = os.sysconf("SC_PAGE_SIZE")
+
+        if pages > 0 and page_size > 0:
+            return int(pages * page_size)
+    except Exception:
+        pass
+
+    return None
+
+
+def _cuda_memory_snapshot(backend):
+    if backend != "cuda":
+        return {
+            "freeBytes": None,
+            "totalBytes": None,
+        }
+
+    try:
+        import cupy as cp
+
+        free_bytes, total_bytes = (
+            cp.cuda.runtime.memGetInfo()
+        )
+
+        return {
+            "freeBytes": int(free_bytes),
+            "totalBytes": int(total_bytes),
+        }
+    except Exception:
+        return {
+            "freeBytes": None,
+            "totalBytes": None,
+        }
+
+
+def _estimated_host_pipeline_bytes(
+    tile_size,
+    pipeline_depth,
+    operation,
+):
+    pixels = int(tile_size) * int(tile_size)
+    depth = max(
+        1,
+        min(
+            int(pipeline_depth),
+            4,
+        ),
+    )
+
+    if operation == "index":
+        bytes_per_pixel = 20 + 12 * depth
+    else:
+        bytes_per_pixel = 12 + 5 * depth
+
+    return pixels * bytes_per_pixel
+
+
+def _estimated_cuda_working_bytes(
+    tile_size,
+    operation,
+):
+    pixels = int(tile_size) * int(tile_size)
+
+    if operation == "index":
+        return pixels * 20
+
+    return pixels * 10
+
+
+def _safe_tile_candidates(
+    width,
+    height,
+    operation,
+    pipeline_depth,
+    backend,
+    system_available_bytes,
+    cuda_free_bytes,
+):
+    candidates = [
+        512,
+        1024,
+        2048,
+        4096,
+    ]
+
+    max_dimension = max(
+        int(width),
+        int(height),
+    )
+
+    if max_dimension <= 512:
+        return [512]
+
+    safe = []
+
+    for tile_size in candidates:
+        host_bytes = _estimated_host_pipeline_bytes(
+            tile_size,
+            pipeline_depth,
+            operation,
+        )
+
+        host_ok = (
+            system_available_bytes is None
+            or host_bytes <=
+            max(
+                256 * 1024 * 1024,
+                int(system_available_bytes * 0.20),
+            )
+        )
+
+        cuda_bytes = _estimated_cuda_working_bytes(
+            tile_size,
+            operation,
+        )
+
+        cuda_ok = (
+            backend != "cuda"
+            or cuda_free_bytes is None
+            or cuda_bytes <=
+            max(
+                128 * 1024 * 1024,
+                int(cuda_free_bytes * 0.30),
+            )
+        )
+
+        if host_ok and cuda_ok:
+            safe.append(tile_size)
+
+    if not safe:
+        return [512]
+
+    return safe
+
+
+def _benchmark_tiles(candidates, benchmark):
+    results = []
+
+    for tile_size in candidates:
+        sample = benchmark(tile_size)
+
+        read_seconds = max(
+            float(sample["readSeconds"]),
+            0.0,
+        )
+        compute_seconds = max(
+            float(sample["computeSeconds"]),
+            0.0,
+        )
+        total_seconds = max(
+            read_seconds + compute_seconds,
+            1e-9,
+        )
+        pixels = max(
+            int(sample["pixels"]),
+            1,
+        )
+
+        results.append(
+            {
+                "tileSize": int(tile_size),
+                "pixels": pixels,
+                "readSeconds": read_seconds,
+                "computeSeconds": compute_seconds,
+                "pixelsPerSecond": (
+                    pixels / total_seconds
+                ),
+            }
+        )
+
+    return results
+
+
+def _choose_benchmark_tile(results):
+    if not results:
+        raise RuntimeError(
+            "auto-tuning produced no tile benchmark results"
+        )
+
+    best_score = max(
+        item["pixelsPerSecond"]
+        for item in results
+    )
+
+    threshold = best_score * 0.90
+
+    near_best = [
+        item
+        for item in results
+        if item["pixelsPerSecond"] >= threshold
+    ]
+
+    return min(
+        near_best,
+        key=lambda item: item["tileSize"],
+    )
+
+
+def _choose_pipeline_depth(
+    requested_depth,
+    width,
+    height,
+    tile_size,
+    operation,
+    system_available_bytes,
+    benchmark_result,
+):
+    manual = _parse_auto_or_int(
+        requested_depth,
+        1,
+        4,
+        "pipeline-depth",
+    )
+
+    if manual is not None:
+        return manual
+
+    columns = (
+        int(width) + tile_size - 1
+    ) // tile_size
+    rows = (
+        int(height) + tile_size - 1
+    ) // tile_size
+    tile_count = max(
+        1,
+        columns * rows,
+    )
+
+    if tile_count <= 2:
+        target = 1
+    else:
+        read_seconds = max(
+            float(
+                benchmark_result.get(
+                    "readSeconds",
+                    0.0,
+                )
+            ),
+            1e-9,
+        )
+        compute_seconds = max(
+            float(
+                benchmark_result.get(
+                    "computeSeconds",
+                    0.0,
+                )
+            ),
+            1e-9,
+        )
+
+        if (
+            tile_count >= 16
+            and read_seconds >
+            compute_seconds * 3.0
+        ):
+            target = 4
+        elif (
+            tile_count >= 8
+            and read_seconds >
+            compute_seconds * 1.5
+        ):
+            target = 3
+        elif compute_seconds > read_seconds * 4.0:
+            target = 1
+        else:
+            target = 2
+
+    while target > 1:
+        estimated = _estimated_host_pipeline_bytes(
+            tile_size,
+            target,
+            operation,
+        )
+
+        if (
+            system_available_bytes is None
+            or estimated <=
+            max(
+                256 * 1024 * 1024,
+                int(system_available_bytes * 0.20),
+            )
+        ):
+            break
+
+        target -= 1
+
+    return target
+
+
+def _auto_tune_geospatial(
+    requested_tile_size,
+    requested_pipeline_depth,
+    width,
+    height,
+    operation,
+    backend,
+    benchmark,
+):
+    import time
+
+    tuning_started = time.perf_counter()
+
+    manual_tile = _parse_auto_or_int(
+        requested_tile_size,
+        128,
+        8192,
+        "tile-size",
+    )
+    manual_depth = _parse_auto_or_int(
+        requested_pipeline_depth,
+        1,
+        4,
+        "pipeline-depth",
+    )
+
+    system_available = (
+        _system_available_memory_bytes()
+    )
+    cuda_memory = _cuda_memory_snapshot(
+        backend
+    )
+
+    provisional_depth = (
+        manual_depth
+        if manual_depth is not None
+        else 2
+    )
+
+    if manual_tile is not None:
+        candidates = [manual_tile]
+    else:
+        candidates = _safe_tile_candidates(
+            width,
+            height,
+            operation,
+            provisional_depth,
+            backend,
+            system_available,
+            cuda_memory["freeBytes"],
+        )
+
+    benchmark_results = []
+
+    if (
+        manual_tile is None
+        or manual_depth is None
+    ):
+        benchmark_results = _benchmark_tiles(
+            candidates,
+            benchmark,
+        )
+
+    if manual_tile is not None:
+        tile_size = manual_tile
+        selected_benchmark = (
+            benchmark_results[0]
+            if benchmark_results
+            else {
+                "tileSize": manual_tile,
+                "pixels": 0,
+                "readSeconds": 0.0,
+                "computeSeconds": 0.0,
+                "pixelsPerSecond": 0.0,
+            }
+        )
+    else:
+        selected_benchmark = (
+            _choose_benchmark_tile(
+                benchmark_results
+            )
+        )
+        tile_size = int(
+            selected_benchmark["tileSize"]
+        )
+
+    pipeline_depth = _choose_pipeline_depth(
+        requested_pipeline_depth,
+        width,
+        height,
+        tile_size,
+        operation,
+        system_available,
+        selected_benchmark,
+    )
+
+    return {
+        "mode": (
+            "manual"
+            if manual_tile is not None
+            and manual_depth is not None
+            else "auto"
+        ),
+        "tileSizeRequested": str(
+            requested_tile_size
+        ),
+        "pipelineDepthRequested": str(
+            requested_pipeline_depth
+        ),
+        "tileSize": tile_size,
+        "pipelineDepth": pipeline_depth,
+        "systemAvailableMemoryBytes": (
+            system_available
+        ),
+        "cudaFreeMemoryBytes": (
+            cuda_memory["freeBytes"]
+        ),
+        "cudaTotalMemoryBytes": (
+            cuda_memory["totalBytes"]
+        ),
+        "benchmarkResults": benchmark_results,
+        "selectedBenchmark": (
+            selected_benchmark
+            if benchmark_results
+            else None
+        ),
+        "tuningSeconds": max(
+            time.perf_counter() - tuning_started,
+            0.0,
+        ),
+    }
+
+
 def geospatial_index(args):
     import time
 
@@ -1113,15 +1588,137 @@ def geospatial_index(args):
         source
     )
 
+    positive_band = source.GetRasterBand(
+        positive_index
+    )
+    comparison_band = source.GetRasterBand(
+        comparison_index
+    )
+    positive_nodata = positive_band.GetNoDataValue()
+    comparison_nodata = (
+        comparison_band.GetNoDataValue()
+    )
+
+    def benchmark_index(tile_size):
+        width = min(
+            int(tile_size),
+            source.RasterXSize,
+        )
+        height = min(
+            int(tile_size),
+            source.RasterYSize,
+        )
+
+        read_started = time.perf_counter()
+
+        positive = positive_band.ReadAsArray(
+            0,
+            0,
+            width,
+            height,
+        )
+        comparison = comparison_band.ReadAsArray(
+            0,
+            0,
+            width,
+            height,
+        )
+
+        if positive is None or comparison is None:
+            raise RuntimeError(
+                "GDAL auto-tuning failed to read sample tile"
+            )
+
+        positive = _prepare_source_tile(
+            positive,
+            positive_nodata,
+            np,
+        )
+        comparison = _prepare_source_tile(
+            comparison,
+            comparison_nodata,
+            np,
+        )
+
+        read_seconds = (
+            time.perf_counter() - read_started
+        )
+        compute_started = time.perf_counter()
+
+        if backend == "cuda":
+            _index_cuda(
+                positive,
+                comparison,
+                args.index_epsilon,
+            )
+        else:
+            _index_cpu(
+                positive,
+                comparison,
+                args.index_epsilon,
+                np,
+            )
+
+        return {
+            "pixels": width * height,
+            "readSeconds": read_seconds,
+            "computeSeconds": (
+                time.perf_counter() -
+                compute_started
+            ),
+        }
+
+    backend_fallback_reason = None
+
+    try:
+        tuning = _auto_tune_geospatial(
+            args.tile_size,
+            args.pipeline_depth,
+            source.RasterXSize,
+            source.RasterYSize,
+            "index",
+            backend,
+            benchmark_index,
+        )
+    except Exception as exc:
+        if (
+            backend == "cuda"
+            and args.backend == "auto"
+        ):
+            backend = "cpu"
+            backend_fallback_reason = (
+                "CUDA auto-tuning failed; "
+                f"CPU fallback selected: {exc}"
+            )
+            tuning = _auto_tune_geospatial(
+                args.tile_size,
+                args.pipeline_depth,
+                source.RasterXSize,
+                source.RasterYSize,
+                "index",
+                backend,
+                benchmark_index,
+            )
+        else:
+            raise
+
+    tile_size = int(
+        tuning["tileSize"]
+    )
+    pipeline_depth = int(
+        tuning["pipelineDepth"]
+    )
+
     writer = _AsyncGeoTiffWriter(
         profile,
         args.output,
         gdal.GDT_Float32,
         float("nan"),
         args.index_type.upper(),
-        args.pipeline_depth,
+        pipeline_depth,
     )
 
+    processing_started_at = time.perf_counter()
     absolute_output = None
 
     stats = {
@@ -1133,13 +1730,6 @@ def geospatial_index(args):
     }
 
     tiles = 0
-    tile_size = max(
-        128,
-        min(
-            int(args.tile_size),
-            8192,
-        ),
-    )
 
     try:
         reader_state = {}
@@ -1227,7 +1817,7 @@ def geospatial_index(args):
         ) in _prefetched_tiles(
             windows,
             read_index_tile,
-            args.pipeline_depth,
+            pipeline_depth,
         ):
             if backend == "cuda":
                 try:
@@ -1280,6 +1870,11 @@ def geospatial_index(args):
             time.perf_counter() - started_at,
             1e-9,
         )
+        processing_elapsed_seconds = max(
+            time.perf_counter() -
+            processing_started_at,
+            1e-9,
+        )
 
         metadata = {
             "schemaVersion": 1,
@@ -1292,20 +1887,20 @@ def geospatial_index(args):
             "width": int(source.RasterXSize),
             "height": int(source.RasterYSize),
             "tileSize": tile_size,
-            "pipelineDepth": max(
-                1,
-                min(
-                    int(args.pipeline_depth),
-                    4,
-                ),
-            ),
+            "pipelineDepth": pipeline_depth,
+            "tuning": tuning,
             "readAheadEnabled": True,
             "asyncWriteEnabled": True,
             "tilesProcessed": tiles,
             "elapsedSeconds": elapsed_seconds,
-            "tilesPerSecond": tiles / elapsed_seconds,
+            "processingElapsedSeconds":
+                processing_elapsed_seconds,
+            "tilesPerSecond":
+                tiles / processing_elapsed_seconds,
             "backendRequested": args.backend,
             "backendUsed": backend,
+            "backendFallbackReason":
+                backend_fallback_reason,
             "gdalVersion": gdal.VersionInfo(
                 "RELEASE_NAME"
             ),
@@ -1462,23 +2057,117 @@ def geospatial_zones(args):
         source
     )
 
+    input_band = source.GetRasterBand(1)
+    input_nodata = input_band.GetNoDataValue()
+
+    def benchmark_zones(tile_size):
+        width = min(
+            int(tile_size),
+            source.RasterXSize,
+        )
+        height = min(
+            int(tile_size),
+            source.RasterYSize,
+        )
+
+        read_started = time.perf_counter()
+
+        values = input_band.ReadAsArray(
+            0,
+            0,
+            width,
+            height,
+        )
+
+        if values is None:
+            raise RuntimeError(
+                "GDAL auto-tuning failed to read NDVI sample tile"
+            )
+
+        values = _prepare_source_tile(
+            values,
+            input_nodata,
+            np,
+        )
+
+        read_seconds = (
+            time.perf_counter() - read_started
+        )
+        compute_started = time.perf_counter()
+
+        if backend == "cuda":
+            _zones_cuda(
+                values,
+                thresholds,
+            )
+        else:
+            _zones_cpu(
+                values,
+                thresholds,
+                np,
+            )
+
+        return {
+            "pixels": width * height,
+            "readSeconds": read_seconds,
+            "computeSeconds": (
+                time.perf_counter() -
+                compute_started
+            ),
+        }
+
+    backend_fallback_reason = None
+
+    try:
+        tuning = _auto_tune_geospatial(
+            args.tile_size,
+            args.pipeline_depth,
+            source.RasterXSize,
+            source.RasterYSize,
+            "zones",
+            backend,
+            benchmark_zones,
+        )
+    except Exception as exc:
+        if (
+            backend == "cuda"
+            and args.backend == "auto"
+        ):
+            backend = "cpu"
+            backend_fallback_reason = (
+                "CUDA auto-tuning failed; "
+                f"CPU fallback selected: {exc}"
+            )
+            tuning = _auto_tune_geospatial(
+                args.tile_size,
+                args.pipeline_depth,
+                source.RasterXSize,
+                source.RasterYSize,
+                "zones",
+                backend,
+                benchmark_zones,
+            )
+        else:
+            raise
+
+    tile_size = int(
+        tuning["tileSize"]
+    )
+    pipeline_depth = int(
+        tuning["pipelineDepth"]
+    )
+
     writer = _AsyncGeoTiffWriter(
         profile,
         args.output,
         gdal.GDT_Byte,
         0,
         "NDVI_SCOUTING_ZONES",
-        args.pipeline_depth,
+        pipeline_depth,
     )
 
+    processing_started_at = time.perf_counter()
     absolute_output = None
-    tile_size = max(
-        128,
-        min(
-            int(args.tile_size),
-            8192,
-        ),
-    )
     tiles = 0
     counts = [0, 0, 0, 0, 0]
 
@@ -1541,7 +2230,7 @@ def geospatial_zones(args):
         ) in _prefetched_tiles(
             windows,
             read_zone_tile,
-            args.pipeline_depth,
+            pipeline_depth,
         ):
             if backend == "cuda":
                 try:
@@ -1586,6 +2275,11 @@ def geospatial_zones(args):
             time.perf_counter() - started_at,
             1e-9,
         )
+        processing_elapsed_seconds = max(
+            time.perf_counter() -
+            processing_started_at,
+            1e-9,
+        )
 
         metadata = {
             "schemaVersion": 1,
@@ -1595,22 +2289,22 @@ def geospatial_zones(args):
             "width": int(source.RasterXSize),
             "height": int(source.RasterYSize),
             "tileSize": tile_size,
-            "pipelineDepth": max(
-                1,
-                min(
-                    int(args.pipeline_depth),
-                    4,
-                ),
-            ),
+            "pipelineDepth": pipeline_depth,
+            "tuning": tuning,
             "readAheadEnabled": True,
             "asyncWriteEnabled": True,
             "tilesProcessed": tiles,
             "elapsedSeconds": elapsed_seconds,
-            "tilesPerSecond": tiles / elapsed_seconds,
+            "processingElapsedSeconds":
+                processing_elapsed_seconds,
+            "tilesPerSecond":
+                tiles / processing_elapsed_seconds,
             "thresholds": thresholds,
             "zonePixelCounts": counts,
             "backendRequested": args.backend,
             "backendUsed": backend,
+            "backendFallbackReason":
+                backend_fallback_reason,
             "gdalVersion": gdal.VersionInfo(
                 "RELEASE_NAME"
             ),
@@ -1682,12 +2376,15 @@ def main():
     parser.add_argument("--iterations", type=int, default=150)
     parser.add_argument("--epsilon", type=float, default=1e-6)
     parser.add_argument("--index-epsilon", type=float, default=1e-12)
-    parser.add_argument("--tile-size", type=int, default=2048)
+    parser.add_argument(
+        "--tile-size",
+        default="auto",
+        help="auto or a fixed GDAL tile size in pixels (128..8192)",
+    )
     parser.add_argument(
         "--pipeline-depth",
-        type=int,
-        default=2,
-        help="bounded GDAL read/write pipeline depth (1..4) for geospatial tile processing",
+        default="auto",
+        help="auto or a bounded GDAL read/write pipeline depth (1..4)",
     )
     args = parser.parse_args()
 
