@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO;
 using System.Text;
 using System.Text.Json;
@@ -13,6 +14,10 @@ public static class DroneDashProjectStore
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         Converters = { new JsonStringEnumConverter() }
     };
+
+    private static readonly ConcurrentDictionary<string, object> SaveLocks =
+        new(
+            StringComparer.OrdinalIgnoreCase);
 
     public static DroneDashProject Create(
         string name,
@@ -98,10 +103,19 @@ public static class DroneDashProjectStore
                     flushToDisk: true);
             }
 
-            File.Move(
-                tempPath,
-                fullPath,
-                overwrite: true);
+            var saveLock =
+                SaveLocks.GetOrAdd(
+                    fullPath,
+                    static _ =>
+                        new object());
+
+            lock (saveLock)
+            {
+                File.Move(
+                    tempPath,
+                    fullPath,
+                    overwrite: true);
+            }
         }
         finally
         {
