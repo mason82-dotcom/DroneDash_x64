@@ -263,7 +263,12 @@ class DjiGateway {
                 latch.countDown()
             }
 
-            override fun onFailure(djiError: IDJIError) {\n                error.set(\n                    "${djiError.errorCode()}: ${djiError.description()}"\n                )\n                latch.countDown()\n            }
+            override fun onFailure(djiError: IDJIError) {
+                error.set(
+                    "${djiError.errorCode()}: ${djiError.description()}"
+                )
+                latch.countDown()
+            }
         })
 
         if (!latch.await(10, TimeUnit.SECONDS)) {
