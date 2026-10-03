@@ -1,6 +1,7 @@
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using DroneDash_x64.Desktop.Models;
 
@@ -65,7 +66,8 @@ public sealed class RcApiClient : IDisposable
         ConfigurationUpdateDto update,
         CancellationToken cancellationToken = default)
     {
-        using var content = JsonContent.Create(update, options: JsonOptions);
+        var json = JsonSerializer.Serialize(update, JsonOptions);
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
         using var response = await SendAsync(HttpMethod.Put, "api/v1/config", content, cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
         return (await response.Content.ReadFromJsonAsync<ConfigurationDto>(JsonOptions, cancellationToken))
