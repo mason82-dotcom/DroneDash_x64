@@ -99,16 +99,26 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
         {
             await PvMap.EnsureCoreWebView2Async();
             PvMap.CoreWebView2.WebMessageReceived += PvMap_WebMessageReceived;
+            PvMap.CoreWebView2.Settings.UserAgent =
+                "DroneDash_x64/0.2 (+https://github.com/mason82-dotcom/DroneDash_x64)";
 
-            var html = Path.Combine(
+            var folder = Path.Combine(
                 AppContext.BaseDirectory,
-                "pv",
+                "pv");
+            var html = Path.Combine(
+                folder,
                 "pv-map.html");
 
             if (!File.Exists(html))
                 throw new FileNotFoundException("PV-Karten-HTML fehlt.", html);
 
-            PvMap.Source = new Uri(html);
+            PvMap.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                "pv.dronedash.local",
+                folder,
+                CoreWebView2HostResourceAccessKind.DenyCors);
+
+            PvMap.Source = new Uri(
+                "https://pv.dronedash.local/pv-map.html");
         }
         catch (Exception ex)
         {

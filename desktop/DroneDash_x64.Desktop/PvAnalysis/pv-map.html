@@ -16,7 +16,7 @@ background:rgba(20,24,30,.9);color:#fff;padding:7px 12px;border-radius:5px;font-
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const map=L.map('map',{zoomControl:true}).setView([51.1657,10.4515],6);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
   maxZoom:20,
   attribution:'&copy; OpenStreetMap contributors'
 }).addTo(map);

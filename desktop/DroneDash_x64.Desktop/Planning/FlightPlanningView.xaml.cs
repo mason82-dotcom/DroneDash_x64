@@ -32,12 +32,21 @@ public partial class FlightPlanningView : System.Windows.Controls.UserControl
         {
             await RouteMap.EnsureCoreWebView2Async();
             RouteMap.CoreWebView2.WebMessageReceived += RouteMap_WebMessageReceived;
+            RouteMap.CoreWebView2.Settings.UserAgent =
+                "DroneDash_x64/0.2 (+https://github.com/mason82-dotcom/DroneDash_x64)";
 
-            var html = Path.Combine(AppContext.BaseDirectory, "planning", "route-editor.html");
+            var folder = Path.Combine(AppContext.BaseDirectory, "planning");
+            var html = Path.Combine(folder, "route-editor.html");
             if (!File.Exists(html))
                 throw new FileNotFoundException("Karten-HTML fehlt.", html);
 
-            RouteMap.Source = new Uri(html);
+            RouteMap.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                "planning.dronedash.local",
+                folder,
+                CoreWebView2HostResourceAccessKind.DenyCors);
+
+            RouteMap.Source = new Uri(
+                "https://planning.dronedash.local/route-editor.html");
             PlanningStatusText.Text = "Karte lädt …";
         }
         catch (Exception ex)
