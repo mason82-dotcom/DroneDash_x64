@@ -166,8 +166,24 @@ public static class ProjectArtifactService
             return ProjectArtifactKind.NodeOdmResultArchive;
         }
 
+        if (extension is ".laz" or ".las")
+        {
+            return ProjectArtifactKind.PointCloud;
+        }
+
         if (extension is ".tif" or ".tiff")
         {
+            if (name.Equals("dsm.tif", StringComparison.OrdinalIgnoreCase) ||
+                name.Equals("dtm.tif", StringComparison.OrdinalIgnoreCase))
+            {
+                return ProjectArtifactKind.ElevationModel;
+            }
+
+            if (name.Equals("odm_orthophoto.tif", StringComparison.OrdinalIgnoreCase))
+            {
+                return ProjectArtifactKind.Orthomosaic;
+            }
+
             if (name.StartsWith(
                     "ndvi",
                     StringComparison.OrdinalIgnoreCase) ||
@@ -358,7 +374,10 @@ public static class ProjectArtifactService
                         ProjectArtifactKind.SmartFarmingFieldProducts or
                         ProjectArtifactKind.LocalProcessingPlan or
                         ProjectArtifactKind.NodeOdmResultArchive or
-                        ProjectArtifactKind.VegetationRaster;
+                        ProjectArtifactKind.VegetationRaster or
+                        ProjectArtifactKind.Orthomosaic or
+                        ProjectArtifactKind.ElevationModel or
+                        ProjectArtifactKind.PointCloud;
                 })
                 .OrderBy(
                     path => path,
@@ -425,6 +444,14 @@ public static class ProjectArtifactService
                 $"M3M-Band · {name}",
             ProjectArtifactKind.ThermalImage =>
                 $"Thermalbild · {name}",
+            ProjectArtifactKind.Orthomosaic =>
+                $"Orthomosaik · {name}",
+            ProjectArtifactKind.ElevationModel =>
+                name.Equals("dtm.tif", StringComparison.OrdinalIgnoreCase)
+                    ? $"Geländemodell (DTM) · {name}"
+                    : $"Oberflächenmodell (DSM) · {name}",
+            ProjectArtifactKind.PointCloud =>
+                $"Punktwolke · {name}",
             _ => name
         };
     }

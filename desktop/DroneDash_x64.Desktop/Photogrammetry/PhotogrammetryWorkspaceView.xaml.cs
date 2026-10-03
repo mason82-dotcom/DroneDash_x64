@@ -19,6 +19,7 @@ public partial class PhotogrammetryWorkspaceView : System.Windows.Controls.UserC
     {
         InitializeComponent();
         DatasetGrid.ItemsSource = _images;
+        InitializeOdm();
     }
 
     public void AcceptDatasetFolder(
@@ -184,6 +185,7 @@ public partial class PhotogrammetryWorkspaceView : System.Windows.Controls.UserC
                     ? "Keine unterstützten JPG/JPEG/DNG/TIF/TIFF-Dateien gefunden."
                     : "Analyse abgeschlossen. Quelldateien wurden nicht verändert.";
             ExportManifestButton.IsEnabled = _dataset.Images.Count > 0;
+            UpdateOdmButtons();
 
             ProjectProcessingCoordinator.AwaitOutputActive(
                 ProjectProcessingWorkerKind.PhotogrammetryDatasetAnalysis,
@@ -306,5 +308,6 @@ public partial class PhotogrammetryWorkspaceView : System.Windows.Controls.UserC
         DatasetSummaryText.Text = "Datensatz geändert · Analyse neu starten.";
         DatasetStatusText.Text = "Bereit zur Analyse.";
         ExportManifestButton.IsEnabled = false;
+        UpdateOdmButtons();
     }
 }
