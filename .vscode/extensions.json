@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "ms-dotnettools.csdevkit",
+    "ms-vscode.powershell",
+    "ms-python.python",
+    "vscjava.vscode-java-pack",
+    "vscjava.vscode-gradle",
+    "fwcd.kotlin"
+  ]
+}

@@ -10,7 +10,27 @@
       "**/bin": true,
       "**/obj": true,
       "**/.gradle": true,
-      "**/build": true
+      "**/build": true,
+      "artifacts": true
+    },
+    "files.watcherExclude": {
+      "**/bin/**": true,
+      "**/obj/**": true,
+      "**/.gradle/**": true,
+      "**/build/**": true,
+      "artifacts/**": true
+    },
+    "search.exclude": {
+      "**/bin": true,
+      "**/obj": true,
+      "**/.gradle": true,
+      "**/build": true,
+      "artifacts": true
+    },
+    "terminal.integrated.scrollback": 10000,
+    "gradle.nestedProjects": true,
+    "files.associations": {
+      "*.slnx": "xml"
     }
   }
 }

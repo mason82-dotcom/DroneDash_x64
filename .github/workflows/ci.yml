@@ -20,6 +20,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate VS Code configuration
+        shell: powershell
+        run: |
+          Get-Content .vscode/extensions.json -Raw | ConvertFrom-Json | Out-Null
+          Get-Content .vscode/tasks.json -Raw | ConvertFrom-Json | Out-Null
+          Get-Content .vscode/launch.json -Raw | ConvertFrom-Json | Out-Null
+          Get-Content DroneDash_x64.code-workspace -Raw | ConvertFrom-Json | Out-Null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path scripts/vscode-setup.ps1),
+            [ref]$null,
+            [ref]$null)
+
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:

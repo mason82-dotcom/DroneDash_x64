@@ -103,6 +103,22 @@ It checks the Git clone, .NET 10, NuGet, Java 17, Android SDK/API 36, Build Tool
 Gradle, ADB, optional NVIDIA/CUDA/OpenCV-CUDA/CuPy availability and whether DJI credentials are configured without printing their values.
 Use `-Strict` when warnings should also fail the check.
 
+## Visual Studio Code development
+
+The repository contains a tracked VS Code workspace, build/test tasks, debugger configurations and
+extension recommendations. On Windows run:
+
+```powershell
+.\scripts\vscode-setup.ps1
+```
+
+Then open `DroneDash_x64.code-workspace`. `Ctrl+Shift+B` builds the Debug desktop solution and
+the **Run and Debug** view provides `DroneDash Desktop (Debug x64)`, `Mock RC (Debug)` and the
+combined `DroneDash + Mock RC` configuration.
+
+See `docs/VSCODE.md` for the complete setup, Android/Gradle workflow, Python tooling and release
+tasks.
+
 ## Run the Windows UI without DJI hardware
 
 1. Install the .NET 10 SDK.
