@@ -35,8 +35,8 @@ public static class PhotogrammetryPlanner
             throw new InvalidOperationException("Aus der Geometrie konnte keine Flugroute erzeugt werden.");
 
         var area = settings.Mode == FlightPlanMode.MappingStrip
-            ? PolylineLengthMeters(geometry) * settings.StripHalfWidthMeters * 2d
-            : PolygonAreaMeters(geometry);
+            ? GeometryMetrics.PolylineLengthMeters(geometry) * settings.StripHalfWidthMeters * 2d
+            : GeometryMetrics.PolygonAreaSquareMeters(geometry);
 
         var flightDistance = 0d;
         RouteSegment? previous = null;
@@ -45,7 +45,7 @@ public static class PhotogrammetryPlanner
             foreach (var segment in pass.Segments)
             {
                 if (previous is not null)
-                    flightDistance += DistanceMeters(previous.End, segment.Start);
+                    flightDistance += GeometryMetrics.DistanceMeters(previous.End, segment.Start);
                 flightDistance += segment.LengthMeters;
                 previous = segment;
             }
@@ -141,7 +141,7 @@ public static class PhotogrammetryPlanner
         var segments = new List<RouteSegment>();
         for (var i = 1; i < line.Count; i++)
         {
-            var length = DistanceMeters(line[i - 1], line[i]);
+            var length = GeometryMetrics.DistanceMeters(line[i - 1], line[i]);
             if (length > 0.25)
                 segments.Add(new RouteSegment(line[i - 1], line[i], length));
         }
@@ -260,43 +260,6 @@ public static class PhotogrammetryPlanner
 
         intersections.Sort();
         return intersections;
-    }
-
-    private static double PolygonAreaMeters(IReadOnlyList<GeoPoint> polygon)
-    {
-        var originLat = polygon.Average(p => p.Latitude);
-        var originLon = polygon.Average(p => p.Longitude);
-        var local = polygon.Select(p => ToLocal(p, originLat, originLon)).ToList();
-
-        double sum = 0;
-        for (var i = 0; i < local.Count; i++)
-        {
-            var a = local[i];
-            var b = local[(i + 1) % local.Count];
-            sum += a.X * b.Y - b.X * a.Y;
-        }
-
-        return Math.Abs(sum / 2d);
-    }
-
-    private static double PolylineLengthMeters(IReadOnlyList<GeoPoint> line)
-    {
-        var result = 0d;
-        for (var i = 1; i < line.Count; i++)
-            result += DistanceMeters(line[i - 1], line[i]);
-        return result;
-    }
-
-    private static double DistanceMeters(GeoPoint a, GeoPoint b)
-    {
-        var lat1 = a.Latitude * DegToRad;
-        var lat2 = b.Latitude * DegToRad;
-        var dLat = (b.Latitude - a.Latitude) * DegToRad;
-        var dLon = (b.Longitude - a.Longitude) * DegToRad;
-        var h = Math.Sin(dLat / 2d) * Math.Sin(dLat / 2d) +
-                Math.Cos(lat1) * Math.Cos(lat2) *
-                Math.Sin(dLon / 2d) * Math.Sin(dLon / 2d);
-        return 2d * EarthRadiusMeters * Math.Asin(Math.Min(1d, Math.Sqrt(h)));
     }
 
     private static LocalPoint ToLocal(GeoPoint point, double originLat, double originLon)

@@ -58,20 +58,21 @@ public partial class FlightPlanningView
             {
                 _mapReady = true;
                 PlanningStatusText.Text = "Karte bereit.";
-                RenderMap();
+                RenderMap(fitBounds: true);
                 return;
             }
 
             if (type == "polygonPoint")
             {
-                var lat = root.GetProperty("lat").GetDouble();
-                var lon = root.GetProperty("lon").GetDouble();
-                _geometry.Add(new GeoPoint(lat, lon));
+                _geometry.Add(MessagePoint(root));
                 _plan = null;
                 MarkProjectChanged();
                 UpdateGeometryInfo();
                 RenderMap();
+                return;
             }
+
+            TryHandleVertexMessage(type, root);
         }
         catch (Exception ex)
         {
@@ -144,9 +145,7 @@ public partial class FlightPlanningView
 
     private void UpdateGeometryInfo()
     {
-        PolygonInfoText.Text = SelectedMode() == FlightPlanMode.MappingStrip
-            ? $"{_geometry.Count} Trassenpunkte"
-            : $"{_geometry.Count} Polygonpunkte";
+        PolygonInfoText.Text = GeometrySummaryText();
     }
 
     private void MarkProjectChanged()
@@ -156,7 +155,10 @@ public partial class FlightPlanningView
             : $"Geändert seit Laden/Speichern: {_currentProjectPath}";
     }
 
-    private void RenderMap()
+    /// <param name="fitBounds">
+    /// Zoom to the geometry. Off for interactive edits so the view does not jump.
+    /// </param>
+    private void RenderMap(bool fitBounds = false)
     {
         if (!_mapReady)
             return;
@@ -164,6 +166,8 @@ public partial class FlightPlanningView
         var message = new
         {
             type = "render",
+            fitBounds,
+            metrics = GeometryMetricsMessage(),
             geometryMode =
                 SelectedMode() == FlightPlanMode.MappingStrip
                     ? "strip"
