@@ -31,6 +31,33 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
         AnalyzeButton.IsEnabled = sdk.IsAvailable;
     }
 
+    public void AcceptDatasetFolder(
+        string sourceFolder)
+    {
+        var fullPath =
+            Path.GetFullPath(
+                sourceFolder);
+
+        if (!Directory.Exists(fullPath))
+        {
+            StatusText.Text =
+                $"Datensatzordner fehlt: {fullPath}";
+            return;
+        }
+
+        _sourceFolder =
+            fullPath;
+
+        FolderText.Text =
+            _sourceFolder;
+
+        InvalidateDataset();
+
+        StatusText.Text =
+            "Datensatz aus dem Projekt-Pipeline-Job übernommen.";
+    }
+
+
     public void AcceptFlightPlan(
         string flightPlanPath)
     {
