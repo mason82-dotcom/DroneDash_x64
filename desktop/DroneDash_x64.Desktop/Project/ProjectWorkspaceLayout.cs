@@ -28,7 +28,8 @@ public enum ProjectNavigationTarget
 public sealed record ProjectNavigationRequest(
     ProjectNavigationTarget Target,
     string? FlightPlanPath,
-    string Reason);
+    string Reason,
+    string? DatasetFolder = null);
 
 public static class ProjectWorkspaceLayout
 {
