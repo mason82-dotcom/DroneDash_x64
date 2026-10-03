@@ -4,6 +4,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media.Imaging;
+using DroneDash_x64.Desktop.Imaging;
 using DroneDash_x64.Desktop.SmartFarming.LocalProcessing;
 using DroneDash_x64.Desktop.SmartFarming.Odm;
 using DroneDash_x64.Desktop.Project;
@@ -19,6 +20,7 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
     private string? _sourceFolder;
     private string? _flightPlanProjectPath;
     private M3mDatasetResult? _dataset;
+    private CancellationTokenSource? _datasetScanCts;
     private VegetationIndexResult? _currentIndex;
     private BitmapSource? _currentIndexBitmap;
     private LocalImageToolchainStatus? _toolchain;
@@ -134,7 +136,14 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
             return;
         }
 
+        _datasetScanCts?.Cancel();
+        _datasetScanCts?.Dispose();
+        _datasetScanCts = new CancellationTokenSource();
+        var scanCts = _datasetScanCts;
+
         SetBusy(true);
+        Progress.IsIndeterminate = false;
+        Progress.Value = 0;
         StatusText.Text = "M3M-Aufnahmen und radiometrische XMP-Metadaten werden geprüft …";
 
         ProjectProcessingCoordinator.BeginActive(
@@ -145,7 +154,24 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         try
         {
             var folder = _sourceFolder;
-            _dataset = await Task.Run(() => M3mDatasetScanner.Scan(folder));
+            var scanProgress = new Progress<DatasetScanProgress>(value =>
+            {
+                Progress.Value = value.Percent;
+                StatusText.Text =
+                    value.TotalFiles <= 0
+                        ? "Keine M3M-Dateien im erwarteten Schema gefunden."
+                        : $"M3M-Metadaten {value.ProcessedFiles}/{value.TotalFiles}" +
+                          (string.IsNullOrWhiteSpace(value.CurrentFile)
+                              ? ""
+                              : $" · {value.CurrentFile}");
+            });
+
+            _dataset = await Task.Run(
+                () => M3mDatasetScanner.Scan(
+                    folder,
+                    scanCts.Token,
+                    scanProgress),
+                scanCts.Token);
 
             _captures.Clear();
             foreach (var capture in _dataset.Captures)
@@ -164,6 +190,14 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
                     ? "Datensatzprüfung abgeschlossen; kein QA-Manifest exportierbar."
                     : "Datensatzprüfung abgeschlossen; QA-Manifest exportieren.");
         }
+        catch (OperationCanceledException)
+        {
+            ProjectProcessingCoordinator.FailActive(
+                ProjectProcessingWorkerKind.SmartFarmingDatasetQa,
+                "Datensatzprüfung abgebrochen.");
+
+            StatusText.Text = "Datensatzprüfung abgebrochen.";
+        }
         catch (Exception ex)
         {
             ProjectProcessingCoordinator.FailActive(
@@ -180,6 +214,12 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         finally
         {
             SetBusy(false);
+
+            if (ReferenceEquals(_datasetScanCts, scanCts))
+            {
+                _datasetScanCts.Dispose();
+                _datasetScanCts = null;
+            }
         }
     }
 
@@ -419,6 +459,7 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
 
     private void InvalidateDataset()
     {
+        _datasetScanCts?.Cancel();
         _dataset = null;
         _captures.Clear();
         _currentIndex = null;

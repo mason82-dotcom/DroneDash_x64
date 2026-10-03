@@ -1,9 +1,7 @@
 using System.IO;
 using System.Globalization;
 using System.Security.Cryptography;
-using System.Text;
 using System.Windows.Media.Imaging;
-using System.Xml.Linq;
 using DroneDash_x64.Desktop.Models;
 
 namespace DroneDash_x64.Desktop.Imaging;
@@ -18,8 +16,6 @@ public sealed record ImageInspectionResult(
 
 public static class ImageMetadataReader
 {
-    private const int MaxXmpScanBytes = 32 * 1024 * 1024;
-
     private static readonly string[] PhotogrammetryFields =
     [
         "GPSLatitude",
@@ -183,64 +179,31 @@ public static class ImageMetadataReader
         ICollection<ImageMetadataEntryDto> target,
         string path)
     {
-        var fields = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var xmp = TryReadXmp(path);
-        if (string.IsNullOrWhiteSpace(xmp))
+        var xmp = DjiXmpMetadataReader.Read(path);
+        var fields = xmp.Fields.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value,
+            StringComparer.OrdinalIgnoreCase);
+
+        if (!xmp.Found)
             return fields;
 
-        XDocument document;
-        try
+        if (!string.IsNullOrWhiteSpace(xmp.Error))
         {
-            document = XDocument.Parse(xmp, LoadOptions.None);
-        }
-        catch
-        {
-            Add(target, "XMP", "Status", "XMP vorhanden, aber XML konnte nicht geparst werden.");
+            Add(target, "XMP", "Status", xmp.Error);
             return fields;
         }
 
-        var namespacePrefixes = (document.Root?.DescendantsAndSelf() ?? Enumerable.Empty<XElement>())
-            .SelectMany(element => element.Attributes().Where(attribute => attribute.IsNamespaceDeclaration))
-            .GroupBy(attribute => attribute.Value, StringComparer.Ordinal)
-            .ToDictionary(
-                group => group.Key,
-                group => group.First().Name.LocalName == "xmlns" ? "" : group.First().Name.LocalName,
-                StringComparer.Ordinal);
-
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var element in document.Descendants())
+        foreach (var entry in xmp.Entries)
         {
-            foreach (var attribute in element.Attributes().Where(attribute => !attribute.IsNamespaceDeclaration))
-            {
-                AddXmpValue(target, fields, seen, attribute.Name, attribute.Value, namespacePrefixes);
-            }
-
-            if (!element.HasElements)
-                AddXmpValue(target, fields, seen, element.Name, element.Value, namespacePrefixes);
+            Add(
+                target,
+                IsDji(entry.NamespaceName) ? "DJI XMP" : "XMP",
+                entry.QualifiedName,
+                entry.Value);
         }
 
         return fields;
-    }
-
-    private static void AddXmpValue(
-        ICollection<ImageMetadataEntryDto> target,
-        IDictionary<string, string> fields,
-        ISet<string> seen,
-        XName name,
-        string rawValue,
-        IReadOnlyDictionary<string, string> namespacePrefixes)
-    {
-        var value = rawValue.Trim();
-        if (value.Length == 0)
-            return;
-
-        var key = QualifiedName(name, namespacePrefixes);
-        if (!seen.Add(key + "\0" + value))
-            return;
-
-        Add(target, IsDji(name.NamespaceName) ? "DJI XMP" : "XMP", key, value);
-        fields.TryAdd(name.LocalName, value);
     }
 
     private static string AddPhotogrammetryHighlights(
@@ -306,58 +269,11 @@ public static class ImageMetadataReader
     private static string DisplayValue(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "—" : value;
 
-    private static string? TryReadXmp(string path)
-    {
-        using var stream = File.OpenRead(path);
-        var length = (int)Math.Min(stream.Length, MaxXmpScanBytes);
-        var bytes = new byte[length];
-
-        var offset = 0;
-        while (offset < bytes.Length)
-        {
-            var read = stream.Read(bytes, offset, bytes.Length - offset);
-            if (read == 0)
-                break;
-            offset += read;
-        }
-
-        var text = Encoding.UTF8.GetString(bytes, 0, offset);
-        var start = text.IndexOf("<x:xmpmeta", StringComparison.OrdinalIgnoreCase);
-        if (start < 0)
-            start = text.IndexOf("<xmpmeta", StringComparison.OrdinalIgnoreCase);
-        if (start < 0)
-            return null;
-
-        var endTag = text.IndexOf("</x:xmpmeta>", start, StringComparison.OrdinalIgnoreCase) >= 0
-            ? "</x:xmpmeta>"
-            : "</xmpmeta>";
-
-        var end = text.IndexOf(endTag, start, StringComparison.OrdinalIgnoreCase);
-        if (end < 0)
-            return null;
-
-        end += endTag.Length;
-        return text[start..end];
-    }
-
     private static bool IsRawFile(string path) =>
         Path.GetExtension(path).Equals(".dng", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsDji(string namespaceName) =>
         namespaceName.Contains("dji", StringComparison.OrdinalIgnoreCase);
-
-    private static string QualifiedName(
-        XName name,
-        IReadOnlyDictionary<string, string> namespacePrefixes)
-    {
-        if (name.NamespaceName.Length == 0)
-            return name.LocalName;
-
-        return namespacePrefixes.TryGetValue(name.NamespaceName, out var prefix) &&
-               !string.IsNullOrWhiteSpace(prefix)
-            ? $"{prefix}:{name.LocalName}"
-            : name.LocalName;
-    }
 
     private static string FormatMetadataValue(object? value)
     {

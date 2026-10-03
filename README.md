@@ -150,7 +150,7 @@ only on loopback.
 
 `.github/workflows/ci.yml` verifies both sides of the project:
 
-- Windows: restore and Release-build the WPF desktop application and mock RC;
+- Windows: restore and Release-build the WPF desktop application and mock RC, run Planning/PV/Smart-Farming/Project smoke coverage, execute ThermalSmoke in SDK-optional mode, and run xUnit metadata/core tests;
 - Android: Java 17 + Gradle 8.12 + Android API 36, then `:app:assembleDebug`; pull requests use CI-only placeholders,
   while trusted push/manual runs consume `DJI_API_KEY` and `BRIDGE_TOKEN` repository secrets when configured.
 
@@ -163,13 +163,14 @@ The local DJI Mavic 3M processing worker supports optional NVIDIA CUDA accelerat
 DroneDash-generated processing plans select GPU backends independently per stage:
 
 - OpenCV-CUDA accelerates registration resize and final affine/perspective warping;
-- CuPy-CUDA accelerates local NDVI, NDRE and GNDVI raster arithmetic;
+- CuPy-CUDA accelerates local NDVI, NDRE and GNDVI raster arithmetic with fused kernels and reusable GPU buffers;
 - Python GDAL bindings optionally provide a pipelined tile-based geospatial engine for large ODM orthomosaics;
 - a dedicated GDAL read-ahead thread prefetches future tiles while the main thread computes the current tile;
 - a dedicated GDAL writer thread writes the previous tile concurrently, giving a bounded read → compute → write pipeline;
 - tile size and pipeline depth are auto-tuned from raster size, available RAM/VRAM and a short real-data Read+Compute benchmark;
 - GDAL preserves raster windows, CRS/geotransform and GeoTIFF output while CuPy/NumPy computes each tile;
 - OpenCV ECC transform estimation remains CPU-based;
+- a persistent Python worker is reused across compatible local-processing steps to reduce interpreter/import/CUDA-context startup;
 - each CUDA stage falls back independently to CPU when unavailable.
 
 Radiometric correction remains on OTB and the corrected four-band GDAL VRT is retained.
@@ -274,7 +275,8 @@ plan, exports all supported DJI mapping modes and runs the semantic KMZ validato
 ## Photogrammetry dataset workflow
 
 The Windows client now contains a dedicated **Photogrammetrie** workspace. It scans local
-JPG/JPEG/DNG/TIF/TIFF datasets without modifying the source images and extracts DJI XMP fields
+JPG/JPEG/DNG/TIF/TIFF datasets without modifying the source images, skips reparse-point traversal,
+reports scan progress/cancellation, and extracts DJI XMP fields
 needed for downstream survey QA: GPS, absolute/relative altitude, raw RTK flag, RTK standard
 deviations, aircraft/gimbal attitude, camera calibration, optical center and dewarp data.
 

@@ -5,6 +5,10 @@ import os
 import sys
 
 
+_CUDA_INDEX_PROCESSORS = {}
+_CUDA_ZONE_PROCESSOR = None
+
+
 def _cuda_probe(cv2):
     count = 0
     name = None
@@ -456,41 +460,76 @@ def _index_cpu(positive, comparison, epsilon, np):
     return result
 
 
+class _CudaIndexProcessor:
+    def __init__(self, epsilon):
+        import cupy as cp
+
+        self._cp = cp
+        self._epsilon = float(epsilon)
+        self._shape = None
+        self._positive = None
+        self._comparison = None
+        self._result = None
+        self._kernel = cp.ElementwiseKernel(
+            "float32 positive, float32 comparison, float32 epsilon",
+            "float32 result",
+            """
+            const float denominator = positive + comparison;
+            if (
+                isfinite(positive) &&
+                isfinite(comparison) &&
+                fabsf(denominator) >= epsilon
+            ) {
+                result = (positive - comparison) / denominator;
+            } else {
+                result = NAN;
+            }
+            """,
+            "dronedash_vegetation_index",
+        )
+
+    def _ensure_buffers(self, shape):
+        if self._shape == shape:
+            return
+
+        cp = self._cp
+        self._shape = shape
+        self._positive = cp.empty(shape, dtype=cp.float32)
+        self._comparison = cp.empty(shape, dtype=cp.float32)
+        self._result = cp.empty(shape, dtype=cp.float32)
+
+    def compute(self, positive, comparison):
+        self._ensure_buffers(positive.shape)
+        self._positive.set(positive)
+        self._comparison.set(comparison)
+
+        self._kernel(
+            self._positive,
+            self._comparison,
+            self._cp.float32(self._epsilon),
+            self._result,
+        )
+
+        # Device-to-host transfer synchronizes the active stream.
+        return self._cp.asnumpy(self._result)
+
+
+def _get_cuda_index_processor(epsilon):
+    key = float(epsilon)
+    processor = _CUDA_INDEX_PROCESSORS.get(key)
+
+    if processor is None:
+        processor = _CudaIndexProcessor(key)
+        _CUDA_INDEX_PROCESSORS[key] = processor
+
+    return processor
+
+
 def _index_cuda(positive, comparison, epsilon):
-    import cupy as cp
-
-    positive_gpu = cp.asarray(
+    return _get_cuda_index_processor(epsilon).compute(
         positive,
-        dtype=cp.float32,
-    )
-    comparison_gpu = cp.asarray(
         comparison,
-        dtype=cp.float32,
     )
-
-    denominator = positive_gpu + comparison_gpu
-    valid = (
-        cp.isfinite(positive_gpu)
-        & cp.isfinite(comparison_gpu)
-        & (cp.abs(denominator) >= epsilon)
-    )
-
-    result_gpu = cp.full(
-        positive_gpu.shape,
-        cp.nan,
-        dtype=cp.float32,
-    )
-
-    cp.divide(
-        positive_gpu - comparison_gpu,
-        denominator,
-        out=result_gpu,
-        where=valid,
-    )
-
-    cp.cuda.get_current_stream().synchronize()
-    return cp.asnumpy(result_gpu)
-
 
 def vegetation_index(args):
     import cv2
@@ -1202,6 +1241,8 @@ def _safe_tile_candidates(
     cuda_free_bytes,
 ):
     candidates = [
+        128,
+        256,
         512,
         1024,
         2048,
@@ -1213,8 +1254,8 @@ def _safe_tile_candidates(
         int(height),
     )
 
-    if max_dimension <= 512:
-        return [512]
+    if max_dimension <= 128:
+        return [128]
 
     safe = []
 
@@ -1228,10 +1269,7 @@ def _safe_tile_candidates(
         host_ok = (
             system_available_bytes is None
             or host_bytes <=
-            max(
-                256 * 1024 * 1024,
-                int(system_available_bytes * 0.20),
-            )
+            int(system_available_bytes * 0.20)
         )
 
         cuda_bytes = _estimated_cuda_working_bytes(
@@ -1243,75 +1281,124 @@ def _safe_tile_candidates(
             backend != "cuda"
             or cuda_free_bytes is None
             or cuda_bytes <=
-            max(
-                128 * 1024 * 1024,
-                int(cuda_free_bytes * 0.30),
-            )
+            int(cuda_free_bytes * 0.30)
         )
 
         if host_ok and cuda_ok:
             safe.append(tile_size)
 
     if not safe:
-        return [512]
+        raise RuntimeError(
+            "no safe GDAL tile size fits the current RAM/VRAM budget"
+        )
 
     return safe
 
 
+def _release_cuda_memory_pool():
+    try:
+        import cupy as cp
+
+        cp.get_default_memory_pool().free_all_blocks()
+        cp.get_default_pinned_memory_pool().free_all_blocks()
+    except Exception:
+        pass
+
+
 def _benchmark_tiles(candidates, benchmark):
+    import statistics
+
     results = []
 
     for tile_size in candidates:
-        sample = benchmark(tile_size)
+        try:
+            benchmark(tile_size, -1)
+            _release_cuda_memory_pool()
 
-        read_seconds = max(
-            float(sample["readSeconds"]),
-            0.0,
-        )
-        compute_seconds = max(
-            float(sample["computeSeconds"]),
-            0.0,
-        )
-        total_seconds = max(
-            read_seconds + compute_seconds,
-            1e-9,
-        )
-        pixels = max(
-            int(sample["pixels"]),
-            1,
-        )
+            samples = [
+                benchmark(tile_size, sample_index)
+                for sample_index in range(3)
+            ]
 
-        results.append(
-            {
-                "tileSize": int(tile_size),
-                "pixels": pixels,
-                "readSeconds": read_seconds,
-                "computeSeconds": compute_seconds,
-                "pixelsPerSecond": (
-                    pixels / total_seconds
-                ),
-            }
-        )
+            read_seconds = statistics.median(
+                max(
+                    float(sample["readSeconds"]),
+                    0.0,
+                )
+                for sample in samples
+            )
+            compute_seconds = statistics.median(
+                max(
+                    float(sample["computeSeconds"]),
+                    0.0,
+                )
+                for sample in samples
+            )
+            pixels = max(
+                int(statistics.median(
+                    int(sample["pixels"])
+                    for sample in samples
+                )),
+                1,
+            )
+            total_seconds = max(
+                read_seconds + compute_seconds,
+                1e-9,
+            )
+
+            results.append(
+                {
+                    "tileSize": int(tile_size),
+                    "success": True,
+                    "pixels": pixels,
+                    "readSeconds": read_seconds,
+                    "computeSeconds": compute_seconds,
+                    "pixelsPerSecond": (
+                        pixels / total_seconds
+                    ),
+                }
+            )
+        except Exception as exc:
+            results.append(
+                {
+                    "tileSize": int(tile_size),
+                    "success": False,
+                    "error": str(exc),
+                }
+            )
+        finally:
+            _release_cuda_memory_pool()
 
     return results
 
 
 def _choose_benchmark_tile(results):
-    if not results:
+    successful = [
+        item
+        for item in results
+        if item.get("success", True)
+    ]
+
+    if not successful:
+        errors = "; ".join(
+            f"{item.get('tileSize')}: {item.get('error', 'failed')}"
+            for item in results
+        )
         raise RuntimeError(
-            "auto-tuning produced no tile benchmark results"
+            "auto-tuning produced no successful tile benchmark results" +
+            (f": {errors}" if errors else "")
         )
 
     best_score = max(
         item["pixelsPerSecond"]
-        for item in results
+        for item in successful
     )
 
     threshold = best_score * 0.90
 
     near_best = [
         item
-        for item in results
+        for item in successful
         if item["pixelsPerSecond"] >= threshold
     ]
 
@@ -1400,16 +1487,53 @@ def _choose_pipeline_depth(
         if (
             system_available_bytes is None
             or estimated <=
-            max(
-                256 * 1024 * 1024,
-                int(system_available_bytes * 0.20),
-            )
+            int(system_available_bytes * 0.20)
         ):
             break
 
         target -= 1
 
     return target
+
+
+def _benchmark_window(
+    raster_width,
+    raster_height,
+    tile_size,
+    sample_index,
+):
+    width = min(
+        int(tile_size),
+        int(raster_width),
+    )
+    height = min(
+        int(tile_size),
+        int(raster_height),
+    )
+
+    max_x = max(
+        0,
+        int(raster_width) - width,
+    )
+    max_y = max(
+        0,
+        int(raster_height) - height,
+    )
+
+    if sample_index < 0:
+        x = max_x // 2
+        y = max_y // 2
+    elif sample_index == 0:
+        x = 0
+        y = 0
+    elif sample_index == 1:
+        x = max_x // 2
+        y = max_y // 2
+    else:
+        x = max_x
+        y = max_y
+
+    return x, y, width, height
 
 
 def _auto_tune_geospatial(
@@ -1452,6 +1576,35 @@ def _auto_tune_geospatial(
     )
 
     if manual_tile is not None:
+        host_bytes = _estimated_host_pipeline_bytes(
+            manual_tile,
+            provisional_depth,
+            operation,
+        )
+        cuda_bytes = _estimated_cuda_working_bytes(
+            manual_tile,
+            operation,
+        )
+
+        if (
+            system_available is not None
+            and host_bytes >
+            int(system_available * 0.20)
+        ):
+            raise RuntimeError(
+                "manual tile-size exceeds the current RAM safety budget"
+            )
+
+        if (
+            backend == "cuda"
+            and cuda_memory["freeBytes"] is not None
+            and cuda_bytes >
+            int(cuda_memory["freeBytes"] * 0.30)
+        ):
+            raise RuntimeError(
+                "manual tile-size exceeds the current VRAM safety budget"
+            )
+
         candidates = [manual_tile]
     else:
         candidates = _safe_tile_candidates(
@@ -1477,11 +1630,28 @@ def _auto_tune_geospatial(
 
     if manual_tile is not None:
         tile_size = manual_tile
+
+        if (
+            benchmark_results
+            and not benchmark_results[0].get(
+                "success",
+                True,
+            )
+        ):
+            raise RuntimeError(
+                "manual tile benchmark failed: " +
+                benchmark_results[0].get(
+                    "error",
+                    "unknown error",
+                )
+            )
+
         selected_benchmark = (
             benchmark_results[0]
             if benchmark_results
             else {
                 "tileSize": manual_tile,
+                "success": True,
                 "pixels": 0,
                 "readSeconds": 0.0,
                 "computeSeconds": 0.0,
@@ -1599,27 +1769,28 @@ def geospatial_index(args):
         comparison_band.GetNoDataValue()
     )
 
-    def benchmark_index(tile_size):
-        width = min(
-            int(tile_size),
+    def benchmark_index(
+        tile_size,
+        sample_index,
+    ):
+        x, y, width, height = _benchmark_window(
             source.RasterXSize,
-        )
-        height = min(
-            int(tile_size),
             source.RasterYSize,
+            tile_size,
+            sample_index,
         )
 
         read_started = time.perf_counter()
 
         positive = positive_band.ReadAsArray(
-            0,
-            0,
+            x,
+            y,
             width,
             height,
         )
         comparison = comparison_band.ReadAsArray(
-            0,
-            0,
+            x,
+            y,
             width,
             height,
         )
@@ -1826,11 +1997,16 @@ def geospatial_index(args):
                         comparison,
                         args.index_epsilon,
                     )
-                except Exception:
+                except Exception as exc:
                     if args.backend == "cuda":
                         raise
 
                     backend = "cpu"
+                    backend_fallback_reason = (
+                        f"CUDA processing failed at tile x={x} y={y}; "
+                        f"CPU fallback selected: {exc}"
+                    )
+                    _release_cuda_memory_pool()
                     values = _index_cpu(
                         positive,
                         comparison,
@@ -1897,6 +2073,11 @@ def geospatial_index(args):
                 processing_elapsed_seconds,
             "tilesPerSecond":
                 tiles / processing_elapsed_seconds,
+            "pixelsPerSecond":
+                (
+                    int(source.RasterXSize) *
+                    int(source.RasterYSize)
+                ) / processing_elapsed_seconds,
             "backendRequested": args.backend,
             "backendUsed": backend,
             "backendFallbackReason":
@@ -1964,46 +2145,76 @@ def _zones_cpu(values, thresholds, np):
     return output
 
 
+class _CudaZoneProcessor:
+    def __init__(self):
+        import cupy as cp
+
+        self._cp = cp
+        self._shape = None
+        self._values = None
+        self._result = None
+        self._kernel = cp.ElementwiseKernel(
+            (
+                "float32 value, "
+                "float32 threshold1, "
+                "float32 threshold2, "
+                "float32 threshold3, "
+                "float32 threshold4"
+            ),
+            "uint8 result",
+            """
+            if (!isfinite(value)) {
+                result = 0;
+            } else if (value < threshold1) {
+                result = 1;
+            } else if (value < threshold2) {
+                result = 2;
+            } else if (value < threshold3) {
+                result = 3;
+            } else if (value < threshold4) {
+                result = 4;
+            } else {
+                result = 5;
+            }
+            """,
+            "dronedash_ndvi_zones",
+        )
+
+    def _ensure_buffers(self, shape):
+        if self._shape == shape:
+            return
+
+        cp = self._cp
+        self._shape = shape
+        self._values = cp.empty(shape, dtype=cp.float32)
+        self._result = cp.empty(shape, dtype=cp.uint8)
+
+    def compute(self, values, thresholds):
+        self._ensure_buffers(values.shape)
+        self._values.set(values)
+
+        self._kernel(
+            self._values,
+            self._cp.float32(thresholds[0]),
+            self._cp.float32(thresholds[1]),
+            self._cp.float32(thresholds[2]),
+            self._cp.float32(thresholds[3]),
+            self._result,
+        )
+
+        return self._cp.asnumpy(self._result)
+
+
 def _zones_cuda(values, thresholds):
-    import cupy as cp
+    global _CUDA_ZONE_PROCESSOR
 
-    gpu = cp.asarray(
+    if _CUDA_ZONE_PROCESSOR is None:
+        _CUDA_ZONE_PROCESSOR = _CudaZoneProcessor()
+
+    return _CUDA_ZONE_PROCESSOR.compute(
         values,
-        dtype=cp.float32,
+        thresholds,
     )
-    finite = cp.isfinite(gpu)
-    output = cp.zeros(
-        gpu.shape,
-        dtype=cp.uint8,
-    )
-
-    output[
-        finite & (gpu < thresholds[0])
-    ] = 1
-    output[
-        finite
-        & (gpu >= thresholds[0])
-        & (gpu < thresholds[1])
-    ] = 2
-    output[
-        finite
-        & (gpu >= thresholds[1])
-        & (gpu < thresholds[2])
-    ] = 3
-    output[
-        finite
-        & (gpu >= thresholds[2])
-        & (gpu < thresholds[3])
-    ] = 4
-    output[
-        finite & (gpu >= thresholds[3])
-    ] = 5
-
-    cp.cuda.get_current_stream().synchronize()
-    return cp.asnumpy(
-        output
-    )
-
 
 def geospatial_zones(args):
     import time
@@ -2060,21 +2271,22 @@ def geospatial_zones(args):
     input_band = source.GetRasterBand(1)
     input_nodata = input_band.GetNoDataValue()
 
-    def benchmark_zones(tile_size):
-        width = min(
-            int(tile_size),
+    def benchmark_zones(
+        tile_size,
+        sample_index,
+    ):
+        x, y, width, height = _benchmark_window(
             source.RasterXSize,
-        )
-        height = min(
-            int(tile_size),
             source.RasterYSize,
+            tile_size,
+            sample_index,
         )
 
         read_started = time.perf_counter()
 
         values = input_band.ReadAsArray(
-            0,
-            0,
+            x,
+            y,
             width,
             height,
         )
@@ -2238,11 +2450,16 @@ def geospatial_zones(args):
                         values,
                         thresholds,
                     )
-                except Exception:
+                except Exception as exc:
                     if args.backend == "cuda":
                         raise
 
                     backend = "cpu"
+                    backend_fallback_reason = (
+                        f"CUDA processing failed at tile x={x} y={y}; "
+                        f"CPU fallback selected: {exc}"
+                    )
+                    _release_cuda_memory_pool()
                     zones = _zones_cpu(
                         values,
                         thresholds,
@@ -2299,6 +2516,11 @@ def geospatial_zones(args):
                 processing_elapsed_seconds,
             "tilesPerSecond":
                 tiles / processing_elapsed_seconds,
+            "pixelsPerSecond":
+                (
+                    int(source.RasterXSize) *
+                    int(source.RasterYSize)
+                ) / processing_elapsed_seconds,
             "thresholds": thresholds,
             "zonePixelCounts": counts,
             "backendRequested": args.backend,
@@ -2334,10 +2556,85 @@ def geospatial_zones(args):
         writer.abort()
 
 
-def main():
+def _serve_jsonl():
+    import contextlib
+    import io
+
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+
+        request_id = None
+
+        try:
+            request = json.loads(line)
+            request_id = request.get("id")
+
+            if request.get("shutdown"):
+                print(
+                    json.dumps(
+                        {
+                            "id": request_id,
+                            "ok": True,
+                            "stdout": [],
+                            "stderr": [],
+                        }
+                    ),
+                    flush=True,
+                )
+                return
+
+            arguments = request.get("arguments")
+
+            if (
+                not isinstance(arguments, list)
+                or not all(isinstance(value, str) for value in arguments)
+                or "--serve-jsonl" in arguments
+            ):
+                raise ValueError(
+                    "server request requires a string arguments array"
+                )
+
+            stdout_buffer = io.StringIO()
+            stderr_buffer = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(stderr_buffer):
+                main(arguments)
+
+            print(
+                json.dumps(
+                    {
+                        "id": request_id,
+                        "ok": True,
+                        "stdout": stdout_buffer.getvalue().splitlines(),
+                        "stderr": stderr_buffer.getvalue().splitlines(),
+                    }
+                ),
+                flush=True,
+            )
+        except BaseException as exc:
+            if isinstance(exc, KeyboardInterrupt):
+                raise
+
+            print(
+                json.dumps(
+                    {
+                        "id": request_id,
+                        "ok": False,
+                        "stdout": [],
+                        "stderr": [],
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                ),
+                flush=True,
+            )
+
+
+def main(argv=None):
     parser = argparse.ArgumentParser(
         description="DroneDash M3M OpenCV/CUDA processing worker"
     )
+    parser.add_argument("--serve-jsonl", action="store_true")
     parser.add_argument("--probe", action="store_true")
     parser.add_argument("--register", action="store_true")
     parser.add_argument("--index", action="store_true")
@@ -2386,10 +2683,11 @@ def main():
         default="auto",
         help="auto or a bounded GDAL read/write pipeline depth (1..4)",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     selected_modes = sum(
         [
+            bool(args.serve_jsonl),
             bool(args.probe),
             bool(args.register),
             bool(args.index),
@@ -2400,8 +2698,12 @@ def main():
 
     if selected_modes != 1:
         parser.error(
-            "choose exactly one of --probe, --register, --index, --geo-index or --geo-zones"
+            "choose exactly one of --serve-jsonl, --probe, --register, --index, --geo-index or --geo-zones"
         )
+
+    if args.serve_jsonl:
+        _serve_jsonl()
+        return
 
     if args.probe:
         probe()
