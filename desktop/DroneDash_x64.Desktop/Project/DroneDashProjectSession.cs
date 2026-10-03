@@ -342,9 +342,23 @@ public static class DroneDashProjectSession
                     target,
                     metadata);
 
+            var pipeline =
+                ProjectPipelineStore.Load(
+                    oldProjectPath);
+
             DroneDashProjectStore.Save(
                 target,
                 rebased);
+
+            if (pipeline is not null)
+            {
+                ProjectPipelineStore.Save(
+                    target,
+                    ProjectPipelineStore.Rebase(
+                        oldProjectPath,
+                        target,
+                        pipeline));
+            }
 
             CurrentProjectPath =
                 target;
