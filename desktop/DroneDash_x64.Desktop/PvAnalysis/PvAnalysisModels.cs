@@ -189,5 +189,5 @@ public sealed record PvAnalysisManifest(
     PvDatasetSummary Summary,
     IReadOnlyList<PvImageAnalysisResult> Images)
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 }
