@@ -422,7 +422,7 @@ public static class ProjectProcessingCoordinator
                     DateTimeOffset.UtcNow);
 
             ledger =
-                ProjectProcessingState.ProjectProcessingState.ReplaceJob(
+                ProjectProcessingState.ReplaceJob(
                     ledger,
                     index,
                     job);
@@ -660,7 +660,7 @@ public static class ProjectProcessingCoordinator
         try
         {
             pipeline =
-                ProjectPipelineStore.ProjectProcessingStore.Load(
+                ProjectPipelineStore.Load(
                     projectPath)!;
 
             return pipeline is not null;
