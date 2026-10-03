@@ -77,8 +77,9 @@ tested before touching a drone.
 
 ## Build and install the RC agent
 
-1. Create a DJI Developer application and bind its App Key to the exact Android package name
-   `com.example.m3ebridge`, or change both `namespace` and `applicationId` before registering.
+1. Create a DJI Developer Mobile SDK Android application and bind its App Key to the exact permanent
+   Android package name `com.mason82.dronedash.rcbridge`. Do not register the old
+   `com.example.m3ebridge` package.
 2. Put secrets and optional LAN binding in your user Gradle properties, not in Git:
    `%USERPROFILE%\.gradle\gradle.properties`
 
@@ -96,6 +97,12 @@ For deliberate LAN operation, set `BRIDGE_BIND_ADDRESS=0.0.0.0` and configure a 
    `cd rc-agent && gradle wrapper --gradle-version 8.12`
 4. Build:
    `./gradlew :app:assembleDebug`
+
+   The bridge screen shows the final App ID and only whether a real DJI App Key is configured; it
+   never displays the key value. A release build fails if `DJI_API_KEY` is missing/placeholder or
+   `BRIDGE_TOKEN` is shorter than 24 characters.
+
+   See `docs/DJI_MSDK_KEY_SETUP.md` for local and GitHub Actions secret setup.
 5. Enable USB debugging on the RC Pro Enterprise and install:
    `adb install -r app/build/outputs/apk/debug/app-debug.apk`
 6. **Force-stop DJI Pilot 2 before running the MSDK app.**
@@ -130,7 +137,8 @@ only on loopback.
 `.github/workflows/ci.yml` verifies both sides of the project:
 
 - Windows: restore and Release-build the WPF desktop application and mock RC;
-- Android: Java 17 + Gradle 8.12, then `:app:assembleDebug` with CI-only placeholder credentials.
+- Android: Java 17 + Gradle 8.12, then `:app:assembleDebug`; pull requests use CI-only placeholders,
+  while trusted push/manual runs consume `DJI_API_KEY` and `BRIDGE_TOKEN` repository secrets when configured.
 
 This makes SDK/dependency or compiler regressions visible immediately after a push.
 

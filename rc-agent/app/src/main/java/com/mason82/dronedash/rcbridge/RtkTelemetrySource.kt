@@ -1,4 +1,4 @@
-package com.example.m3ebridge
+package com.mason82.dronedash.rcbridge
 
 import dji.v5.manager.aircraft.rtk.RTKCenter
 import dji.v5.manager.aircraft.rtk.RTKLocationInfo
