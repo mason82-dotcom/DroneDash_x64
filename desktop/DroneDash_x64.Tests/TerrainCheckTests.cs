@@ -128,6 +128,71 @@ public sealed class TerrainCheckTests : IDisposable
         Assert.Contains("95 %", summary);
     }
 
+    private static TerrainCheckResult Result(double altitude, double? minimumClearance, double required = 30) =>
+        new("relative", altitude, required, 10, 0.5, 100, "model", 100 + altitude, 1000, 2000, 1.0, [99, 120], 160,
+            minimumClearance is { } c ? new TerrainMinimum(c, 160, 10, 8.4, 49, "Nadir") : null,
+            [], [], false, []);
+
+    [Theory]
+    [InlineData(80, 20, 90)]      // 10 m missing
+    [InlineData(80, 29.4, 81)]    // rounded up to whole metres
+    [InlineData(80, -15, 125)]    // collision
+    public void RequiredAltitude_AddsMissingClearance(double altitude, double clearance, double expected) =>
+        Assert.Equal(expected, TerrainCheckService.RequiredAltitude(Result(altitude, clearance)));
+
+    [Fact]
+    public void RequiredAltitude_IsNullWhenClearOrUnknown()
+    {
+        Assert.Null(TerrainCheckService.RequiredAltitude(Result(80, 30)));
+        Assert.Null(TerrainCheckService.RequiredAltitude(Result(80, 55)));
+        Assert.Null(TerrainCheckService.RequiredAltitude(Result(80, null)));
+    }
+
+    [Fact]
+    public async Task RaiseAltitudeAsync_ReplansAndRechecksUntilClear()
+    {
+        var plan = PhotogrammetryPlanner.Generate(Field, Settings(altitude: 80));
+        var altitudes = new List<double>();
+        // A re-planned route shifts its lines, so the first raise falls 2 m short.
+        var shortfall = 2.0;
+
+        var adjustment = await TerrainCheckService.RaiseAltitudeAsync(
+            plan,
+            Result(80, 20),
+            altitude =>
+            {
+                altitudes.Add(altitude);
+                return PhotogrammetryPlanner.Generate(Field, Settings(altitude: altitude));
+            },
+            replanned =>
+            {
+                var altitude = replanned.Settings.AltitudeMeters;
+                var clearance = altitude - 60 - shortfall;
+                shortfall = 0;
+                return Task.FromResult(Result(altitude, clearance));
+            });
+
+        Assert.Equal([90.0, 92.0], altitudes);
+        Assert.True(adjustment.Satisfied);
+        Assert.Equal(2, adjustment.Iterations);
+        Assert.Equal(92, adjustment.Plan.Settings.AltitudeMeters);
+    }
+
+    [Fact]
+    public async Task RaiseAltitudeAsync_StopsAtThePlanningLimit()
+    {
+        var plan = PhotogrammetryPlanner.Generate(Field, Settings(altitude: 80));
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            TerrainCheckService.RaiseAltitudeAsync(
+                plan,
+                Result(80, -500),
+                _ => throw new InvalidOperationException("must not replan"),
+                _ => throw new InvalidOperationException("must not check")));
+
+        Assert.Contains("höchstens 500 m", error.Message);
+    }
+
     [Fact]
     public void ProjectStore_RoundTripsTerrainSettings()
     {
@@ -215,5 +280,18 @@ public sealed class TerrainCheckTests : IDisposable
 
         Assert.True(lowResult.HasCollision);
         Assert.Equal(-10.0, lowResult.Minimum!.Clearance, 0.01);
+
+        // 50 m leaves -10 m; 30 m clearance needs 90 m, and the re-planned route then passes.
+        var adjustment = await TerrainCheckService.RaiseAltitudeAsync(
+            low,
+            lowResult,
+            altitude => PhotogrammetryPlanner.Generate(field, Settings(altitude: altitude)),
+            plan => TerrainCheckService.RunAsync(
+                python, TestPython.WorkerPath(), dsm, plan, Options(takeOff), TestContext.Current.CancellationToken));
+
+        Assert.True(adjustment.Satisfied);
+        Assert.Equal(90, adjustment.Plan.Settings.AltitudeMeters);
+        Assert.Equal(30.0, adjustment.Result.Minimum!.Clearance, 0.01);
+        Assert.Empty(adjustment.Result.Violations);
     }
 }

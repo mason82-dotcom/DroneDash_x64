@@ -168,6 +168,8 @@
             </Grid>
             <WrapPanel Margin="0,6,0,0">
               <Button x:Name="CheckTerrainButton" Content="Route prüfen" Click="CheckTerrain_Click"/>
+              <Button x:Name="RaiseAltitudeButton" Content="Höhe anpassen" Click="RaiseAltitude_Click" IsEnabled="False"
+                      ToolTip="Hebt die Flughöhe an, bis die Route überall den Mindestabstand einhält, und berechnet Route und Prüfung neu."/>
             </WrapPanel>
             <TextBlock x:Name="TerrainResultText" Margin="4,6,0,0" Text="Noch nicht geprüft." TextWrapping="Wrap"/>
           </StackPanel>

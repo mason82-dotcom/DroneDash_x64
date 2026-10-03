@@ -163,6 +163,9 @@ public partial class FlightPlanningView
     /// </param>
     private void RenderMap(bool fitBounds = false)
     {
+        // Every edit that invalidates the plan re-renders; the terrain result then no longer applies.
+        UpdateRaiseAltitudeButton();
+
         if (!_mapReady)
             return;
 

@@ -84,48 +84,17 @@ public partial class FlightPlanningView
         {
             if (_plan is null)
                 throw new InvalidOperationException("Zuerst die Route berechnen.");
-            if (_terrainModelPath is null || !File.Exists(_terrainModelPath))
-                throw new InvalidOperationException("Zuerst ein Höhenmodell (DSM) wählen.");
 
-            var options = new TerrainCheckOptions(
-                _takeOffPoint,
-                ParseOptionalNumber(TakeOffElevationBox.Text, "Starthöhe"),
-                ParseNumber(MinClearanceBox.Text, "Mindestabstand"),
-                ParseNumber(TerrainBufferBox.Text, "Puffer"));
-
-            _terrainBusy = true;
-            CheckTerrainButton.IsEnabled = false;
-            TerrainResultText.Text = "Python-Toolchain wird geprüft …";
-            _terrainToolchain ??= await LocalImageToolchain.ProbeAsync();
-
-            if (_terrainToolchain.PythonExecutable is null || !_terrainToolchain.GdalPythonAvailable)
-            {
-                throw new InvalidOperationException(
-                    "Für die Geländeprüfung wird Python mit GDAL (osgeo.gdal) und NumPy benötigt. " +
-                    "Python über DRONEDASH_PYTHON festlegen (z. B. OSGeo4W oder conda).");
-            }
+            var options = ReadTerrainOptions();
+            SetTerrainBusy(true);
+            var toolchain = await RequireTerrainToolchainAsync();
 
             TerrainResultText.Text = "Route wird gegen das Höhenmodell geprüft …";
             var plan = _plan;
             var result = await TerrainCheckService.RunAsync(
-                _terrainToolchain.PythonExecutable,
-                _terrainToolchain.OpenCvWorkerPath,
-                _terrainModelPath,
-                plan,
-                options);
+                toolchain.PythonExecutable!, toolchain.OpenCvWorkerPath, _terrainModelPath!, plan, options);
 
-            _terrainResult = result;
-            _terrainPlan = plan;
-            TerrainResultText.Text = result.SummaryText;
-            TerrainResultText.Foreground = result.HasCollision
-                ? System.Windows.Media.Brushes.Firebrick
-                : result.IsClear
-                    ? System.Windows.Media.Brushes.ForestGreen
-                    : System.Windows.Media.Brushes.DarkOrange;
-            PlanningStatusText.Text = result.IsClear
-                ? "Geländeprüfung: keine Engstellen."
-                : "Geländeprüfung: Engstellen auf der Karte markiert.";
-            RenderMap();
+            ShowTerrainResult(plan, result);
         }
         catch (Exception ex)
         {
@@ -134,9 +103,134 @@ public partial class FlightPlanningView
         }
         finally
         {
-            _terrainBusy = false;
-            CheckTerrainButton.IsEnabled = true;
+            SetTerrainBusy(false);
         }
+    }
+
+    private async void RaiseAltitude_Click(object sender, RoutedEventArgs e)
+    {
+        if (_terrainBusy || _plan is null || CurrentTerrainResult is not { } current ||
+            TerrainCheckService.RequiredAltitude(current) is not { } suggested)
+        {
+            return;
+        }
+
+        var aboveLimit = suggested > TerrainCheckService.OpenCategoryMaxAglMeters
+            ? Environment.NewLine + Environment.NewLine +
+              $"⚠ Mehr als {TerrainCheckService.OpenCategoryMaxAglMeters:F0} m über dem Startpunkt: in der offenen Kategorie " +
+              "nur zulässig, wenn der Abstand zum Boden darunter 120 m nicht überschreitet; sonst ist eine Genehmigung nötig."
+            : "";
+
+        var confirmation = System.Windows.MessageBox.Show(
+            $"Flughöhe von {current.Altitude:F0} m auf mindestens {suggested:F0} m anheben, Route neu berechnen und erneut prüfen?" +
+            Environment.NewLine + "Linienabstand, GSD und Flugzeit ändern sich mit der Höhe." + aboveLimit,
+            "Höhe anpassen",
+            MessageBoxButton.OKCancel,
+            aboveLimit.Length > 0 ? MessageBoxImage.Warning : MessageBoxImage.Question);
+
+        if (confirmation != MessageBoxResult.OK)
+            return;
+
+        try
+        {
+            var options = ReadTerrainOptions();
+            var settings = ReadSettings();
+            SetTerrainBusy(true);
+            var toolchain = await RequireTerrainToolchainAsync();
+
+            var adjustment = await TerrainCheckService.RaiseAltitudeAsync(
+                _plan,
+                current,
+                altitude => PhotogrammetryPlanner.Generate(_geometry, settings with { AltitudeMeters = altitude }),
+                plan =>
+                {
+                    TerrainResultText.Text = $"Route mit {plan.Settings.AltitudeMeters:F0} m wird geprüft …";
+                    return TerrainCheckService.RunAsync(
+                        toolchain.PythonExecutable!, toolchain.OpenCvWorkerPath, _terrainModelPath!, plan, options);
+                });
+
+            _plan = adjustment.Plan;
+            AltitudeBox.Text = adjustment.Plan.Settings.AltitudeMeters.ToString("0.##", CultureInfo.InvariantCulture);
+            MarkProjectChanged();
+            RenderPlanSummary(_plan);
+            ShowTerrainResult(_plan, adjustment.Result);
+            PlanningStatusText.Text = adjustment.Satisfied
+                ? $"Flughöhe auf {_plan.Settings.AltitudeMeters:F0} m angehoben; Mindestabstand überall eingehalten."
+                : $"Flughöhe auf {_plan.Settings.AltitudeMeters:F0} m angehoben, aber noch Engstellen nach {adjustment.Iterations} Schritten.";
+        }
+        catch (Exception ex)
+        {
+            TerrainResultText.Foreground = System.Windows.Media.Brushes.Firebrick;
+            TerrainResultText.Text = ex.Message;
+        }
+        finally
+        {
+            SetTerrainBusy(false);
+        }
+    }
+
+    private TerrainCheckOptions ReadTerrainOptions()
+    {
+        if (_terrainModelPath is null || !File.Exists(_terrainModelPath))
+            throw new InvalidOperationException("Zuerst ein Höhenmodell (DSM) wählen.");
+
+        return new TerrainCheckOptions(
+            _takeOffPoint,
+            ParseOptionalNumber(TakeOffElevationBox.Text, "Starthöhe"),
+            ParseNumber(MinClearanceBox.Text, "Mindestabstand"),
+            ParseNumber(TerrainBufferBox.Text, "Puffer"));
+    }
+
+    private async Task<LocalImageToolchainStatus> RequireTerrainToolchainAsync()
+    {
+        TerrainResultText.Text = "Python-Toolchain wird geprüft …";
+        _terrainToolchain ??= await LocalImageToolchain.ProbeAsync();
+
+        if (_terrainToolchain.PythonExecutable is null || !_terrainToolchain.GdalPythonAvailable)
+        {
+            throw new InvalidOperationException(
+                "Für die Geländeprüfung wird Python mit GDAL (osgeo.gdal) und NumPy benötigt. " +
+                "Python über DRONEDASH_PYTHON festlegen (z. B. OSGeo4W oder conda).");
+        }
+
+        return _terrainToolchain;
+    }
+
+    private void SetTerrainBusy(bool busy)
+    {
+        _terrainBusy = busy;
+        CheckTerrainButton.IsEnabled = !busy;
+        UpdateRaiseAltitudeButton();
+    }
+
+    private void UpdateRaiseAltitudeButton()
+    {
+        RaiseAltitudeButton.IsEnabled =
+            !_terrainBusy &&
+            CurrentTerrainResult is { } result &&
+            TerrainCheckService.RequiredAltitude(result) is not null;
+    }
+
+    private void ShowTerrainResult(FlightPlanResult plan, TerrainCheckResult result)
+    {
+        _terrainResult = result;
+        _terrainPlan = plan;
+
+        var lines = result.SummaryText;
+        if (TerrainCheckService.RequiredAltitude(result) is { } required)
+            lines += Environment.NewLine + $"→ Mit mindestens {required:F0} m Flughöhe wäre der Mindestabstand eingehalten („Höhe anpassen“).";
+
+        TerrainResultText.Text = lines;
+        TerrainResultText.Foreground = result.HasCollision
+            ? System.Windows.Media.Brushes.Firebrick
+            : result.IsClear
+                ? System.Windows.Media.Brushes.ForestGreen
+                : System.Windows.Media.Brushes.DarkOrange;
+        PlanningStatusText.Text = result.IsClear
+            ? "Geländeprüfung: keine Engstellen."
+            : "Geländeprüfung: Engstellen auf der Karte markiert.";
+        UpdateRaiseAltitudeButton();
+        RenderMap();
     }
 
     private object? TerrainMapMessage()
