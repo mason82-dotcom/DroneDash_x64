@@ -58,7 +58,7 @@ if ($dimensions[0] -ne 640 -or $dimensions[1] -ne 512) {
 }
 
 # Binary-safe token checks. We deliberately do not print serial numbers or private metadata.
-$latin1 = [System.Text.Encoding]::Latin1.GetString($bytes)
+$latin1 = [System.Text.Encoding]::GetEncoding(28591).GetString($bytes)
 $requiredTokens = @(
     "DJI",
     "M3T",
@@ -67,13 +67,19 @@ $requiredTokens = @(
 )
 
 foreach ($token in $requiredTokens) {
-    if (-not $latin1.Contains($token, [System.StringComparison]::Ordinal)) {
+    if ($latin1.IndexOf($token, [System.StringComparison]::Ordinal) -lt 0) {
         throw "Required M3T R-JPEG token missing: $token"
     }
 }
 
-$sha256 = [System.Security.Cryptography.SHA256]::HashData($bytes)
-$hash = [Convert]::ToHexString($sha256).ToLowerInvariant()
+$sha256 = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $hashBytes = $sha256.ComputeHash($bytes)
+}
+finally {
+    $sha256.Dispose()
+}
+$hash = ([System.BitConverter]::ToString($hashBytes)).Replace("-", "").ToLowerInvariant()
 
 Write-Host "PASS real M3T thermal fixture"
 Write-Host "  file: DJI_20261002154302_0001_T.JPG"
