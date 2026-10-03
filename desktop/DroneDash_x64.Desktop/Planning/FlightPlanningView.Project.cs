@@ -43,7 +43,7 @@ public partial class FlightPlanningView
             if (dialog.ShowDialog() != WinForms.DialogResult.OK)
                 return;
 
-            FlightPlanProjectStore.Save(dialog.FileName, ReadSettings(), _geometry);
+            FlightPlanProjectStore.Save(dialog.FileName, ReadSettings(), _geometry, ReadTerrainSettings());
             _currentProjectPath = dialog.FileName;
             ProjectInfoText.Text = $"Gespeichert: {_currentProjectPath}";
 
@@ -103,6 +103,7 @@ public partial class FlightPlanningView
 
             _geometry.Clear();
             _geometry.AddRange(project.Geometry);
+            ApplyTerrainSettings(project.Terrain);
             _currentProjectPath = dialog.FileName;
             ProjectInfoText.Text =
                 $"Geladen: {_currentProjectPath} · Schema {project.SchemaVersion} · " +
@@ -238,7 +239,8 @@ public partial class FlightPlanningView
         FlightPlanProjectStore.Save(
             path,
             ReadSettings(),
-            _geometry);
+            _geometry,
+            ReadTerrainSettings());
 
         _currentProjectPath =
             Path.GetFullPath(path);

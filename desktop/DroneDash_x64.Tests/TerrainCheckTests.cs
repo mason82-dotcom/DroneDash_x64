@@ -128,6 +128,38 @@ public sealed class TerrainCheckTests : IDisposable
         Assert.Contains("95 %", summary);
     }
 
+    [Fact]
+    public void ProjectStore_RoundTripsTerrainSettings()
+    {
+        var path = Path.Combine(_root, "plan.ddplan");
+        var terrain = new FlightPlanTerrainSettings(@"C:\Daten\dsm.tif", new GeoPoint(49.001, 8.401), 112.5, 25, 15);
+
+        FlightPlanProjectStore.Save(path, Settings(), Field, terrain);
+        var loaded = FlightPlanProjectStore.Load(path);
+
+        Assert.Equal(terrain, loaded.Terrain);
+        Assert.Equal(FlightPlanProject.CurrentSchemaVersion, loaded.SchemaVersion);
+    }
+
+    [Fact]
+    public void ProjectStore_LoadsPlansWithoutTerrainAndRejectsInvalidTerrain()
+    {
+        var path = Path.Combine(_root, "plan.ddplan");
+        FlightPlanProjectStore.Save(path, Settings(), Field);
+        Assert.Null(FlightPlanProjectStore.Load(path).Terrain);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            FlightPlanProjectStore.Save(path, Settings(), Field, new FlightPlanTerrainSettings(null, null, null, -5, 10)));
+
+        FlightPlanProjectStore.Save(path, Settings(), Field, new FlightPlanTerrainSettings(null, new GeoPoint(49, 8.4), null, 30, 10));
+        var json = File.ReadAllText(path);
+        var takeOffIndex = json.IndexOf("\"takeOff\"", StringComparison.Ordinal);
+        Assert.True(takeOffIndex > 0);
+        var broken = json[..takeOffIndex] + json[takeOffIndex..].Replace("49", "95");
+        File.WriteAllText(path, broken);
+        Assert.Throws<InvalidDataException>(() => FlightPlanProjectStore.Load(path));
+    }
+
     /// <summary>
     /// Worker round trip on a synthetic UTM model: flat 100 m with a 60 x 60 m block of 160 m in
     /// the middle of the field. Needs DRONEDASH_TEST_PYTHON with GDAL; skipped otherwise.

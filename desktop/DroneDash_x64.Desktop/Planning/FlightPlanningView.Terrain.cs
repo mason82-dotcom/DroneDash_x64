@@ -176,6 +176,48 @@ public partial class FlightPlanningView
             : throw new FormatException($"{label}: ungültige Zahl '{text}'.");
     }
 
+    /// <summary>Current terrain inputs for the plan file; unparsable numbers fall back to the defaults.</summary>
+    private FlightPlanTerrainSettings ReadTerrainSettings()
+    {
+        static double? TryRead(string text) =>
+            double.TryParse(text.Trim().Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) &&
+            double.IsFinite(value)
+                ? value
+                : null;
+
+        var clearance = TryRead(MinClearanceBox.Text) is >= 0 and double c ? c : FlightPlanTerrainSettings.DefaultMinimumClearanceMeters;
+        var buffer = TryRead(TerrainBufferBox.Text) is >= 0 and <= 200 and double b ? b : FlightPlanTerrainSettings.DefaultBufferMeters;
+
+        return new FlightPlanTerrainSettings(
+            _terrainModelPath,
+            _takeOffPoint,
+            TryRead(TakeOffElevationBox.Text),
+            clearance,
+            buffer);
+    }
+
+    private void ApplyTerrainSettings(FlightPlanTerrainSettings? terrain)
+    {
+        _terrainResult = null;
+        _takeOffPoint = terrain?.TakeOff;
+        _terrainModelPath = terrain?.ModelPath;
+        TakeOffElevationBox.Text = terrain?.TakeOffElevation?.ToString("0.##", CultureInfo.InvariantCulture) ?? "";
+        MinClearanceBox.Text = (terrain?.MinimumClearanceMeters ?? FlightPlanTerrainSettings.DefaultMinimumClearanceMeters)
+            .ToString("0.##", CultureInfo.InvariantCulture);
+        TerrainBufferBox.Text = (terrain?.BufferMeters ?? FlightPlanTerrainSettings.DefaultBufferMeters)
+            .ToString("0.##", CultureInfo.InvariantCulture);
+
+        TerrainModelText.Text = _terrainModelPath switch
+        {
+            null => "Kein Höhenmodell gewählt",
+            var path when File.Exists(path) => path,
+            var path => $"{path} (Datei nicht gefunden)"
+        };
+        TerrainResultText.Foreground = System.Windows.Media.Brushes.Black;
+        TerrainResultText.Text = "Noch nicht geprüft.";
+        UpdateTakeOffText();
+    }
+
     private bool TryHandleTerrainMessage(string? type, JsonElement root)
     {
         if (type != "startPoint")
