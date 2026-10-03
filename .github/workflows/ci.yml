@@ -103,6 +103,11 @@ jobs:
         with:
           gradle-version: "8.12"
 
+      - name: Install Android API 36
+        shell: bash
+        run: |
+          yes | sdkmanager "platforms;android-36" "build-tools;35.0.0" >/dev/null
+
       - name: Assemble debug APK
         working-directory: rc-agent
         env:
