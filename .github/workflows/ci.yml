@@ -156,7 +156,10 @@ jobs:
               4096: (0.80, 0.80),
           }
 
-          def benchmark(tile_size):
+          def benchmark(tile_size, sample_index):
+              if tile_size == 4096:
+                  raise RuntimeError("synthetic CUDA OOM")
+
               read_seconds, compute_seconds = timings[tile_size]
               return {
                   "pixels": tile_size * tile_size,
@@ -192,7 +195,7 @@ jobs:
               12000,
               "index",
               "cuda",
-              lambda tile_size: (_ for _ in ()).throw(
+              lambda *args: (_ for _ in ()).throw(
                   RuntimeError("manual tuning must not benchmark")
               ),
           )
@@ -220,6 +223,85 @@ jobs:
           if 4096 in safe or 2048 not in safe:
               raise RuntimeError(
                   f"memory guard returned unexpected candidates: {safe}"
+              )
+
+          constrained = worker._safe_tile_candidates(
+              20000,
+              20000,
+              "index",
+              2,
+              "cuda",
+              16 * 1024 ** 2,
+              32 * 1024 ** 2,
+          )
+
+          if constrained != [128, 256]:
+              raise RuntimeError(
+                  f"low-memory guard returned unexpected candidates: {constrained}"
+              )
+
+          try:
+              worker._safe_tile_candidates(
+                  20000,
+                  20000,
+                  "index",
+                  2,
+                  "cuda",
+                  2 * 1024 ** 2,
+                  4 * 1024 ** 2,
+              )
+          except RuntimeError:
+              pass
+          else:
+              raise RuntimeError(
+                  "memory guard must reject processing when no tile is safe"
+              )
+
+          worker._system_available_memory_bytes = (
+              lambda: 1 * 1024 ** 3
+          )
+          worker._cuda_memory_snapshot = (
+              lambda backend: {
+                  "freeBytes": 512 * 1024 ** 2,
+                  "totalBytes": 4 * 1024 ** 3,
+              }
+          )
+
+          try:
+              worker._auto_tune_geospatial(
+                  "4096",
+                  "2",
+                  20000,
+                  20000,
+                  "index",
+                  "cuda",
+                  benchmark,
+              )
+          except RuntimeError:
+              pass
+          else:
+              raise RuntimeError(
+                  "unsafe manual tile override must be rejected"
+              )
+
+          benchmark_results = worker._benchmark_tiles(
+              [512, 1024, 4096],
+              benchmark,
+          )
+          failed_4096 = [
+              item
+              for item in benchmark_results
+              if item["tileSize"] == 4096
+          ][0]
+          if failed_4096.get("success", True):
+              raise RuntimeError(
+                  "failed CUDA benchmark candidate was not isolated"
+              )
+          if worker._choose_benchmark_tile(
+              benchmark_results
+          )["tileSize"] != 1024:
+              raise RuntimeError(
+                  "failed large candidate incorrectly forced global fallback"
               )
           '@
           $PipelineTest | python -
