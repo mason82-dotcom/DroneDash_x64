@@ -1,4 +1,4 @@
-package com.example.m3ebridge
+package com.mason82.dronedash.rcbridge
 
 import android.app.Application
 import org.json.JSONObject
