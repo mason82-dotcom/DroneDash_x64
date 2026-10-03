@@ -34,6 +34,10 @@ public sealed record LocalImageToolchainStatus(
     string? PythonExecutable,
     string OpenCvWorkerPath)
 {
+    public bool OpenCvCudaAvailable { get; init; }
+
+    public bool CupyCudaAvailable { get; init; }
+
     public bool IsReady =>
         Gdal.Available &&
         Otb.Available &&
@@ -44,12 +48,18 @@ public sealed record LocalImageToolchainStatus(
         !string.IsNullOrWhiteSpace(PythonExecutable);
 
     public bool CudaAvailable =>
-        Cuda.Available;
+        OpenCvCudaAvailable ||
+        CupyCudaAvailable;
 
     public string OpenCvBackend =>
-        CudaAvailable
+        OpenCvCudaAvailable
             ? "CUDA (Auto-Fallback auf CPU)"
             : "CPU";
+
+    public string VegetationIndexBackend =>
+        CupyCudaAvailable
+            ? "CUDA/CuPy (Auto-Fallback auf NumPy)"
+            : "CPU/NumPy";
 
     public IReadOnlyList<LocalImageToolStatus> Tools =>
         [Gdal, Otb, OpenCv, Cuda];
