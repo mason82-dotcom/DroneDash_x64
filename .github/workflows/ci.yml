@@ -41,6 +41,7 @@ jobs:
               $Help -notmatch "--geo-zones" -or
               $Help -notmatch "--tile-size" -or
               $Help -notmatch "--pipeline-depth" -or
+              $Help -notmatch "--cuda-min-pixels" -or
               $Help -notmatch "--serve-jsonl" -or
               $Help -notmatch "--backend") {
             throw "Smart Farming worker CLI is missing CUDA/GDAL pipeline options."
@@ -302,6 +303,51 @@ jobs:
           )["tileSize"] != 1024:
               raise RuntimeError(
                   "failed large candidate incorrectly forced global fallback"
+              )
+
+          if worker._select_compute_backend(
+              "cuda",
+              "auto",
+              999,
+              1000,
+          ) != "cpu":
+              raise RuntimeError(
+                  "adaptive backend must keep small auto-mode work on CPU"
+              )
+
+          if worker._select_compute_backend(
+              "cuda",
+              "auto",
+              1000,
+              1000,
+          ) != "cuda":
+              raise RuntimeError(
+                  "adaptive backend must select CUDA at the configured threshold"
+              )
+
+          if worker._select_compute_backend(
+              "cuda",
+              "cuda",
+              1,
+              1000,
+          ) != "cuda":
+              raise RuntimeError(
+                  "explicit CUDA must bypass the auto-mode threshold"
+              )
+
+          cpu_safe = worker._safe_tile_candidates(
+              20000,
+              20000,
+              "index",
+              2,
+              "cuda",
+              16 * 1024 ** 2,
+              512 * 1024,
+              1_048_576,
+          )
+          if cpu_safe[:3] != [128, 256, 512]:
+              raise RuntimeError(
+                  f"CPU-threshold tiles were incorrectly rejected by VRAM guard: {cpu_safe}"
               )
           '@
           $PipelineTest | python -
