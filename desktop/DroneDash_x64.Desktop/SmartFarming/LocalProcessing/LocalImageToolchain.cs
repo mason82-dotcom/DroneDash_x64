@@ -81,7 +81,13 @@ public static partial class LocalImageToolchain
             otbBandMath,
             otbBandMathX,
             python,
-            worker);
+            worker)
+        {
+            OpenCvCudaAvailable =
+                openCvProbe.CudaAvailable,
+            CupyCudaAvailable =
+                openCvProbe.CupyAvailable
+        };
     }
 
     private static async Task<LocalImageToolStatus> ProbeGdalAsync(
@@ -160,7 +166,11 @@ public static partial class LocalImageToolchain
         bool CudaAvailable,
         int CudaDeviceCount,
         string? CudaDeviceName,
-        string? CudaBuild);
+        string? CudaBuild,
+        bool CupyAvailable,
+        string? CupyVersion,
+        int CupyDeviceCount,
+        string? CupyDeviceName);
 
     private static async Task<OpenCvProbeResult> ProbeOpenCvAsync(
         string? python,
@@ -180,6 +190,10 @@ public static partial class LocalImageToolchain
                 false,
                 0,
                 null,
+                null,
+                false,
+                null,
+                0,
                 null);
         }
 
@@ -196,6 +210,10 @@ public static partial class LocalImageToolchain
                 false,
                 0,
                 null,
+                null,
+                false,
+                null,
+                0,
                 null);
         }
 
@@ -209,6 +227,10 @@ public static partial class LocalImageToolchain
         var cudaDeviceCount = 0;
         string? cudaDeviceName = null;
         string? cudaBuild = null;
+        var cupyAvailable = false;
+        string? cupyVersion = null;
+        var cupyDeviceCount = 0;
+        string? cupyDeviceName = null;
 
         if (result.Success)
         {
@@ -271,6 +293,49 @@ public static partial class LocalImageToolchain
                     cudaBuild =
                         build.GetString();
                 }
+
+                if (root.TryGetProperty(
+                        "cupyAvailable",
+                        out var cupy) &&
+                    cupy.ValueKind is
+                        JsonValueKind.True or
+                        JsonValueKind.False)
+                {
+                    cupyAvailable =
+                        cupy.GetBoolean();
+                }
+
+                if (root.TryGetProperty(
+                        "cupyVersion",
+                        out var cupyVersionElement) &&
+                    cupyVersionElement.ValueKind ==
+                        JsonValueKind.String)
+                {
+                    cupyVersion =
+                        cupyVersionElement.GetString();
+                }
+
+                if (root.TryGetProperty(
+                        "cupyDeviceCount",
+                        out var cupyDeviceCountElement) &&
+                    cupyDeviceCountElement.TryGetInt32(
+                        out var parsedCupyDeviceCount))
+                {
+                    cupyDeviceCount =
+                        Math.Max(
+                            0,
+                            parsedCupyDeviceCount);
+                }
+
+                if (root.TryGetProperty(
+                        "cupyDeviceName",
+                        out var cupyDeviceNameElement) &&
+                    cupyDeviceNameElement.ValueKind ==
+                        JsonValueKind.String)
+                {
+                    cupyDeviceName =
+                        cupyDeviceNameElement.GetString();
+                }
             }
             catch
             {
@@ -296,7 +361,12 @@ public static partial class LocalImageToolchain
             cudaDeviceCount > 0,
             cudaDeviceCount,
             cudaDeviceName,
-            cudaBuild);
+            cudaBuild,
+            cupyAvailable &&
+            cupyDeviceCount > 0,
+            cupyVersion,
+            cupyDeviceCount,
+            cupyDeviceName);
     }
 
     private static async Task<LocalImageToolStatus> ProbeCudaAsync(
@@ -359,7 +429,8 @@ public static partial class LocalImageToolchain
 
         var available =
             openCv.Status.Available &&
-            openCv.CudaAvailable;
+            (openCv.CudaAvailable ||
+             openCv.CupyAvailable);
 
         var version =
             toolkitVersion ??
@@ -367,42 +438,47 @@ public static partial class LocalImageToolchain
 
         string detail;
 
-        if (available)
-        {
-            var device =
-                string.IsNullOrWhiteSpace(
-                    openCv.CudaDeviceName)
-                    ? $"{openCv.CudaDeviceCount} CUDA-Gerät(e)"
-                    : openCv.CudaDeviceName;
-
-            detail =
-                $"OpenCV-CUDA aktiv · {device}" +
-                (string.IsNullOrWhiteSpace(
-                    driverInfo)
-                    ? ""
-                    : $" · NVIDIA {driverInfo}") +
-                (string.IsNullOrWhiteSpace(
-                    toolkitVersion)
-                    ? ""
-                    : $" · Toolkit {toolkitVersion}") +
-                ". ECC bleibt CPU; Resize und finales Warping nutzen CUDA.";
-        }
-        else if (!openCv.Status.Available)
+        if (!openCv.Status.Available)
         {
             detail =
                 "CUDA optional: Python/OpenCV-Worker ist nicht verfügbar.";
         }
-        else if (!string.IsNullOrWhiteSpace(
-                     driverInfo))
+        else if (available)
+        {
+            var device =
+                openCv.CudaDeviceName ??
+                openCv.CupyDeviceName ??
+                $"{Math.Max(openCv.CudaDeviceCount, openCv.CupyDeviceCount)} CUDA-Gerät(e)";
+
+            var registration =
+                openCv.CudaAvailable
+                    ? "OpenCV-Registrierung: CUDA Resize/Warp"
+                    : "OpenCV-Registrierung: CPU";
+
+            var indices =
+                openCv.CupyAvailable
+                    ? $"Vegetationsindizes: CUDA/CuPy {openCv.CupyVersion ?? ""}".TrimEnd()
+                    : "Vegetationsindizes: CPU/NumPy";
+
+            detail =
+                $"{device} · {registration} · {indices}" +
+                (string.IsNullOrWhiteSpace(driverInfo)
+                    ? ""
+                    : $" · NVIDIA {driverInfo}") +
+                (string.IsNullOrWhiteSpace(toolkitVersion)
+                    ? ""
+                    : $" · Toolkit {toolkitVersion}") +
+                ".";
+        }
+        else if (!string.IsNullOrWhiteSpace(driverInfo))
         {
             detail =
-                $"NVIDIA-GPU erkannt ({driverInfo}), aber dieses Python/OpenCV sieht kein CUDA-Gerät. " +
-                "OpenCV muss mit WITH_CUDA=ON gebaut sein; CPU-Fallback bleibt aktiv.";
+                $"NVIDIA-GPU erkannt ({driverInfo}), aber weder OpenCV-CUDA noch CuPy stellen ein CUDA-Gerät bereit. CPU-Fallback bleibt aktiv.";
         }
         else
         {
             detail =
-                "Kein OpenCV-CUDA-Gerät verfügbar. CPU-Fallback bleibt aktiv.";
+                "Kein CUDA-Backend verfügbar. OpenCV und Vegetationsindizes verwenden CPU-Fallback.";
         }
 
         return new(
