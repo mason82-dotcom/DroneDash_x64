@@ -67,7 +67,6 @@ public sealed record LocalImageToolchainStatus(
 
     public bool GdalTileEngineAvailable =>
         GdalPythonAvailable &&
-        OpenCv.Available &&
         !string.IsNullOrWhiteSpace(PythonExecutable);
 
     public string GeoRasterBackend =>
