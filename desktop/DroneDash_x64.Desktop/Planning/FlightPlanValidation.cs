@@ -4,7 +4,24 @@ internal static class FlightPlanValidation
 {
     public static void ValidateInput(
         IReadOnlyList<GeoPoint> geometry,
-        FlightPlanSettings settings)
+        FlightPlanSettings settings) =>
+        Validate(
+            geometry,
+            settings,
+            requireExecutableGeometry: true);
+
+    public static void ValidateProjectData(
+        IReadOnlyList<GeoPoint> geometry,
+        FlightPlanSettings settings) =>
+        Validate(
+            geometry,
+            settings,
+            requireExecutableGeometry: false);
+
+    private static void Validate(
+        IReadOnlyList<GeoPoint> geometry,
+        FlightPlanSettings settings,
+        bool requireExecutableGeometry)
     {
         ArgumentNullException.ThrowIfNull(geometry);
         ArgumentNullException.ThrowIfNull(settings);
@@ -23,20 +40,29 @@ internal static class FlightPlanValidation
                 "Nicht unterstützter Flugplanmodus.");
         }
 
-        var minimumPoints =
-            settings.Mode ==
-                FlightPlanMode.MappingStrip
-                ? 2
-                : 3;
-
-        if (geometry.Count <
-            minimumPoints)
+        if (geometry.Count == 0)
         {
             throw new InvalidOperationException(
+                "Die Planung enthält keine Geometrie.");
+        }
+
+        if (requireExecutableGeometry)
+        {
+            var minimumPoints =
                 settings.Mode ==
                     FlightPlanMode.MappingStrip
-                    ? "Für Strip-Mapping sind mindestens zwei Trassenpunkte erforderlich."
-                    : "Mindestens drei Polygonpunkte sind erforderlich.");
+                    ? 2
+                    : 3;
+
+            if (geometry.Count <
+                minimumPoints)
+            {
+                throw new InvalidOperationException(
+                    settings.Mode ==
+                        FlightPlanMode.MappingStrip
+                        ? "Für Strip-Mapping sind mindestens zwei Trassenpunkte erforderlich."
+                        : "Mindestens drei Polygonpunkte sind erforderlich.");
+            }
         }
 
         if (geometry.Any(point =>
