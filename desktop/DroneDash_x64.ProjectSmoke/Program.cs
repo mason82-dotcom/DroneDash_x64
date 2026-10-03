@@ -559,6 +559,78 @@ try
             "Persisted pipeline state mismatch.");
     }
 
+    var rejectedEscapingPipelinePath =
+        false;
+
+    try
+    {
+        ProjectPipelineStore.Save(
+            sessionProjectPath,
+            loadedPipeline with
+            {
+                SourceFolder =
+                    new ProjectPipelinePath(
+                        Path.Combine(
+                            "..",
+                            "outside-project"),
+                        true)
+            });
+    }
+    catch (InvalidDataException)
+    {
+        rejectedEscapingPipelinePath =
+            true;
+    }
+
+    if (!rejectedEscapingPipelinePath)
+    {
+        throw new InvalidDataException(
+            "Pipeline store accepted a relative path escaping the project directory.");
+    }
+
+    var invalidPipelineRoot =
+        Path.Combine(
+            root,
+            "invalid-pipeline-state");
+
+    Directory.CreateDirectory(
+        invalidPipelineRoot);
+
+    var invalidPipelineProjectPath =
+        Path.Combine(
+            invalidPipelineRoot,
+            "invalid.ddproj");
+
+    DroneDashProjectStore.Save(
+        invalidPipelineProjectPath,
+        DroneDashProjectStore.Create(
+            "Invalid Pipeline State"));
+
+    File.WriteAllText(
+        ProjectPipelineStore.GetStatePath(
+            invalidPipelineProjectPath),
+        """{"schemaVersion":99,"jobId":"00000000-0000-0000-0000-000000000001","module":"Photogrammetry","stage":"Ingested","sourceFolder":{"storedPath":"dataset","isRelative":true},"flightPlan":null,"createdAtUtc":"2026-10-03T00:00:00+00:00","updatedAtUtc":"2026-10-03T00:00:00+00:00","probe":{"module":"Photogrammetry","totalFiles":1,"supportedImageFiles":1,"thermalFiles":0,"m3mFiles":0,"m3mBandFiles":0,"ambiguous":false,"detail":"test"}}""");
+
+    var rejectedUnsupportedPipeline =
+        false;
+
+    try
+    {
+        ProjectPipelineStore.Load(
+            invalidPipelineProjectPath);
+    }
+    catch (InvalidDataException)
+    {
+        rejectedUnsupportedPipeline =
+            true;
+    }
+
+    if (!rejectedUnsupportedPipeline)
+    {
+        throw new InvalidDataException(
+            "Unsupported pipeline schema was not rejected.");
+    }
+
     var pipelineGates =
         ProjectPipelineGateEvaluator.Evaluate(
             sessionProjectPath,
