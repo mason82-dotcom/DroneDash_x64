@@ -31,7 +31,15 @@ jobs:
           python-version: "3.12"
 
       - name: Validate Smart Farming Python worker
-        run: python -m py_compile desktop/DroneDash_x64.Desktop/SmartFarming/Workers/opencv_m3m.py
+        shell: pwsh
+        run: |
+          $Worker = "desktop/DroneDash_x64.Desktop/SmartFarming/Workers/opencv_m3m.py"
+          python -m py_compile $Worker
+          $Help = (python $Worker --help | Out-String)
+          if ($Help -notmatch "--index" -or
+              $Help -notmatch "--backend") {
+            throw "Smart Farming worker CLI is missing CUDA/index options."
+          }
 
       - name: Verify real M3T thermal fixture with Windows PowerShell 5.1
         shell: powershell

@@ -223,24 +223,33 @@ if ($PythonCommand -and (Test-Path $CudaWorker)) {
         $ProbeText = (& $PythonCommand $CudaWorker --probe 2>&1 | Out-String).Trim()
         if ($LASTEXITCODE -eq 0) {
             $Probe = $ProbeText | ConvertFrom-Json
+
             if ($Probe.cudaAvailable -and [int]$Probe.cudaDeviceCount -gt 0) {
                 $Device = if ([string]::IsNullOrWhiteSpace([string]$Probe.cudaDeviceName)) { "$($Probe.cudaDeviceCount) CUDA device(s)" } else { [string]$Probe.cudaDeviceName }
                 Write-Check OK "OpenCV CUDA" "$Device · OpenCV $($Probe.opencv)"
             }
             else {
-                Write-Check WARN "OpenCV CUDA" "OpenCV $($Probe.opencv) is available, but no CUDA-enabled device is exposed. CPU fallback will be used."
+                Write-Check WARN "OpenCV CUDA" "OpenCV $($Probe.opencv) is available, but no CUDA-enabled device is exposed. Registration uses CPU fallback."
+            }
+
+            if ($Probe.cupyAvailable -and [int]$Probe.cupyDeviceCount -gt 0) {
+                $CupyDevice = if ([string]::IsNullOrWhiteSpace([string]$Probe.cupyDeviceName)) { "$($Probe.cupyDeviceCount) CUDA device(s)" } else { [string]$Probe.cupyDeviceName }
+                Write-Check OK "CuPy CUDA" "$CupyDevice · CuPy $($Probe.cupyVersion)"
+            }
+            else {
+                Write-Check WARN "CuPy CUDA" "CuPy does not expose a CUDA device. Local NDVI/NDRE/GNDVI use NumPy CPU fallback."
             }
         }
         else {
-            Write-Check WARN "OpenCV CUDA" "Worker probe failed. Install Python + NumPy + a CUDA-enabled OpenCV build for GPU acceleration."
+            Write-Check WARN "OpenCV/CuPy CUDA" "Worker probe failed. Install Python + NumPy and optional CUDA-enabled OpenCV/CuPy packages."
         }
     }
     catch {
-        Write-Check WARN "OpenCV CUDA" "Worker probe failed: $($_.Exception.Message)"
+        Write-Check WARN "OpenCV/CuPy CUDA" "Worker probe failed: $($_.Exception.Message)"
     }
 }
 else {
-    Write-Check WARN "OpenCV CUDA" "Python worker could not be probed. CUDA acceleration remains optional."
+    Write-Check WARN "OpenCV/CuPy CUDA" "Python worker could not be probed. CUDA acceleration remains optional."
 }
 
 $ThermalDll = Join-Path $Root "desktop\DroneDash_x64.Desktop\third_party\dji-tsdk\runtime\libdirp.dll"

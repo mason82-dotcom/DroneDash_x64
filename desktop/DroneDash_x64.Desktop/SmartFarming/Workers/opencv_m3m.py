@@ -42,6 +42,43 @@ def _cuda_probe(cv2):
     }
 
 
+def _cupy_probe():
+    try:
+        import cupy as cp
+    except Exception:
+        return {
+            "cupyAvailable": False,
+            "cupyVersion": None,
+            "cupyDeviceCount": 0,
+            "cupyDeviceName": None,
+        }
+
+    try:
+        count = int(cp.cuda.runtime.getDeviceCount())
+    except Exception:
+        count = 0
+
+    name = None
+
+    if count > 0:
+        try:
+            properties = cp.cuda.runtime.getDeviceProperties(0)
+            candidate = properties.get("name")
+            if isinstance(candidate, bytes):
+                candidate = candidate.decode("utf-8", errors="replace")
+            if candidate:
+                name = str(candidate)
+        except Exception:
+            pass
+
+    return {
+        "cupyAvailable": count > 0,
+        "cupyVersion": getattr(cp, "__version__", None),
+        "cupyDeviceCount": count,
+        "cupyDeviceName": name,
+    }
+
+
 def probe():
     import cv2
     import numpy as np
@@ -51,6 +88,7 @@ def probe():
         "numpy": np.__version__,
     }
     result.update(_cuda_probe(cv2))
+    result.update(_cupy_probe())
     print(json.dumps(result))
 
 
@@ -132,7 +170,7 @@ def _cpu_warp(image, warp, width, height, motion, flags, cv2):
     )
 
 
-def _resolve_backend(requested, cv2):
+def _resolve_registration_backend(requested, cv2):
     cuda = _cuda_probe(cv2)
     available = bool(cuda["cudaAvailable"])
 
@@ -148,6 +186,24 @@ def _resolve_backend(requested, cv2):
         return "cuda", cuda
 
     return "cpu", cuda
+
+
+def _resolve_index_backend(requested):
+    cupy = _cupy_probe()
+    available = bool(cupy["cupyAvailable"])
+
+    if requested == "cuda" and not available:
+        raise RuntimeError(
+            "CUDA index backend requested, but CuPy reports no CUDA-enabled device"
+        )
+
+    if requested == "cpu":
+        return "cpu", cupy
+
+    if available:
+        return "cuda", cupy
+
+    return "cpu", cupy
 
 
 def register(args):
@@ -166,7 +222,7 @@ def register(args):
             f"band dimensions differ: reference={reference_raw.shape[:2]} moving={moving_raw.shape[:2]}"
         )
 
-    backend, cuda = _resolve_backend(args.backend, cv2)
+    backend, cuda = _resolve_registration_backend(args.backend, cv2)
 
     reference = _normalise(reference_raw, cv2, np)
     moving = _normalise(moving_raw, cv2, np)
@@ -318,16 +374,233 @@ def register(args):
     )
 
 
+def _load_single_band(path, cv2, np):
+    image = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+
+    if image is None:
+        raise RuntimeError(f"cannot read image: {path}")
+
+    if image.ndim != 2:
+        raise RuntimeError(
+            f"vegetation-index input must be single-band: {path} shape={image.shape}"
+        )
+
+    return image.astype(np.float32, copy=False)
+
+
+def _index_cpu(positive, comparison, epsilon, np):
+    denominator = positive + comparison
+    valid = (
+        np.isfinite(positive)
+        & np.isfinite(comparison)
+        & (np.abs(denominator) >= epsilon)
+    )
+
+    result = np.full(
+        positive.shape,
+        np.nan,
+        dtype=np.float32,
+    )
+
+    np.divide(
+        positive - comparison,
+        denominator,
+        out=result,
+        where=valid,
+    )
+
+    return result
+
+
+def _index_cuda(positive, comparison, epsilon):
+    import cupy as cp
+
+    positive_gpu = cp.asarray(
+        positive,
+        dtype=cp.float32,
+    )
+    comparison_gpu = cp.asarray(
+        comparison,
+        dtype=cp.float32,
+    )
+
+    denominator = positive_gpu + comparison_gpu
+    valid = (
+        cp.isfinite(positive_gpu)
+        & cp.isfinite(comparison_gpu)
+        & (cp.abs(denominator) >= epsilon)
+    )
+
+    result_gpu = cp.full(
+        positive_gpu.shape,
+        cp.nan,
+        dtype=cp.float32,
+    )
+
+    cp.divide(
+        positive_gpu - comparison_gpu,
+        denominator,
+        out=result_gpu,
+        where=valid,
+    )
+
+    cp.cuda.get_current_stream().synchronize()
+    return cp.asnumpy(result_gpu)
+
+
+def vegetation_index(args):
+    import cv2
+    import numpy as np
+
+    positive = _load_single_band(
+        args.positive_band,
+        cv2,
+        np,
+    )
+    comparison = _load_single_band(
+        args.comparison_band,
+        cv2,
+        np,
+    )
+
+    if positive.shape != comparison.shape:
+        raise RuntimeError(
+            "vegetation-index band dimensions differ: "
+            f"positive={positive.shape} comparison={comparison.shape}"
+        )
+
+    backend, cupy = _resolve_index_backend(
+        args.backend
+    )
+
+    if backend == "cuda":
+        try:
+            values = _index_cuda(
+                positive,
+                comparison,
+                args.index_epsilon,
+            )
+        except Exception:
+            if args.backend == "cuda":
+                raise
+
+            backend = "cpu"
+            values = _index_cpu(
+                positive,
+                comparison,
+                args.index_epsilon,
+                np,
+            )
+    else:
+        values = _index_cpu(
+            positive,
+            comparison,
+            args.index_epsilon,
+            np,
+        )
+
+    finite = np.isfinite(values)
+    valid_pixels = int(np.count_nonzero(finite))
+
+    if valid_pixels == 0:
+        raise RuntimeError(
+            "vegetation index contains no finite pixels"
+        )
+
+    finite_values = values[finite]
+
+    os.makedirs(
+        os.path.dirname(
+            os.path.abspath(
+                args.output
+            )
+        ),
+        exist_ok=True,
+    )
+
+    if not cv2.imwrite(
+        args.output,
+        values.astype(
+            np.float32,
+            copy=False,
+        ),
+    ):
+        raise RuntimeError(
+            f"failed to write vegetation-index TIFF: {args.output}"
+        )
+
+    metadata = {
+        "schemaVersion": 1,
+        "index": args.index_type.upper(),
+        "positiveBand": os.path.abspath(
+            args.positive_band
+        ),
+        "comparisonBand": os.path.abspath(
+            args.comparison_band
+        ),
+        "output": os.path.abspath(
+            args.output
+        ),
+        "width": int(values.shape[1]),
+        "height": int(values.shape[0]),
+        "validPixels": valid_pixels,
+        "minimum": float(np.min(finite_values)),
+        "maximum": float(np.max(finite_values)),
+        "average": float(np.mean(finite_values)),
+        "backendRequested": args.backend,
+        "backendUsed": backend,
+        "cupyVersion": cupy["cupyVersion"],
+        "cudaDeviceCount": int(cupy["cupyDeviceCount"]),
+        "cudaDeviceName": cupy["cupyDeviceName"],
+        "note": (
+            "Pixel-space vegetation-index quicklook. "
+            "Output TIFF is not an orthorectified geospatial field product."
+        ),
+    }
+
+    if args.metadata:
+        os.makedirs(
+            os.path.dirname(
+                os.path.abspath(
+                    args.metadata
+                )
+            ),
+            exist_ok=True,
+        )
+
+        with open(
+            args.metadata,
+            "w",
+            encoding="utf-8",
+        ) as handle:
+            json.dump(
+                metadata,
+                handle,
+                indent=2,
+            )
+
+    print(
+        json.dumps(
+            metadata
+        )
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="DroneDash M3M OpenCV registration worker"
+        description="DroneDash M3M OpenCV/CUDA processing worker"
     )
     parser.add_argument("--probe", action="store_true")
     parser.add_argument("--register", action="store_true")
+    parser.add_argument("--index", action="store_true")
     parser.add_argument("--reference")
     parser.add_argument("--moving")
+    parser.add_argument("--positive-band")
+    parser.add_argument("--comparison-band")
+    parser.add_argument("--index-type", choices=["ndvi", "ndre", "gndvi"])
     parser.add_argument("--output")
     parser.add_argument("--transform")
+    parser.add_argument("--metadata")
     parser.add_argument(
         "--motion",
         choices=["affine", "homography"],
@@ -337,12 +610,29 @@ def main():
         "--backend",
         choices=["auto", "cpu", "cuda"],
         default="auto",
-        help="auto uses CUDA when OpenCV reports a CUDA-enabled device and otherwise falls back to CPU",
+        help=(
+            "auto uses an available CUDA backend and otherwise falls back to CPU; "
+            "registration uses OpenCV-CUDA while vegetation indices use CuPy"
+        ),
     )
     parser.add_argument("--max-dim", type=int, default=1600)
     parser.add_argument("--iterations", type=int, default=150)
     parser.add_argument("--epsilon", type=float, default=1e-6)
+    parser.add_argument("--index-epsilon", type=float, default=1e-12)
     args = parser.parse_args()
+
+    selected_modes = sum(
+        [
+            bool(args.probe),
+            bool(args.register),
+            bool(args.index),
+        ]
+    )
+
+    if selected_modes != 1:
+        parser.error(
+            "choose exactly one of --probe, --register or --index"
+        )
 
     if args.probe:
         probe()
@@ -362,7 +652,19 @@ def main():
         register(args)
         return
 
-    parser.error("choose --probe or --register")
+    required = [
+        args.positive_band,
+        args.comparison_band,
+        args.index_type,
+        args.output,
+    ]
+
+    if any(not value for value in required):
+        parser.error(
+            "--index requires --positive-band, --comparison-band, --index-type and --output"
+        )
+
+    vegetation_index(args)
 
 
 if __name__ == "__main__":

@@ -7,8 +7,10 @@ The integration is deliberately optional:
 - systems without an NVIDIA GPU continue to use the existing CPU path;
 - no CUDA runtime is bundled in this repository;
 - source M3M files remain read-only;
-- CUDA is currently used by the Python/OpenCV registration worker for image resize and final affine/perspective warping;
-- OpenCV ECC transform estimation remains CPU-based because the OpenCV ECC API does not provide a CUDA implementation.
+- OpenCV-CUDA accelerates registration resize and final affine/perspective warping;
+- CuPy-CUDA accelerates local NDVI, NDRE and GNDVI raster arithmetic;
+- OpenCV ECC transform estimation remains CPU-based because the OpenCV ECC API does not provide a CUDA implementation;
+- the georeferenced NodeODM/OTB field-product path remains unchanged.
 
 ## Runtime selection
 
@@ -22,15 +24,17 @@ The worker accepts:
 
 DroneDash-generated processing plans use `--backend auto`.
 
-`auto` selects CUDA only when the active Python/OpenCV environment reports at least one CUDA-enabled device through `cv2.cuda.getCudaEnabledDeviceCount()`. If a CUDA resize/warp operation is not usable, `auto` falls back to CPU. Explicit `--backend cuda` fails instead of silently falling back.
+`auto` selects the available CUDA implementation independently per operation. Registration uses OpenCV-CUDA when `cv2.cuda.getCudaEnabledDeviceCount()` reports a device. Vegetation-index raster arithmetic uses CuPy when CuPy exposes a CUDA device. Each path falls back to CPU independently. Explicit `--backend cuda` fails instead of silently falling back.
 
-The generated registration JSON records:
+The generated registration and vegetation-index JSON sidecars record:
 
 - `backendRequested`
 - `backendUsed`
 - CUDA device count
 - CUDA device name when available
-- the CUDA line reported by the OpenCV build
+- the CUDA line reported by the OpenCV build for registration
+- CuPy version and device information for vegetation-index calculations
+- index statistics (valid pixels, minimum, maximum and average)
 
 This keeps the processing provenance auditable.
 
@@ -39,8 +43,9 @@ This keeps the processing provenance auditable.
 1. Install a current NVIDIA production driver for the installed GPU.
 2. Install NVIDIA CUDA Toolkit. DroneDash targets the current CUDA 13.4.x generation but does not hard-code a toolkit ABI.
 3. Install Python and NumPy for the Python environment used by DroneDash.
-4. Use an OpenCV build that was compiled with CUDA enabled (`WITH_CUDA=ON`). A normal CPU-only OpenCV build remains supported but will not enable GPU acceleration.
-5. Point DroneDash at the Python executable when needed:
+4. For GPU registration, use an OpenCV build compiled with CUDA enabled (`WITH_CUDA=ON`). A normal CPU-only OpenCV build remains supported.
+5. For GPU NDVI/NDRE/GNDVI, install a CuPy package compatible with the installed CUDA runtime. CuPy is optional; NumPy remains the CPU fallback.
+6. Point DroneDash at the Python executable when needed:
 
 ```powershell
 $env:DRONEDASH_PYTHON = "C:\Path\To\python.exe"
@@ -65,6 +70,7 @@ The doctor reports:
 - NVIDIA GPU/driver through `nvidia-smi`
 - CUDA Toolkit through `nvcc`
 - whether the configured OpenCV build exposes a CUDA device
+- whether CuPy exposes a CUDA device for NDVI/NDRE/GNDVI
 
 ## Direct worker probe
 
@@ -83,14 +89,18 @@ Example CUDA-capable output:
   "cudaAvailable": true,
   "cudaDeviceCount": 1,
   "cudaDeviceName": "NVIDIA ...",
-  "cudaBuild": "NVIDIA CUDA: YES ..."
+  "cudaBuild": "NVIDIA CUDA: YES ...",
+  "cupyAvailable": true,
+  "cupyVersion": "14.x",
+  "cupyDeviceCount": 1,
+  "cupyDeviceName": "NVIDIA ..."
 }
 ```
 
-If `cudaAvailable` is `false`, DroneDash remains fully functional and uses the CPU backend.
+If either CUDA backend is unavailable, DroneDash falls back only for that processing stage. For example, CPU-only OpenCV can coexist with CuPy GPU vegetation-index calculation.
 
 ## Why CUDA is not mandatory
 
-GDAL and Orfeo ToolBox remain separate external processing stages. The current CUDA integration intentionally accelerates only the OpenCV registration stage for which DroneDash controls the worker implementation. This avoids coupling the desktop application to a specific GPU driver/toolkit and keeps CI and non-NVIDIA workstations supported.
+GDAL and Orfeo ToolBox remain separate external processing stages. Radiometric correction still uses OTB and the corrected four-band VRT is retained through GDAL. Local NDVI/NDRE/GNDVI quicklooks now use the DroneDash Python worker so their raster arithmetic can run through CuPy on CUDA.
 
-Future GPU work can add CUDA/CuPy implementations for vegetation-index raster arithmetic or dedicated native CUDA kernels without changing the existing fallback contract.
+The NodeODM/OTB field-product path remains unchanged because it carries geospatial/orthorectified semantics that the local pixel-space quicklook worker must not silently replace. This keeps CUDA acceleration optional and preserves compatibility with non-NVIDIA workstations and CI.

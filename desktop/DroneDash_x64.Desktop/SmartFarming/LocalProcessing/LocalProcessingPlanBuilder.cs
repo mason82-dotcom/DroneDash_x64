@@ -109,25 +109,31 @@ public static class LocalProcessingPlanBuilder
         AddIndex(
             steps,
             "index-ndvi",
-            stack,
+            "ndvi",
+            correctedNir,
+            correctedRed,
             Path.Combine(indices, "ndvi.tif"),
-            "(im1b4-im1b2)/(im1b4+im1b2+1e-12)",
+            Path.Combine(indices, "ndvi.json"),
             toolchain);
 
         AddIndex(
             steps,
             "index-ndre",
-            stack,
+            "ndre",
+            correctedNir,
+            correctedRedEdge,
             Path.Combine(indices, "ndre.tif"),
-            "(im1b4-im1b3)/(im1b4+im1b3+1e-12)",
+            Path.Combine(indices, "ndre.json"),
             toolchain);
 
         AddIndex(
             steps,
             "index-gndvi",
-            stack,
+            "gndvi",
+            correctedNir,
+            correctedGreen,
             Path.Combine(indices, "gndvi.tif"),
-            "(im1b4-im1b1)/(im1b4+im1b1+1e-12)",
+            Path.Combine(indices, "gndvi.json"),
             toolchain);
 
         return new LocalProcessingPlan(
@@ -139,8 +145,8 @@ public static class LocalProcessingPlanBuilder
             [
                 "Diese Pipeline erzeugt co-registrierte Einzelaufnahme-Quicklooks, keine orthorektifizierte Feldkarte.",
                 toolchain.CudaAvailable
-                    ? "NVIDIA CUDA ist verfügbar: OpenCV nutzt CUDA automatisch für Resize und finales Warping; ECC selbst bleibt CPU-basiert."
-                    : "NVIDIA CUDA ist optional. Ohne CUDA-fähigen OpenCV-Build läuft die Registrierung automatisch vollständig auf der CPU.",
+                    ? $"NVIDIA CUDA ist verfügbar: Registrierung={toolchain.OpenCvBackend}; Vegetationsindizes={toolchain.VegetationIndexBackend}."
+                    : "NVIDIA CUDA ist optional. Registrierung und Vegetationsindizes verwenden ohne CUDA automatisch CPU-Fallbacks.",
                 "Der OpenCV-Worker schreibt registrierte TIFF-Pixel neu; Geo-/XMP-Metadaten dieser Zwischenprodukte sind nicht als Survey-Georeferenzierung zu verwenden.",
                 "Für quantitative Feldkarten folgen später ODM/Photogrammetrie, Orthorektifizierung und optional Reflektanzpanel-Kalibrierung."
             ]);
@@ -210,21 +216,28 @@ public static class LocalProcessingPlanBuilder
     private static void AddIndex(
         ICollection<LocalProcessingCommand> steps,
         string id,
-        string stack,
+        string indexType,
+        string positiveBand,
+        string comparisonBand,
         string output,
-        string expression,
+        string metadata,
         LocalImageToolchainStatus toolchain)
     {
         steps.Add(new(
             id,
-            "Orfeo ToolBox",
-            toolchain.OtbBandMathX!,
+            "Python/CUDA",
+            toolchain.PythonExecutable!,
             [
-                "-il", stack,
-                "-exp", expression,
-                "-out", output, "float"
+                toolchain.OpenCvWorkerPath,
+                "--index",
+                "--index-type", indexType,
+                "--positive-band", positiveBand,
+                "--comparison-band", comparisonBand,
+                "--output", output,
+                "--metadata", metadata,
+                "--backend", "auto"
             ],
             output,
-            $"{id.Replace("index-", "", StringComparison.OrdinalIgnoreCase).ToUpperInvariant()} aus dem korrigierten 4-Band-Stack berechnen."));
+            $"{indexType.ToUpperInvariant()} aus den korrigierten Bändern berechnen · Backend: {toolchain.VegetationIndexBackend}."));
     }
 }
