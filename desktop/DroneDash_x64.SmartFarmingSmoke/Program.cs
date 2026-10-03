@@ -1,5 +1,7 @@
 using System.IO;
 using System.IO.Compression;
+using System.Text;
+using DroneDash_x64.Desktop.Imaging;
 using DroneDash_x64.Desktop.SmartFarming;
 using DroneDash_x64.Desktop.SmartFarming.LocalProcessing;
 using DroneDash_x64.Desktop.SmartFarming.Odm;
@@ -13,6 +15,50 @@ if (!M3mCaptureKeyParser.TryParse(
 {
     throw new InvalidDataException("M3M filename grouping failed.");
 }
+
+var xmpSmokeRoot = Path.Combine(
+    Path.GetTempPath(),
+    "DroneDash_XmpSmoke_" + Guid.NewGuid().ToString("N"));
+
+Directory.CreateDirectory(xmpSmokeRoot);
+
+try
+{
+    var xmpPath = Path.Combine(xmpSmokeRoot, "split-marker.bin");
+
+    using (var stream = File.Create(xmpPath))
+    {
+        stream.Write(Enumerable.Repeat((byte)'A', 65_531).ToArray());
+        stream.Write(
+            Encoding.UTF8.GetBytes(
+                """<x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:drone-dji="http://www.dji.com/drone-dji/1.0/"><drone-dji:GPSLatitude>+49.123456</drone-dji:GPSLatitude><drone-dji:RtkFlag>50</drone-dji:RtkFlag></x:xmpmeta>"""));
+    }
+
+    var xmp = DjiXmpMetadataReader.Read(xmpPath);
+
+    if (!xmp.Found ||
+        xmp.Error is not null ||
+        xmp.Fields["GPSLatitude"] != "+49.123456" ||
+        xmp.Fields["RtkFlag"] != "50")
+    {
+        throw new InvalidDataException(
+            "Streaming DJI XMP metadata reader failed.");
+    }
+
+    Console.WriteLine(
+        $"PASS streaming DJI XMP · fields={xmp.Fields.Count}");
+}
+finally
+{
+    try
+    {
+        Directory.Delete(xmpSmokeRoot, recursive: true);
+    }
+    catch
+    {
+    }
+}
+
 
 var corrected = M3mVegetationIndexEngine.CorrectDn(
     rawDn: 40000,
