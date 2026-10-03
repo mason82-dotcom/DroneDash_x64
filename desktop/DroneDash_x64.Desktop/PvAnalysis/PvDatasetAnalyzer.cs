@@ -65,7 +65,12 @@ public static class PvDatasetAnalyzer
                     thermal.Emissivity,
                     thermal.DistanceM,
                     candidates,
-                    null));
+                    null)
+                {
+                    RelativeAltitudeMeters = metadata.RelativeAltitudeMeters,
+                    GimbalYawDegrees = metadata.GimbalYawDegrees ?? metadata.FlightYawDegrees,
+                    GimbalPitchDegrees = metadata.GimbalPitchDegrees
+                });
             }
             catch (Exception ex)
             {

@@ -516,6 +516,14 @@ can be linked to a \`.ddplan\` flight plan. Export creates:
 - \`pv-images.csv\` with per-image thermal/GPS/RTK/route context;
 - \`pv-anomaly-candidates.csv\` with one row per detected thermal cluster.
 
+Anomaly candidates are also placed on the ground: the ray through each cluster centroid is
+intersected with a flat ground plane at take-off height using the image position, RelativeAltitude
+and gimbal yaw/pitch (M3T thermal camera, 61° diagonal field of view). The PV map shows them as
+diamonds next to the image positions, and the export writes `pv-anomalies.geojson` and
+`pv-anomalies.kml` for field crews. The position is good to a few metres (GPS, yaw, uneven roofs or
+terrain) — enough to find the module row, not a single cell; oblique rays flatter than about 15°
+are not placed.
+
 The PV CI smoke test uses a synthetic temperature matrix with a known connected hotspot and verifies
 the local-contrast detector, cluster severity and JSON/CSV export without requiring proprietary DJI
 native binaries.

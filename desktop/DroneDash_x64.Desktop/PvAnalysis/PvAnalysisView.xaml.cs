@@ -389,6 +389,8 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
             var report = PvInspectionReportExporter.ExportHtml(
                 dialog.SelectedPath,
                 _dataset);
+            var located = PvAnomalyGeolocator.LocateAll(_dataset.Images);
+            var geo = PvAnomalyGeoExporter.Export(dialog.SelectedPath, located);
 
             var registered = false;
             string? registrationError = null;
@@ -422,7 +424,8 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
 
             StatusText.Text =
                 $"PV-Analyse exportiert: {output.JsonPath} · " +
-                $"{output.ImagesCsvPath} · {output.CandidatesCsvPath} · Bericht: {report}" +
+                $"{output.ImagesCsvPath} · {output.CandidatesCsvPath} · Bericht: {report} · " +
+                $"{located.Count} verortete Kandidaten: {Path.GetFileName(geo.GeoJsonPath)}, {Path.GetFileName(geo.KmlPath)}" +
                 (registered
                     ? " · im aktiven DroneDash-Projekt registriert"
                     : registrationError is not null
@@ -460,11 +463,25 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
             })
             .ToArray();
 
+        var anomalies = PvAnomalyGeolocator.LocateAll(_dataset?.Images ?? [])
+            .Select(location => new
+            {
+                lat = location.Latitude,
+                lon = location.Longitude,
+                file = location.FileName,
+                index = location.CandidateIndex,
+                severity = location.Severity.ToString(),
+                delta = location.DeltaC,
+                peak = location.PeakTemperatureC
+            })
+            .ToArray();
+
         PvMap.CoreWebView2.PostWebMessageAsJson(
             JsonSerializer.Serialize(new
             {
                 type = "render",
-                points
+                points,
+                anomalies
             }));
     }
 
