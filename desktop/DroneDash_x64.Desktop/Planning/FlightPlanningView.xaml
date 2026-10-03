@@ -139,6 +139,40 @@
                      TextWrapping="Wrap"/>
         </GroupBox>
 
+        <GroupBox Header="Gelände &amp; Hindernisse (DSM)" Margin="0,0,0,10">
+          <StackPanel Margin="10">
+            <TextBlock TextWrapping="Wrap" Opacity="0.8" FontSize="11"
+                       Text="Prüft die berechnete Route gegen ein Oberflächenmodell (z. B. DSM aus NodeODM oder COLMAP): Flughöhe = Startpunkt-Höhe + Höhe AGL, verglichen mit dem höchsten Punkt (Bäume, Gebäude, Masten) im Puffer um die Linie."/>
+            <WrapPanel Margin="0,6,0,0">
+              <Button Content="Höhenmodell wählen …" Click="SelectTerrainModel_Click"/>
+              <Button Content="Startpunkt auf Karte setzen" Click="PickTakeOff_Click"/>
+              <Button Content="Startpunkt löschen" Click="ClearTakeOff_Click"/>
+            </WrapPanel>
+            <TextBlock x:Name="TerrainModelText" Margin="4,4,0,0" Text="Kein Höhenmodell gewählt" TextWrapping="Wrap" FontSize="11"/>
+            <TextBlock x:Name="TakeOffText" Margin="4,2,0,0" Text="Nicht gesetzt · erster Routenpunkt wird verwendet" TextWrapping="Wrap" FontSize="11"/>
+            <Grid Margin="0,6,0,0">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="170"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+              </Grid.RowDefinitions>
+              <TextBlock Grid.Row="0" Text="Starthöhe [m] (optional)" VerticalAlignment="Center"
+                         ToolTip="Leer = Höhe des Modells am Startpunkt. Angeben, wenn der Startpunkt im DSM auf einem Dach oder Baum liegt."/>
+              <TextBox x:Name="TakeOffElevationBox" Grid.Row="0" Grid.Column="1"/>
+              <TextBlock Grid.Row="1" Text="Mindestabstand [m]" VerticalAlignment="Center"/>
+              <TextBox x:Name="MinClearanceBox" Grid.Row="1" Grid.Column="1" Text="30"/>
+              <TextBlock Grid.Row="2" Text="Puffer seitlich [m]" VerticalAlignment="Center"/>
+              <TextBox x:Name="TerrainBufferBox" Grid.Row="2" Grid.Column="1" Text="10"/>
+            </Grid>
+            <WrapPanel Margin="0,6,0,0">
+              <Button x:Name="CheckTerrainButton" Content="Route prüfen" Click="CheckTerrain_Click"/>
+            </WrapPanel>
+            <TextBlock x:Name="TerrainResultText" Margin="4,6,0,0" Text="Noch nicht geprüft." TextWrapping="Wrap"/>
+          </StackPanel>
+        </GroupBox>
+
         <GroupBox Header="DJI KMZ Validierung" Margin="0,0,0,10">
           <TextBlock x:Name="KmzValidationText"
                      Margin="10"
@@ -148,7 +182,7 @@
 
         <Border Padding="10" Background="#FFF8D8">
           <TextBlock TextWrapping="Wrap"
-                     Text="WPML-Export vor dem realen Einsatz in DJI Pilot 2 prüfen. Mapping 3D erzeugt fünf Waylines. Smart Oblique und Terrain Follow werden zusätzlich im DJI-Template codiert; Pilot 2 sollte solche Vorlagen vor Ausführung neu generieren/validieren. Hindernisdaten werden nicht automatisch berücksichtigt."/>
+                     Text="WPML-Export vor dem realen Einsatz in DJI Pilot 2 prüfen. Mapping 3D erzeugt fünf Waylines. Smart Oblique und Terrain Follow werden zusätzlich im DJI-Template codiert; Pilot 2 sollte solche Vorlagen vor Ausführung neu generieren/validieren. Hindernisse werden nur über die Geländeprüfung mit einem eigenen Höhenmodell erkannt; Freileitungen und dünne Objekte fehlen in Höhenmodellen oft."/>
         </Border>
 
         <TextBlock x:Name="PlanningStatusText"

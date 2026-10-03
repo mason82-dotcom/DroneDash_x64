@@ -14,6 +14,9 @@ padding:7px 11px;border-radius:5px;font-size:13px;line-height:1.45;pointer-event
 #metrics .warn{color:#ffb347;font-weight:600}
 .vertex{background:#fff;border:2px solid #2f81f7;border-radius:50%;box-sizing:border-box;cursor:move}
 .vertex.first{border-color:#3fb950}
+.start{background:#3fb950;border:2px solid #fff;border-radius:3px;box-sizing:border-box;color:#fff;font:bold 11px/14px Segoe UI,Arial;text-align:center}
+.terrain-legend{background:rgba(20,24,30,.9);color:#fff;padding:6px 9px;border-radius:5px;font-size:12px;line-height:1.5}
+.terrain-legend i{display:inline-block;width:14px;height:4px;margin-right:6px;vertical-align:middle}
 .midpoint{background:rgba(255,255,255,.55);border:1px solid #2f81f7;border-radius:50%;box-sizing:border-box;cursor:copy}
 </style>
 </head>
@@ -61,6 +64,11 @@ map.on('baselayerchange',e=>storeBasemap(e.name));
 const geometryLayer=L.layerGroup().addTo(map);
 const routeLayer=L.layerGroup().addTo(map);
 const handleLayer=L.layerGroup().addTo(map);
+const terrainLayer=L.layerGroup().addTo(map);
+const startLayer=L.layerGroup().addTo(map);
+const TERRAIN_COLORS={ok:'#3fb950',low:'#f0a020',collision:'#e5383b',nodata:'#8b949e'};
+let pickingStart=false;
+let terrainLegend=null;
 const banner=document.getElementById('banner');
 const metricsBox=document.getElementById('metrics');
 let drawing=false;
@@ -73,14 +81,63 @@ const midpointIcon=L.divIcon({className:'midpoint',iconSize:[10,10]});
 function post(message){ chrome.webview.postMessage(message); }
 
 map.on('click', e=>{
+  if(pickingStart){
+    pickingStart=false;
+    map.getContainer().style.cursor='';
+    banner.textContent='Startpunkt gesetzt';
+    post({type:'startPoint',lat:e.latlng.lat,lon:e.latlng.lng});
+    return;
+  }
   if(!drawing) return;
   post({type:'polygonPoint',lat:e.latlng.lat,lon:e.latlng.lng});
 });
 
 function setDrawing(value){
   drawing=!!value;
+  pickingStart=false;
   banner.textContent=drawing?'Geometrie zeichnen · Klick fügt Punkt hinzu':'Zeichenmodus aus';
   map.getContainer().style.cursor=drawing?'crosshair':'';
+}
+
+function pickStart(){
+  pickingStart=true;
+  drawing=false;
+  banner.textContent='Startpunkt: Position anklicken';
+  map.getContainer().style.cursor='crosshair';
+}
+
+function renderStart(point){
+  startLayer.clearLayers();
+  if(!point) return;
+  L.marker([point.latitude,point.longitude],{
+    icon:L.divIcon({className:'start',html:'H',iconSize:[16,16]}),keyboard:false,zIndexOffset:900
+  }).bindTooltip('Startpunkt (Home)',{direction:'top',offset:[0,-8]}).addTo(startLayer);
+}
+
+function renderTerrain(terrain){
+  terrainLayer.clearLayers();
+  if(terrainLegend){ map.removeControl(terrainLegend); terrainLegend=null; }
+  if(!terrain) return;
+  terrain.chunks.forEach(c=>{
+    L.polyline(c.points,{weight:c.status==='ok'?4:6,opacity:.95,color:TERRAIN_COLORS[c.status]||'#fff',interactive:false})
+      .addTo(terrainLayer);
+  });
+  terrain.violations.forEach(v=>{
+    L.circleMarker([v.lat,v.lon],{radius:7,weight:2,color:'#fff',fillOpacity:.9,
+      fillColor:v.collision?TERRAIN_COLORS.collision:TERRAIN_COLORS.low})
+      .bindTooltip((v.pass||'Route')+': '+fmt(v.clearance,1)+' m Abstand · Hindernis '+fmt(v.obstacle,1)+' m')
+      .addTo(terrainLayer);
+  });
+  terrainLegend=L.control({position:'bottomright'});
+  terrainLegend.onAdd=()=>{
+    const div=L.DomUtil.create('div','terrain-legend');
+    div.innerHTML='<i style="background:'+TERRAIN_COLORS.ok+'"></i>≥ '+fmt(terrain.minClearance,0)+' m<br>'+
+      '<i style="background:'+TERRAIN_COLORS.low+'"></i>unter Mindestabstand<br>'+
+      '<i style="background:'+TERRAIN_COLORS.collision+'"></i>Kollision<br>'+
+      '<i style="background:'+TERRAIN_COLORS.nodata+'"></i>ohne Höhendaten';
+    return div;
+  };
+  terrainLegend.addTo(map);
 }
 
 function closed(){ return !current.strip && current.points.length>=3; }
@@ -171,6 +228,8 @@ function renderPlan(data){
   drawShape(current.points);
   addHandles();
   renderMetrics(data.metrics);
+  renderStart(data.startPoint);
+  renderTerrain(data.terrain);
 
   if(data.segments){
     data.segments.forEach((s,i)=>{
@@ -192,6 +251,7 @@ function renderPlan(data){
 window.chrome.webview.addEventListener('message', e=>{
   const m=e.data||{};
   if(m.type==='setDrawing') setDrawing(m.value);
+  if(m.type==='pickStart') pickStart();
   if(m.type==='render') renderPlan(m);
 });
 
