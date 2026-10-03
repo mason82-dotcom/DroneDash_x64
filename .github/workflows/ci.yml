@@ -40,9 +40,43 @@ jobs:
               $Help -notmatch "--geo-index" -or
               $Help -notmatch "--geo-zones" -or
               $Help -notmatch "--tile-size" -or
+              $Help -notmatch "--pipeline-depth" -or
               $Help -notmatch "--backend") {
-            throw "Smart Farming worker CLI is missing CUDA/GDAL tile options."
+            throw "Smart Farming worker CLI is missing CUDA/GDAL pipeline options."
           }
+
+          @'
+          import importlib.util
+
+          path = r"desktop/DroneDash_x64.Desktop/SmartFarming/Workers/opencv_m3m.py"
+          spec = importlib.util.spec_from_file_location("dronedash_worker", path)
+          worker = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(worker)
+
+          windows = list(worker._tile_windows(5, 3, 2))
+          expected = [
+              (0, 0, 2, 2),
+              (2, 0, 2, 2),
+              (4, 0, 1, 2),
+              (0, 2, 2, 1),
+              (2, 2, 2, 1),
+              (4, 2, 1, 1),
+          ]
+          if windows != expected:
+              raise RuntimeError(f"unexpected tile windows: {windows}")
+
+          observed = list(
+              worker._prefetched_tiles(
+                  windows,
+                  lambda window: ("payload", window),
+                  2,
+              )
+          )
+          if [window for window, _ in observed] != expected:
+              raise RuntimeError("read-ahead pipeline changed tile ordering")
+          if [payload[1] for _, payload in observed] != expected:
+              raise RuntimeError("read-ahead pipeline payload mismatch")
+          '@ | python -
 
       - name: Verify real M3T thermal fixture with Windows PowerShell 5.1
         shell: powershell
