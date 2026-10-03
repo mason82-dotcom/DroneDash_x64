@@ -1,7 +1,4 @@
 using System.IO;
-using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace DroneDash_x64.Desktop.Project;
 
@@ -90,136 +87,32 @@ public static class ProjectProcessingCoordinator
 {
     private static readonly object Sync = new();
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        Converters = { new JsonStringEnumConverter() }
-    };
-
     public static event EventHandler<ProjectProcessingChangedEventArgs>? Changed;
 
     public static string GetLedgerPath(
         string projectPath) =>
-        Path.Combine(
-            ProjectWorkspaceLayout.GetProjectDirectory(
-                projectPath),
-            "project-processing-jobs.json");
+        ProjectProcessingStore.GetLedgerPath(
+            projectPath);
 
     public static string GetJobsDirectory(
-        string projectPath)
-    {
-        var path =
-            Path.Combine(
-                ProjectWorkspaceLayout.GetProjectDirectory(
-                    projectPath),
-                "03_Processing",
-                "_ProjectJobs");
-
-        Directory.CreateDirectory(path);
-        return path;
-    }
+        string projectPath) =>
+        ProjectProcessingStore.GetJobsDirectory(
+            projectPath);
 
     public static ProjectProcessingLedger Load(
-        string projectPath)
-    {
-        var path =
-            GetLedgerPath(
-                projectPath);
-
-        if (!File.Exists(path))
-        {
-            return new(
-                ProjectProcessingLedger.CurrentSchemaVersion,
-                null,
-                []);
-        }
-
-        var ledger =
-            JsonSerializer.Deserialize<ProjectProcessingLedger>(
-                File.ReadAllText(path),
-                JsonOptions)
-            ?? throw new InvalidDataException(
-                "Processing-Job-Ledger konnte nicht gelesen werden.");
-
-        if (ledger.SchemaVersion !=
-            ProjectProcessingLedger.CurrentSchemaVersion)
-        {
-            throw new InvalidDataException(
-                $"Nicht unterstützte Processing-Job-Version {ledger.SchemaVersion}; erwartet {ProjectProcessingLedger.CurrentSchemaVersion}.");
-        }
-
-        return ledger;
-    }
+        string projectPath) =>
+        ProjectProcessingStore.Load(
+            projectPath);
 
     public static void CopyRebased(
         string oldProjectPath,
         string newProjectPath)
     {
-        if (!File.Exists(
-                GetLedgerPath(
-                    oldProjectPath)))
-        {
-            return;
-        }
-
         lock (Sync)
         {
-            var ledger =
-                Load(
-                    oldProjectPath);
-
-            var jobs =
-                ledger.Jobs
-                    .Select(job =>
-                    {
-                        var oldLogPath =
-                            ResolvePath(
-                                oldProjectPath,
-                                job.LogPath);
-
-                        var rebasedLog =
-                            ToStoredPath(
-                                newProjectPath,
-                                oldLogPath);
-
-                        var outputs =
-                            job.Outputs
-                                .Select(output =>
-                                {
-                                    var oldOutput =
-                                        ResolvePath(
-                                            oldProjectPath,
-                                            output.Path);
-
-                                    return output with
-                                    {
-                                        Path =
-                                            ToStoredPath(
-                                                newProjectPath,
-                                                oldOutput)
-                                    };
-                                })
-                                .ToArray();
-
-                        return job with
-                        {
-                            LogPath =
-                                rebasedLog,
-                            Outputs =
-                                outputs,
-                            UpdatedAtUtc =
-                                DateTimeOffset.UtcNow
-                        };
-                    })
-                    .ToArray();
-
-            Save(
-                newProjectPath,
-                ledger with
-                {
-                    Jobs = jobs
-                });
+            ProjectProcessingStore.CopyRebased(
+                oldProjectPath,
+                newProjectPath);
         }
     }
 
@@ -227,7 +120,7 @@ public static class ProjectProcessingCoordinator
         string projectPath)
     {
         var ledger =
-            Load(projectPath);
+            ProjectProcessingStore.Load(projectPath);
 
         if (ledger.CurrentJobId is not Guid id)
             return ledger.Jobs.LastOrDefault();
@@ -250,20 +143,20 @@ public static class ProjectProcessingCoordinator
                     projectPath,
                     project,
                     pipeline,
-                    Load(projectPath));
+                    ProjectProcessingStore.Load(projectPath));
 
             var expected =
-                ResolveExpectedWorker(
+                ProjectProcessingPolicy.ResolveExpectedWorker(
                     project,
                     pipeline);
 
             var current =
-                ResolveCurrent(
+                ProjectProcessingState.ResolveCurrent(
                     ledger);
 
             if (expected is null)
             {
-                Save(
+                ProjectProcessingStore.Save(
                     projectPath,
                     ledger);
 
@@ -281,7 +174,7 @@ public static class ProjectProcessingCoordinator
                     expected.Value &&
                 !current.IsTerminal)
             {
-                Save(
+                ProjectProcessingStore.Save(
                     projectPath,
                     ledger);
 
@@ -313,7 +206,7 @@ public static class ProjectProcessingCoordinator
                             reusable.Id
                     };
 
-                Save(
+                ProjectProcessingStore.Save(
                     projectPath,
                     ledger);
 
@@ -325,7 +218,7 @@ public static class ProjectProcessingCoordinator
             }
 
             var created =
-                CreateJob(
+                ProjectProcessingState.CreateJob(
                     projectPath,
                     pipeline,
                     expected.Value);
@@ -341,11 +234,11 @@ public static class ProjectProcessingCoordinator
                             .ToArray()
                 };
 
-            Save(
+            ProjectProcessingStore.Save(
                 projectPath,
                 ledger);
 
-            AppendLog(
+            ProjectProcessingStore.AppendLog(
                 projectPath,
                 created,
                 $"QUEUED {created.Worker} · Pipeline {pipeline.JobId}");
@@ -366,28 +259,11 @@ public static class ProjectProcessingCoordinator
         return UpdateActive(
             worker,
             job =>
-                job with
-                {
-                    Status =
-                        ProjectProcessingJobStatus.Running,
-                    Percent =
-                        Math.Max(
-                            1d,
-                            job.Percent),
-                    CurrentStep =
-                        step,
-                    Message =
-                        message,
-                    StartedAtUtc =
-                        job.StartedAtUtc ??
-                        DateTimeOffset.UtcNow,
-                    FinishedAtUtc =
-                        null,
-                    UpdatedAtUtc =
-                        DateTimeOffset.UtcNow,
-                    Error =
-                        null
-                },
+                ProjectProcessingTransitions.Begin(
+                    job,
+                    message,
+                    step,
+                    DateTimeOffset.UtcNow),
             $"START {worker} · {message}");
     }
 
@@ -407,24 +283,12 @@ public static class ProjectProcessingCoordinator
         return UpdateActive(
             worker,
             job =>
-                job with
-                {
-                    Status =
-                        ProjectProcessingJobStatus.Running,
-                    Percent =
-                        normalized,
-                    CurrentStep =
-                        step,
-                    Message =
-                        message,
-                    StartedAtUtc =
-                        job.StartedAtUtc ??
-                        DateTimeOffset.UtcNow,
-                    UpdatedAtUtc =
-                        DateTimeOffset.UtcNow,
-                    Error =
-                        null
-                },
+                ProjectProcessingTransitions.Report(
+                    job,
+                    normalized,
+                    message,
+                    step,
+                    DateTimeOffset.UtcNow),
             appendLog
                 ? $"PROGRESS {normalized:F1}% · {message}"
                 : null);
@@ -437,23 +301,10 @@ public static class ProjectProcessingCoordinator
         return UpdateActive(
             worker,
             job =>
-                job with
-                {
-                    Status =
-                        ProjectProcessingJobStatus.AwaitingOutput,
-                    Percent =
-                        Math.Max(
-                            95d,
-                            job.Percent),
-                    CurrentStep =
-                        "output",
-                    Message =
-                        message,
-                    UpdatedAtUtc =
-                        DateTimeOffset.UtcNow,
-                    Error =
-                        null
-                },
+                ProjectProcessingTransitions.AwaitOutput(
+                    job,
+                    message,
+                    DateTimeOffset.UtcNow),
             $"AWAITING OUTPUT · {message}");
     }
 
@@ -464,23 +315,10 @@ public static class ProjectProcessingCoordinator
         return UpdateActive(
             worker,
             job =>
-                job with
-                {
-                    Status =
-                        ProjectProcessingJobStatus.Succeeded,
-                    Percent =
-                        100d,
-                    CurrentStep =
-                        null,
-                    Message =
-                        message,
-                    FinishedAtUtc =
-                        DateTimeOffset.UtcNow,
-                    UpdatedAtUtc =
-                        DateTimeOffset.UtcNow,
-                    Error =
-                        null
-                },
+                ProjectProcessingTransitions.Complete(
+                    job,
+                    message,
+                    DateTimeOffset.UtcNow),
             $"SUCCESS · {message}");
     }
 
@@ -491,19 +329,10 @@ public static class ProjectProcessingCoordinator
         return UpdateActive(
             worker,
             job =>
-                job with
-                {
-                    Status =
-                        ProjectProcessingJobStatus.Failed,
-                    Message =
-                        error,
-                    FinishedAtUtc =
-                        DateTimeOffset.UtcNow,
-                    UpdatedAtUtc =
-                        DateTimeOffset.UtcNow,
-                    Error =
-                        error
-                },
+                ProjectProcessingTransitions.Fail(
+                    job,
+                    error,
+                    DateTimeOffset.UtcNow),
             $"FAILED · {error}");
     }
 
@@ -514,19 +343,10 @@ public static class ProjectProcessingCoordinator
         return UpdateActive(
             worker,
             job =>
-                job with
-                {
-                    Status =
-                        ProjectProcessingJobStatus.Canceled,
-                    Message =
-                        message,
-                    FinishedAtUtc =
-                        DateTimeOffset.UtcNow,
-                    UpdatedAtUtc =
-                        DateTimeOffset.UtcNow,
-                    Error =
-                        null
-                },
+                ProjectProcessingTransitions.Cancel(
+                    job,
+                    message,
+                    DateTimeOffset.UtcNow),
             $"CANCELED · {message}");
     }
 
@@ -544,10 +364,10 @@ public static class ProjectProcessingCoordinator
         lock (Sync)
         {
             var ledger =
-                Load(projectPath);
+                ProjectProcessingStore.Load(projectPath);
 
             var index =
-                FindLatestJobIndex(
+                ProjectProcessingState.FindLatestJobIndex(
                     ledger,
                     pipeline.JobId,
                     worker);
@@ -555,7 +375,7 @@ public static class ProjectProcessingCoordinator
             if (index < 0)
                 return;
 
-            AppendLog(
+            ProjectProcessingStore.AppendLog(
                 projectPath,
                 ledger.Jobs[index],
                 line);
@@ -581,10 +401,11 @@ public static class ProjectProcessingCoordinator
         lock (Sync)
         {
             var ledger =
-                Load(projectPath);
+                ProjectProcessingStore.Load(
+                    projectPath);
 
             var index =
-                FindLatestJobIndex(
+                ProjectProcessingState.FindLatestJobIndex(
                     ledger,
                     pipeline.JobId,
                     worker);
@@ -592,57 +413,25 @@ public static class ProjectProcessingCoordinator
             if (index < 0)
                 return null;
 
-            var stored =
-                DroneDashProjectStore.ToStoredPath(
-                    projectPath,
-                    fullPath);
-
             var job =
-                ledger.Jobs[index];
-
-            var outputs =
-                job.Outputs
-                    .Where(output =>
-                    {
-                        var existing =
-                            ResolvePath(
-                                projectPath,
-                                output.Path);
-
-                        return !Path.GetFullPath(existing)
-                            .Equals(
-                                fullPath,
-                                StringComparison.OrdinalIgnoreCase);
-                    })
-                    .Append(
-                        new ProjectProcessingOutput(
-                            kind,
-                            new ProjectPipelinePath(
-                                stored.StoredPath,
-                                stored.IsRelative),
-                            DateTimeOffset.UtcNow))
-                    .ToArray();
-
-            job =
-                job with
-                {
-                    Outputs =
-                        outputs,
-                    UpdatedAtUtc =
-                        DateTimeOffset.UtcNow
-                };
+                ProjectProcessingOutputTracker.Record(
+                    projectPath,
+                    ledger.Jobs[index],
+                    fullPath,
+                    kind,
+                    DateTimeOffset.UtcNow);
 
             ledger =
-                ReplaceJob(
+                ProjectProcessingState.ProjectProcessingState.ReplaceJob(
                     ledger,
                     index,
                     job);
 
-            Save(
+            ProjectProcessingStore.Save(
                 projectPath,
                 ledger);
 
-            AppendLog(
+            ProjectProcessingStore.AppendLog(
                 projectPath,
                 job,
                 $"OUTPUT {kind} · {fullPath}");
@@ -662,7 +451,7 @@ public static class ProjectProcessingCoordinator
         if (job is null)
             return null;
 
-        return ResolvePath(
+        return ProjectProcessingStore.ResolvePath(
             projectPath,
             job.LogPath);
     }
@@ -685,7 +474,7 @@ public static class ProjectProcessingCoordinator
                 DroneDashProjectSession.CurrentProject;
 
             var ledger =
-                Load(projectPath);
+                ProjectProcessingStore.Load(projectPath);
 
             if (project is not null)
             {
@@ -698,7 +487,7 @@ public static class ProjectProcessingCoordinator
             }
 
             var index =
-                FindLatestJobIndex(
+                ProjectProcessingState.FindLatestJobIndex(
                     ledger,
                     pipeline.JobId,
                     worker);
@@ -706,7 +495,7 @@ public static class ProjectProcessingCoordinator
             if (index < 0)
             {
                 var created =
-                    CreateJob(
+                    ProjectProcessingState.CreateJob(
                         projectPath,
                         pipeline,
                         worker);
@@ -727,12 +516,18 @@ public static class ProjectProcessingCoordinator
             }
 
             var previousCurrent =
-                ResolveCurrent(
+                ProjectProcessingState.ResolveCurrent(
                     ledger);
+
+            var target =
+                ledger.Jobs[index];
+
+            if (target.IsTerminal)
+                return target;
 
             var updated =
                 update(
-                    ledger.Jobs[index]);
+                    target);
 
             var keepNewerCurrent =
                 previousCurrent is not null &&
@@ -743,7 +538,7 @@ public static class ProjectProcessingCoordinator
                 !previousCurrent.IsTerminal;
 
             ledger =
-                ReplaceJob(
+                ProjectProcessingState.ReplaceJob(
                     ledger,
                     index,
                     updated) with
@@ -754,14 +549,14 @@ public static class ProjectProcessingCoordinator
                             : updated.Id
                 };
 
-            Save(
+            ProjectProcessingStore.Save(
                 projectPath,
                 ledger);
 
             if (!string.IsNullOrWhiteSpace(
                     logLine))
             {
-                AppendLog(
+                ProjectProcessingStore.AppendLog(
                     projectPath,
                     updated,
                     logLine);
@@ -802,7 +597,7 @@ public static class ProjectProcessingCoordinator
                 continue;
             }
 
-            if (!HasEvidenceForWorker(
+            if (!ProjectProcessingPolicy.HasEvidenceForWorker(
                     project,
                     job.Worker))
             {
@@ -829,7 +624,7 @@ public static class ProjectProcessingCoordinator
                         null
                 };
 
-            AppendLog(
+            ProjectProcessingStore.AppendLog(
                 projectPath,
                 jobs[index],
                 "SUCCESS · erwartetes Projektartefakt registriert.");
@@ -843,251 +638,6 @@ public static class ProjectProcessingCoordinator
                   Jobs = jobs
               }
             : ledger;
-    }
-
-    private static ProjectProcessingWorkerKind? ResolveExpectedWorker(
-        DroneDashProject project,
-        ProjectPipelineState pipeline)
-    {
-        return pipeline.Module switch
-        {
-            ProjectPipelineModule.Photogrammetry =>
-                Has(
-                    project,
-                    ProjectArtifactKind.PhotogrammetryManifest)
-                    ? null
-                    : ProjectProcessingWorkerKind.PhotogrammetryDatasetAnalysis,
-
-            ProjectPipelineModule.PvAnalysis =>
-                Has(
-                    project,
-                    ProjectArtifactKind.PvAnalysis)
-                    ? null
-                    : ProjectProcessingWorkerKind.PvThermalBatchAnalysis,
-
-            ProjectPipelineModule.SmartFarming =>
-                !Has(
-                    project,
-                    ProjectArtifactKind.SmartFarmingDataset)
-                    ? ProjectProcessingWorkerKind.SmartFarmingDatasetQa
-                    : !Has(
-                        project,
-                        ProjectArtifactKind.NodeOdmResultArchive)
-                        ? ProjectProcessingWorkerKind.SmartFarmingNodeOdm
-                        : !Has(
-                            project,
-                            ProjectArtifactKind.SmartFarmingFieldProducts) &&
-                          !Has(
-                            project,
-                            ProjectArtifactKind.VegetationRaster)
-                            ? ProjectProcessingWorkerKind.SmartFarmingFieldProducts
-                            : null,
-
-            _ => null
-        };
-    }
-
-    private static bool HasEvidenceForWorker(
-        DroneDashProject project,
-        ProjectProcessingWorkerKind worker) =>
-        worker switch
-        {
-            ProjectProcessingWorkerKind.PhotogrammetryDatasetAnalysis =>
-                Has(
-                    project,
-                    ProjectArtifactKind.PhotogrammetryManifest),
-            ProjectProcessingWorkerKind.PvThermalBatchAnalysis =>
-                Has(
-                    project,
-                    ProjectArtifactKind.PvAnalysis),
-            ProjectProcessingWorkerKind.SmartFarmingDatasetQa =>
-                Has(
-                    project,
-                    ProjectArtifactKind.SmartFarmingDataset),
-            ProjectProcessingWorkerKind.SmartFarmingNodeOdm =>
-                Has(
-                    project,
-                    ProjectArtifactKind.NodeOdmResultArchive),
-            ProjectProcessingWorkerKind.SmartFarmingFieldProducts =>
-                Has(
-                    project,
-                    ProjectArtifactKind.SmartFarmingFieldProducts) ||
-                Has(
-                    project,
-                    ProjectArtifactKind.VegetationRaster),
-            _ => false
-        };
-
-    private static ProjectProcessingJob CreateJob(
-        string projectPath,
-        ProjectPipelineState pipeline,
-        ProjectProcessingWorkerKind worker)
-    {
-        var id =
-            Guid.NewGuid();
-
-        var jobsDirectory =
-            GetJobsDirectory(
-                projectPath);
-
-        var logPath =
-            Path.Combine(
-                jobsDirectory,
-                $"{pipeline.JobId:N}_{id:N}_{worker}.log");
-
-        var stored =
-            DroneDashProjectStore.ToStoredPath(
-                projectPath,
-                logPath);
-
-        var now =
-            DateTimeOffset.UtcNow;
-
-        return new(
-            id,
-            pipeline.JobId,
-            pipeline.Module,
-            worker,
-            ProjectProcessingJobStatus.Queued,
-            0d,
-            null,
-            InitialMessage(worker),
-            new ProjectPipelinePath(
-                stored.StoredPath,
-                stored.IsRelative),
-            [],
-            now,
-            null,
-            null,
-            now,
-            null);
-    }
-
-    private static string InitialMessage(
-        ProjectProcessingWorkerKind worker) =>
-        worker switch
-        {
-            ProjectProcessingWorkerKind.PhotogrammetryDatasetAnalysis =>
-                "Photogrammetrie-Datensatzanalyse und Manifest warten auf Ausführung.",
-            ProjectProcessingWorkerKind.PvThermalBatchAnalysis =>
-                "PV-Thermal-Batchanalyse wartet auf Ausführung.",
-            ProjectProcessingWorkerKind.SmartFarmingDatasetQa =>
-                "M3M-Datensatz-QA wartet auf Ausführung.",
-            ProjectProcessingWorkerKind.SmartFarmingNodeOdm =>
-                "NodeODM-M3M-Processing wartet auf Ausführung.",
-            ProjectProcessingWorkerKind.SmartFarmingFieldProducts =>
-                "Georeferenzierte Smart-Farming-Feldprodukte warten auf Ausführung.",
-            _ =>
-                "Worker wartet auf Ausführung."
-        };
-
-    private static int FindLatestJobIndex(
-        ProjectProcessingLedger ledger,
-        Guid pipelineJobId,
-        ProjectProcessingWorkerKind worker)
-    {
-        for (var index =
-                 ledger.Jobs.Count - 1;
-             index >= 0;
-             index--)
-        {
-            var job =
-                ledger.Jobs[index];
-
-            if (job.PipelineJobId ==
-                    pipelineJobId &&
-                job.Worker ==
-                    worker)
-            {
-                return index;
-            }
-        }
-
-        return -1;
-    }
-
-    private static ProjectProcessingLedger ReplaceJob(
-        ProjectProcessingLedger ledger,
-        int index,
-        ProjectProcessingJob job)
-    {
-        var jobs =
-            ledger.Jobs.ToArray();
-
-        jobs[index] =
-            job;
-
-        return ledger with
-        {
-            Jobs = jobs
-        };
-    }
-
-    private static ProjectProcessingJob? ResolveCurrent(
-        ProjectProcessingLedger ledger)
-    {
-        if (ledger.CurrentJobId is Guid id)
-        {
-            var selected =
-                ledger.Jobs.FirstOrDefault(job =>
-                    job.Id == id);
-
-            if (selected is not null)
-                return selected;
-        }
-
-        return ledger.Jobs.LastOrDefault();
-    }
-
-    private static void Save(
-        string projectPath,
-        ProjectProcessingLedger ledger)
-    {
-        var path =
-            GetLedgerPath(
-                projectPath);
-
-        var tempPath =
-            path + ".tmp";
-
-        File.WriteAllText(
-            tempPath,
-            JsonSerializer.Serialize(
-                ledger,
-                JsonOptions),
-            new UTF8Encoding(false));
-
-        File.Move(
-            tempPath,
-            path,
-            overwrite: true);
-    }
-
-    private static void AppendLog(
-        string projectPath,
-        ProjectProcessingJob job,
-        string line)
-    {
-        try
-        {
-            var path =
-                ResolvePath(
-                    projectPath,
-                    job.LogPath);
-
-            Directory.CreateDirectory(
-                Path.GetDirectoryName(
-                    path)!);
-
-            File.AppendAllText(
-                path,
-                $"[{DateTimeOffset.Now:O}] {line}{Environment.NewLine}",
-                new UTF8Encoding(false));
-        }
-        catch
-        {
-            // Job state is authoritative. Logging remains best-effort.
-        }
     }
 
     private static bool TryGetActiveContext(
@@ -1110,7 +660,7 @@ public static class ProjectProcessingCoordinator
         try
         {
             pipeline =
-                ProjectPipelineStore.Load(
+                ProjectPipelineStore.ProjectProcessingStore.Load(
                     projectPath)!;
 
             return pipeline is not null;
@@ -1120,44 +670,6 @@ public static class ProjectProcessingCoordinator
             return false;
         }
     }
-
-    private static ProjectPipelinePath ToStoredPath(
-        string projectPath,
-        string targetPath)
-    {
-        var stored =
-            DroneDashProjectStore.ToStoredPath(
-                projectPath,
-                targetPath);
-
-        return new(
-            stored.StoredPath,
-            stored.IsRelative);
-    }
-
-    private static string ResolvePath(
-        string projectPath,
-        ProjectPipelinePath path)
-    {
-        if (!path.IsRelative)
-        {
-            return Path.GetFullPath(
-                path.StoredPath);
-        }
-
-        return Path.GetFullPath(
-            Path.Combine(
-                ProjectWorkspaceLayout.GetProjectDirectory(
-                    projectPath),
-                path.StoredPath));
-    }
-
-    private static bool Has(
-        DroneDashProject project,
-        ProjectArtifactKind kind) =>
-        project.Artifacts.Any(
-            artifact =>
-                artifact.Kind == kind);
 
     private static void RaiseChanged(
         string projectPath,
