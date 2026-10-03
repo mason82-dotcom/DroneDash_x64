@@ -870,8 +870,16 @@ class _AsyncGeoTiffWriter:
             )
         )
 
-    def _finish_on_writer(self):
+    def _finish_on_writer(self, statistics):
         self._ensure_open()
+
+        if statistics is not None:
+            self._state["band"].SetStatistics(
+                statistics["minimum"],
+                statistics["maximum"],
+                statistics["average"],
+                statistics["standardDeviation"],
+            )
 
         self._state["band"] = None
         self._state["target"].FlushCache()
@@ -885,7 +893,7 @@ class _AsyncGeoTiffWriter:
         self._state["temp"] = None
         return self._state["absoluteOutput"]
 
-    def finish(self):
+    def finish(self, statistics=None):
         if self._finished:
             return self._state.get(
                 "absoluteOutput"
@@ -898,7 +906,8 @@ class _AsyncGeoTiffWriter:
             self._pending.clear()
 
             result = self._executor.submit(
-                self._finish_on_writer
+                self._finish_on_writer,
+                statistics,
             ).result()
 
             self._finished = True
@@ -1260,7 +1269,9 @@ def geospatial_index(args):
         )
 
         absolute_output =
-            writer.finish()
+            writer.finish(
+                final_stats
+            )
 
         metadata = {
             "schemaVersion": 1,
@@ -1281,6 +1292,7 @@ def geospatial_index(args):
                 ),
             ),
             "readAheadEnabled": True,
+            "asyncWriteEnabled": True,
             "tilesProcessed": tiles,
             "backendRequested": args.backend,
             "backendUsed": backend,
@@ -1573,6 +1585,7 @@ def geospatial_zones(args):
                 ),
             ),
             "readAheadEnabled": True,
+            "asyncWriteEnabled": True,
             "tilesProcessed": tiles,
             "thresholds": thresholds,
             "zonePixelCounts": counts,
@@ -1654,7 +1667,7 @@ def main():
         "--pipeline-depth",
         type=int,
         default=2,
-        help="bounded GDAL read-ahead depth (1..4) for geospatial tile processing",
+        help="bounded GDAL read/write pipeline depth (1..4) for geospatial tile processing",
     )
     args = parser.parse_args()
 
