@@ -37,6 +37,49 @@ for (var i = 0; i < polygon.Length; i++)
         throw new InvalidDataException($"DroneDash project geometry mismatch at {i}.");
 }
 
+var rejectedNonFiniteSettings = false;
+
+try
+{
+    PhotogrammetryPlanner.Generate(
+        polygon,
+        mapping2D with
+        {
+            AltitudeMeters = double.NaN
+        });
+}
+catch (ArgumentOutOfRangeException)
+{
+    rejectedNonFiniteSettings = true;
+}
+
+if (!rejectedNonFiniteSettings)
+    throw new InvalidDataException(
+        "Planner accepted a non-finite altitude.");
+
+var rejectedNonFiniteGeometry = false;
+
+try
+{
+    PhotogrammetryPlanner.Generate(
+        [
+            polygon[0],
+            polygon[1],
+            new GeoPoint(
+                double.PositiveInfinity,
+                polygon[2].Longitude)
+        ],
+        mapping2D);
+}
+catch (ArgumentOutOfRangeException)
+{
+    rejectedNonFiniteGeometry = true;
+}
+
+if (!rejectedNonFiniteGeometry)
+    throw new InvalidDataException(
+        "Planner accepted non-finite WGS84 geometry.");
+
 var plan2D = PhotogrammetryPlanner.Generate(
     loadedProject.Geometry,
     loadedProject.Settings);
@@ -46,6 +89,9 @@ ValidateKmz(
     "mapping2d",
     expectedFolders: 1,
     expectedTemplateToken: "smartObliqueEnable");
+
+ValidateAtomicKmzExport(plan2D);
+ValidateDuplicateKmzEntryRejected(plan2D);
 
 var mapping3D = mapping2D with
 {
@@ -169,6 +215,119 @@ static string ReadEntry(ZipArchive archive, string name)
     using var stream = entry.Open();
     using var reader = new StreamReader(stream);
     return reader.ReadToEnd();
+}
+
+static void ValidateAtomicKmzExport(
+    FlightPlanResult validPlan)
+{
+    var path = Path.Combine(
+        Path.GetTempPath(),
+        "DroneDash_AtomicExport_Smoke.kmz");
+
+    var sentinel =
+        new byte[] { 0x44, 0x52, 0x4F, 0x4E, 0x45 };
+
+    File.WriteAllBytes(
+        path,
+        sentinel);
+
+    var invalidPlan =
+        validPlan with
+        {
+            Geometry = []
+        };
+
+    var rejected = false;
+
+    try
+    {
+        DjiWpmlExporter.ExportKmz(
+            path,
+            invalidPlan);
+    }
+    catch (InvalidDataException)
+    {
+        rejected = true;
+    }
+
+    if (!rejected)
+        throw new InvalidDataException(
+            "Invalid KMZ export input was not rejected.");
+
+    var preserved =
+        File.ReadAllBytes(path);
+
+    if (!preserved.SequenceEqual(sentinel))
+        throw new InvalidDataException(
+            "Failed KMZ export replaced or truncated the existing target file.");
+}
+
+static void ValidateDuplicateKmzEntryRejected(
+    FlightPlanResult plan)
+{
+    var source = Path.Combine(
+        Path.GetTempPath(),
+        "DroneDash_DuplicateEntry_Source.kmz");
+
+    var duplicate = Path.Combine(
+        Path.GetTempPath(),
+        "DroneDash_DuplicateEntry_Smoke.kmz");
+
+    DjiWpmlExporter.ExportKmz(
+        source,
+        plan);
+
+    using (var input =
+           ZipFile.OpenRead(source))
+    using (var output =
+           ZipFile.Open(
+               duplicate,
+               ZipArchiveMode.Create))
+    {
+        foreach (var entry in input.Entries)
+        {
+            var copy =
+                output.CreateEntry(
+                    entry.FullName);
+
+            using var inputStream =
+                entry.Open();
+
+            using var outputStream =
+                copy.Open();
+
+            inputStream.CopyTo(
+                outputStream);
+        }
+
+        var duplicateEntry =
+            output.CreateEntry(
+                "wpmz/template.kml");
+
+        using var duplicateStream =
+            duplicateEntry.Open();
+
+        using var writer =
+            new StreamWriter(
+                duplicateStream);
+
+        writer.Write(
+            "<duplicate/>");
+    }
+
+    var report =
+        DjiKmzValidator.Validate(
+            duplicate);
+
+    if (report.IsValid ||
+        !report.Errors.Any(error =>
+            error.Contains(
+                "Doppelte KMZ-Einträge",
+                StringComparison.Ordinal)))
+    {
+        throw new InvalidDataException(
+            "Duplicate KMZ entries were not rejected.");
+    }
 }
 
 
