@@ -93,8 +93,10 @@ public static class PvAnalysisExporter
                    new UTF8Encoding(true)))
         {
             writer.WriteLine(
-                "file;candidate;severity;pixelCount;peakX;peakY;peakTemperatureC;" +
-                "localBaselineC;deltaC;centroidX;centroidY;minX;minY;maxX;maxY");
+                "file;candidate;severity;pixelCount;areaPixels;boundingBoxAreaPixels;fillRatio;" +
+                "equivalentDiameterPixels;peakX;peakY;peakTemperatureC;localMedianC;" +
+                "localUpperQuartileC;adaptiveSeedThresholdC;deltaC;centroidX;centroidY;" +
+                "minX;minY;maxX;maxY");
 
             foreach (var image in dataset.Images)
             {
@@ -107,12 +109,20 @@ public static class PvAnalysisExporter
                         candidate.Severity.ToString(),
                         candidate.PixelCount.ToString(
                             CultureInfo.InvariantCulture),
+                        candidate.AreaPixels.ToString(
+                            CultureInfo.InvariantCulture),
+                        candidate.BoundingBoxAreaPixels.ToString(
+                            CultureInfo.InvariantCulture),
+                        Num(candidate.FillRatio),
+                        Num(candidate.EquivalentDiameterPixels),
                         candidate.PeakX.ToString(
                             CultureInfo.InvariantCulture),
                         candidate.PeakY.ToString(
                             CultureInfo.InvariantCulture),
                         Num(candidate.PeakTemperatureC),
                         Num(candidate.LocalBaselineC),
+                        Num(candidate.LocalUpperQuartileC),
+                        Num(candidate.AdaptiveSeedThresholdC),
                         Num(candidate.DeltaC),
                         Num(candidate.CentroidX),
                         Num(candidate.CentroidY),
