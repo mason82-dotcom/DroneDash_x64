@@ -33,6 +33,12 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         DroneDashProjectSession.Changed +=
             ProjectSession_Changed;
 
+        ProjectProcessingCoordinator.Changed -=
+            ProjectProcessing_Changed;
+
+        ProjectProcessingCoordinator.Changed +=
+            ProjectProcessing_Changed;
+
         ApplySession(
             DroneDashProjectSession.CurrentProjectPath,
             DroneDashProjectSession.CurrentProject,
@@ -47,6 +53,38 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
     {
         DroneDashProjectSession.Changed -=
             ProjectSession_Changed;
+
+        ProjectProcessingCoordinator.Changed -=
+            ProjectProcessing_Changed;
+    }
+
+    private void ProjectProcessing_Changed(
+        object? sender,
+        ProjectProcessingChangedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(
+                _projectPath) ||
+            !Path.GetFullPath(
+                    e.ProjectPath)
+                .Equals(
+                    Path.GetFullPath(
+                        _projectPath),
+                    StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(() =>
+                RenderProcessingJob(
+                    e.Job));
+
+            return;
+        }
+
+        RenderProcessingJob(
+            e.Job);
     }
 
     private void ProjectSession_Changed(
@@ -1036,6 +1074,15 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
             PipelineProbeText.Text =
                 $"Erkennung: {state.Probe.Detail} · Bilder {state.Probe.SupportedImageFiles:N0}/{state.Probe.TotalFiles:N0} Dateien";
 
+            var processingJob =
+                ProjectProcessingCoordinator.EnsureForPipeline(
+                    _projectPath,
+                    _project,
+                    state);
+
+            RenderProcessingJob(
+                processingJob);
+
             var gates =
                 ProjectPipelineGateEvaluator.Evaluate(
                     _projectPath,
@@ -1099,6 +1146,57 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         }
     }
 
+    private void RenderProcessingJob(
+        ProjectProcessingJob? job)
+    {
+        if (job is null)
+        {
+            ProcessingWorkerText.Text =
+                "—";
+
+            ProcessingJobStatusText.Text =
+                "—";
+
+            ProcessingJobMessageText.Text =
+                "Kein Processing-Job.";
+
+            ProcessingJobProgress.Value =
+                0;
+
+            ProcessingJobLogText.Text =
+                "—";
+
+            return;
+        }
+
+        ProcessingWorkerText.Text =
+            $"{job.Worker} · {job.Id}";
+
+        ProcessingJobStatusText.Text =
+            job.StatusText;
+
+        ProcessingJobMessageText.Text =
+            string.IsNullOrWhiteSpace(
+                job.CurrentStep)
+                ? job.Message
+                : $"{job.CurrentStep} · {job.Message}";
+
+        ProcessingJobProgress.Value =
+            Math.Clamp(
+                job.Percent,
+                0d,
+                100d);
+
+        ProcessingJobLogText.Text =
+            string.IsNullOrWhiteSpace(
+                _projectPath)
+                ? job.LogPath.StoredPath
+                : ProjectProcessingCoordinator.ResolveLogPath(
+                      _projectPath,
+                      job) ??
+                  job.LogPath.StoredPath;
+    }
+
     private static void RenderPipelineGate(
         ProjectPipelineGate gate,
         TextBlock stateText,
@@ -1123,6 +1221,9 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
 
         PipelineProbeText.Text =
             "Erkennung: —";
+
+        RenderProcessingJob(
+            null);
 
         foreach (var pair in
                  new[]
@@ -1204,11 +1305,23 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
                 ? "Pipeline offen"
                 : $"Pipeline {_pipelineState.Module}/{_pipelineState.Stage}";
 
+        var processingJob =
+            string.IsNullOrWhiteSpace(
+                _projectPath)
+                ? null
+                : ProjectProcessingCoordinator.GetCurrent(
+                    _projectPath);
+
+        var processingText =
+            processingJob is null
+                ? "Worker offen"
+                : $"Worker {processingJob.Worker}/{processingJob.StatusText}";
+
         return
             $"{prefix} · Artefakte {_project.Artifacts.Count:N0} · " +
             $"{workflow.SummaryText} · " +
             $"{ProjectDashboardAnalyzer.Analyze(_projectPath, _project).SummaryText} · " +
-            $"{pipelineText} · " +
+            $"{pipelineText} · {processingText} · " +
             $"OK {ok:N0} · geändert {modified:N0} · fehlt {missing:N0} · Fehler {errors:N0}";
     }
 

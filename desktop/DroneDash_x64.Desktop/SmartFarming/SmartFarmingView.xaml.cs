@@ -137,6 +137,11 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         SetBusy(true);
         StatusText.Text = "M3M-Aufnahmen und radiometrische XMP-Metadaten werden geprüft …";
 
+        ProjectProcessingCoordinator.BeginActive(
+            ProjectProcessingWorkerKind.SmartFarmingDatasetQa,
+            "M3M-Aufnahmen und radiometrische XMP-Metadaten werden geprüft.",
+            "dataset-qa");
+
         try
         {
             var folder = _sourceFolder;
@@ -152,9 +157,19 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
                 : "Datensatzprüfung abgeschlossen. Quelldateien wurden nicht verändert.";
 
             ExportDatasetButton.IsEnabled = _dataset.Captures.Count > 0;
+
+            ProjectProcessingCoordinator.AwaitOutputActive(
+                ProjectProcessingWorkerKind.SmartFarmingDatasetQa,
+                _dataset.Captures.Count == 0
+                    ? "Datensatzprüfung abgeschlossen; kein QA-Manifest exportierbar."
+                    : "Datensatzprüfung abgeschlossen; QA-Manifest exportieren.");
         }
         catch (Exception ex)
         {
+            ProjectProcessingCoordinator.FailActive(
+                ProjectProcessingWorkerKind.SmartFarmingDatasetQa,
+                ex.Message);
+
             StatusText.Text = $"Datensatzprüfung fehlgeschlagen: {ex.Message}";
             System.Windows.MessageBox.Show(
                 ex.Message,
@@ -297,6 +312,15 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
                     await DroneDashProjectSession.RegisterDirectoryAsync(
                         _dataset.SourceFolder,
                         ProjectArtifactKind.SourceDataFolder);
+
+                    ProjectProcessingCoordinator.RecordOutputActive(
+                        ProjectProcessingWorkerKind.SmartFarmingDatasetQa,
+                        output.JsonPath,
+                        ProjectArtifactKind.SmartFarmingDataset);
+
+                    ProjectProcessingCoordinator.CompleteActive(
+                        ProjectProcessingWorkerKind.SmartFarmingDatasetQa,
+                        "M3M-Datensatz-QA exportiert und im Projekt registriert.");
                 }
                 catch (Exception ex)
                 {
@@ -636,11 +660,26 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         StartNodeOdmTaskButton.IsEnabled = false;
         DownloadNodeOdmButton.IsEnabled = false;
 
+        ProjectProcessingCoordinator.BeginActive(
+            ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+            "M3M-Datensatz wird an NodeODM übertragen.",
+            "upload");
+
         var uploadProgress = new Progress<NodeOdmUploadProgress>(value =>
         {
             NodeOdmProgress.Value = value.Percent;
             NodeOdmStatusText.Text =
                 $"Upload {value.UploadedFiles}/{value.TotalFiles}: {value.CurrentFile}";
+
+            ProjectProcessingCoordinator.ReportActive(
+                ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+                Math.Clamp(
+                    value.Percent * 0.2,
+                    0d,
+                    20d),
+                $"Upload {value.UploadedFiles}/{value.TotalFiles}: {value.CurrentFile}",
+                "upload");
+
             AppendNodeOdmLog(
                 $"Upload {value.UploadedFiles}/{value.TotalFiles}: {value.CurrentFile}");
         });
@@ -658,6 +697,12 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
             AppendNodeOdmLog(
                 $"NodeODM Task gestartet: {_nodeOdmTaskUuid}");
 
+            ProjectProcessingCoordinator.ReportActive(
+                ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+                20d,
+                $"NodeODM Task {_nodeOdmTaskUuid} gestartet.",
+                "nodeodm");
+
             RefreshNodeOdmTaskButton.IsEnabled = true;
             CancelNodeOdmTaskButton.IsEnabled = true;
 
@@ -670,10 +715,18 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         }
         catch (OperationCanceledException)
         {
+            ProjectProcessingCoordinator.CancelActive(
+                ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+                "NodeODM-Upload/Monitoring lokal abgebrochen.");
+
             AppendNodeOdmLog("NodeODM-Upload/Monitoring lokal abgebrochen.");
         }
         catch (Exception ex)
         {
+            ProjectProcessingCoordinator.FailActive(
+                ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+                ex.Message);
+
             NodeOdmStatusText.Text =
                 $"NodeODM-Task fehlgeschlagen: {ex.Message}";
             AppendNodeOdmLog(NodeOdmStatusText.Text);
@@ -708,6 +761,15 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
             NodeOdmStatusText.Text =
                 $"Task {info.Uuid} · {info.StatusText} · {info.Progress:F1}% · Bilder {info.ImagesCount} · Laufzeit {TimeSpan.FromMilliseconds(info.ProcessingTimeMilliseconds):g}";
 
+            ProjectProcessingCoordinator.ReportActive(
+                ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+                Math.Clamp(
+                    20d + info.Progress * 0.7d,
+                    20d,
+                    90d),
+                $"Task {info.Uuid} · {info.StatusText} · {info.Progress:F1}%",
+                "nodeodm");
+
             try
             {
                 var output = await client.GetTaskOutputAsync(
@@ -735,7 +797,28 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
                 info.IsCompleted;
 
             if (info.IsTerminal)
+            {
+                if (info.IsCompleted)
+                {
+                    ProjectProcessingCoordinator.AwaitOutputActive(
+                        ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+                        "NodeODM-Processing abgeschlossen; all.zip herunterladen und registrieren.");
+                }
+                else if (info.StatusCode == 50)
+                {
+                    ProjectProcessingCoordinator.CancelActive(
+                        ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+                        $"NodeODM Task {info.Uuid} wurde abgebrochen.");
+                }
+                else
+                {
+                    ProjectProcessingCoordinator.FailActive(
+                        ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+                        $"NodeODM Task {info.Uuid} endete mit {info.StatusText}.");
+                }
+
                 return;
+            }
 
             await Task.Delay(
                 TimeSpan.FromSeconds(3),
@@ -761,6 +844,34 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
 
             CancelNodeOdmTaskButton.IsEnabled = !info.IsTerminal;
             DownloadNodeOdmButton.IsEnabled = info.IsCompleted;
+
+            ProjectProcessingCoordinator.ReportActive(
+                ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+                Math.Clamp(
+                    20d + info.Progress * 0.7d,
+                    20d,
+                    90d),
+                $"Task {info.Uuid} · {info.StatusText} · {info.Progress:F1}%",
+                "nodeodm");
+
+            if (info.IsCompleted)
+            {
+                ProjectProcessingCoordinator.AwaitOutputActive(
+                    ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+                    "NodeODM-Processing abgeschlossen; all.zip herunterladen und registrieren.");
+            }
+            else if (info.StatusCode == 50)
+            {
+                ProjectProcessingCoordinator.CancelActive(
+                    ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+                    $"NodeODM Task {info.Uuid} wurde abgebrochen.");
+            }
+            else if (info.StatusCode == 30)
+            {
+                ProjectProcessingCoordinator.FailActive(
+                    ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+                    $"NodeODM Task {info.Uuid} ist fehlgeschlagen.");
+            }
         }
         catch (Exception ex)
         {
@@ -783,6 +894,10 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
             NodeOdmStatusText.Text =
                 $"Abbruch für Task {_nodeOdmTaskUuid} angefordert.";
             CancelNodeOdmTaskButton.IsEnabled = false;
+
+            ProjectProcessingCoordinator.CancelActive(
+                ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+                $"Abbruch für NodeODM Task {_nodeOdmTaskUuid} angefordert.");
         }
         catch (Exception ex)
         {
@@ -815,6 +930,15 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
             NodeOdmProgress.Value = Math.Clamp(value, 0, 100);
             NodeOdmStatusText.Text =
                 $"NodeODM-Ergebnis wird heruntergeladen: {value:F1}%";
+
+            ProjectProcessingCoordinator.ReportActive(
+                ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+                Math.Clamp(
+                    90d + value * 0.1d,
+                    90d,
+                    100d),
+                $"NodeODM-Ergebnis wird heruntergeladen: {value:F1}%",
+                "download");
         });
 
         try
@@ -837,6 +961,15 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
                     registered = await DroneDashProjectSession.RegisterFileAsync(
                         path,
                         ProjectArtifactKind.NodeOdmResultArchive);
+
+                    ProjectProcessingCoordinator.RecordOutputActive(
+                        ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+                        path,
+                        ProjectArtifactKind.NodeOdmResultArchive);
+
+                    ProjectProcessingCoordinator.CompleteActive(
+                        ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+                        "NodeODM-Ergebnisarchiv heruntergeladen und im Projekt registriert.");
                 }
                 catch (Exception ex)
                 {
@@ -857,6 +990,10 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         }
         catch (Exception ex)
         {
+            ProjectProcessingCoordinator.FailActive(
+                ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+                $"NodeODM-Ergebnisdownload fehlgeschlagen: {ex.Message}");
+
             NodeOdmStatusText.Text =
                 $"Download fehlgeschlagen: {ex.Message}";
         }
@@ -869,6 +1006,10 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
 
     private void AppendNodeOdmLog(string line)
     {
+        ProjectProcessingCoordinator.LogActive(
+            ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+            line);
+
         NodeOdmLogText.AppendText(
             $"[{DateTimeOffset.Now:HH:mm:ss}] {line}{Environment.NewLine}");
         NodeOdmLogText.ScrollToEnd();
@@ -1144,6 +1285,11 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         OdmFieldProductProgress.Value = 0;
         OdmFieldProductLogText.Clear();
 
+        ProjectProcessingCoordinator.BeginActive(
+            ProjectProcessingWorkerKind.SmartFarmingFieldProducts,
+            "Georeferenzierte Feldprodukte werden berechnet.",
+            "field-products");
+
         var progress =
             new Progress<LocalProcessingProgress>(
                 value =>
@@ -1153,6 +1299,12 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
 
                     OdmFieldProductStatusText.Text =
                         $"{value.CompletedSteps}/{value.TotalSteps} · {value.Message}";
+
+                    ProjectProcessingCoordinator.ReportActive(
+                        ProjectProcessingWorkerKind.SmartFarmingFieldProducts,
+                        value.Percent,
+                        value.Message,
+                        value.CurrentStepId);
                 });
 
         try
@@ -1164,6 +1316,10 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
                     line =>
                         Dispatcher.BeginInvoke(() =>
                         {
+                            ProjectProcessingCoordinator.LogActive(
+                                ProjectProcessingWorkerKind.SmartFarmingFieldProducts,
+                                line);
+
                             OdmFieldProductLogText.AppendText(
                                 line +
                                 Environment.NewLine);
@@ -1203,6 +1359,19 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
                         registered =
                             await DroneDashProjectSession.RegisterFilesAsync(
                                 productPaths);
+
+                        foreach (var productPath in productPaths)
+                        {
+                            ProjectProcessingCoordinator.RecordOutputActive(
+                                ProjectProcessingWorkerKind.SmartFarmingFieldProducts,
+                                productPath,
+                                ProjectArtifactService.ClassifyFile(
+                                    productPath));
+                        }
+
+                        ProjectProcessingCoordinator.CompleteActive(
+                            ProjectProcessingWorkerKind.SmartFarmingFieldProducts,
+                            "Georeferenzierte Feldprodukte erzeugt und im Projekt registriert.");
                     }
                     catch (Exception ex)
                     {
@@ -1220,6 +1389,19 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
             }
             else
             {
+                if (result.Canceled)
+                {
+                    ProjectProcessingCoordinator.CancelActive(
+                        ProjectProcessingWorkerKind.SmartFarmingFieldProducts,
+                        "Feldproduktberechnung wurde abgebrochen.");
+                }
+                else
+                {
+                    ProjectProcessingCoordinator.FailActive(
+                        ProjectProcessingWorkerKind.SmartFarmingFieldProducts,
+                        $"Fehler bei {result.FailedStepId} · ExitCode {result.ExitCode}");
+                }
+
                 OdmFieldProductStatusText.Text =
                     result.Canceled
                         ? $"Feldproduktberechnung abgebrochen · Log: {result.LogPath}"
@@ -1228,6 +1410,10 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         }
         catch (Exception ex)
         {
+            ProjectProcessingCoordinator.FailActive(
+                ProjectProcessingWorkerKind.SmartFarmingFieldProducts,
+                ex.Message);
+
             OdmFieldProductStatusText.Text =
                 $"Feldproduktberechnung fehlgeschlagen: {ex.Message}";
         }
@@ -1244,6 +1430,11 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
     private void CancelOdmFieldProducts_Click(object sender, RoutedEventArgs e)
     {
         _odmFieldProductCts?.Cancel();
+
+        ProjectProcessingCoordinator.CancelActive(
+            ProjectProcessingWorkerKind.SmartFarmingFieldProducts,
+            "Abbruch der Feldproduktberechnung angefordert.");
+
         OdmFieldProductStatusText.Text =
             "Abbruch angefordert …";
     }

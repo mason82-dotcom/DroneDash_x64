@@ -140,3 +140,34 @@ Five project gates are evaluated from persisted project evidence:
 
 Gate values are `PASS`, `PRÜFEN`, `OFFEN` or `BLOCKIERT`. They are workflow controls, not a
 substitute for domain-specific engineering, agronomic or thermographic acceptance criteria.
+
+
+## Processing job orchestrator
+
+A recognized project pipeline now owns a persistent processing-job ledger in
+`project-processing-jobs.json`. DroneDash creates the next concrete worker from the current module
+and registered evidence instead of treating "Processing" as a single boolean state.
+
+The current worker chain is:
+
+- Photogrammetry: dataset/XMP analysis -> registered `photogrammetry-manifest.json`;
+- PV: radiometric M3T thermal batch -> registered `pv-analysis.json`;
+- Smart Farming: M3M dataset QA -> NodeODM -> georeferenced field products.
+
+Each worker records its job ID, pipeline job ID, status, percentage, current step, message,
+timestamps, output references and a dedicated log under `03_Processing/_ProjectJobs`. The Project
+tab mirrors that state live while the worker is running.
+
+A worker can be `Queued`, `Running`, `AwaitingOutput`, `Succeeded`, `Failed` or `Canceled`.
+Process completion alone does not mark a job successful: the expected project artifact must be
+registered. For example, a completed NodeODM task remains `AwaitingOutput` until its `all.zip`
+has been downloaded and registered.
+
+Registering the expected output reconciles the current job and allows the orchestrator to create the
+next Smart-Farming worker automatically. Processing and result gates are therefore released from
+project evidence, not only from transient UI state. A failed worker is reflected as a blocked
+Processing gate; running, canceled or output-pending work remains visible as a non-pass state.
+
+Project `Save As` copies and rebases both the pipeline state and processing ledger. Existing log
+and output references continue to resolve to the same files unless those files are explicitly
+moved by the operator.

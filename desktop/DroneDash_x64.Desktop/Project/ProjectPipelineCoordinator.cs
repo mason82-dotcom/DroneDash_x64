@@ -481,6 +481,7 @@ public static class ProjectPipelineGateEvaluator
                 "RTK",
                 dashboard.Rtk),
             EvaluateProcessing(
+                projectPath,
                 project,
                 state),
             EvaluateResults(
@@ -560,9 +561,47 @@ public static class ProjectPipelineGateEvaluator
     }
 
     private static ProjectPipelineGate EvaluateProcessing(
+        string projectPath,
         DroneDashProject project,
         ProjectPipelineState state)
     {
+        var job =
+            ProjectProcessingCoordinator.GetCurrent(
+                projectPath);
+
+        if (job is not null &&
+            job.PipelineJobId ==
+                state.JobId)
+        {
+            if (job.Status ==
+                ProjectProcessingJobStatus.Failed)
+            {
+                return new(
+                    "Processing",
+                    ProjectPipelineGateState.Blocked,
+                    $"{job.Worker} fehlgeschlagen: {job.Error ?? job.Message}");
+            }
+
+            if (job.Status ==
+                ProjectProcessingJobStatus.Canceled)
+            {
+                return new(
+                    "Processing",
+                    ProjectPipelineGateState.Warning,
+                    $"{job.Worker} abgebrochen: {job.Message}");
+            }
+
+            if (job.Status is
+                    ProjectProcessingJobStatus.Running or
+                    ProjectProcessingJobStatus.AwaitingOutput)
+            {
+                return new(
+                    "Processing",
+                    ProjectPipelineGateState.Warning,
+                    $"{job.Worker} · {job.StatusText} · {job.Percent:F1}% · {job.Message}");
+            }
+        }
+
         return state.Module switch
         {
             ProjectPipelineModule.PvAnalysis =>

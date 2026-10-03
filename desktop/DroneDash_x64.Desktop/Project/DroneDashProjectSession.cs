@@ -360,6 +360,10 @@ public static class DroneDashProjectSession
                         pipeline));
             }
 
+            ProjectProcessingCoordinator.CopyRebased(
+                oldProjectPath,
+                target);
+
             CurrentProjectPath =
                 target;
 
