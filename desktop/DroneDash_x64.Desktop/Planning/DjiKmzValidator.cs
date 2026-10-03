@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.IO;
 using System.IO.Compression;
+using System.Xml;
 using System.Xml.Linq;
 
 namespace DroneDash_x64.Desktop.Planning;
@@ -27,6 +28,12 @@ public sealed record DjiKmzValidationReport(
 
 public static class DjiKmzValidator
 {
+    private const int MaxArchiveEntries = 4_096;
+    private const long MaxDeclaredUncompressedBytes =
+        512L * 1024 * 1024;
+    private const long MaxXmlEntryBytes =
+        16L * 1024 * 1024;
+
     private static readonly XNamespace Kml = "http://www.opengis.net/kml/2.2";
     private static readonly XNamespace Wpml = "http://www.dji.com/wpmz/1.0.2";
 
@@ -41,6 +48,91 @@ public static class DjiKmzValidator
         try
         {
             using var archive = ZipFile.OpenRead(path);
+
+            if (archive.Entries.Count >
+                MaxArchiveEntries)
+            {
+                errors.Add(
+                    $"KMZ enthält zu viele Einträge: {archive.Entries.Count:N0} > {MaxArchiveEntries:N0}.");
+
+                return new(
+                    false,
+                    null,
+                    0,
+                    0,
+                    errors,
+                    warnings);
+            }
+
+            long declaredBytes = 0;
+
+            foreach (var entry in archive.Entries)
+            {
+                try
+                {
+                    declaredBytes =
+                        checked(
+                            declaredBytes +
+                            entry.Length);
+                }
+                catch (OverflowException)
+                {
+                    errors.Add(
+                        "KMZ meldet eine ungültige unkomprimierte Gesamtgröße.");
+
+                    return new(
+                        false,
+                        null,
+                        0,
+                        0,
+                        errors,
+                        warnings);
+                }
+
+                if (declaredBytes >
+                    MaxDeclaredUncompressedBytes)
+                {
+                    errors.Add(
+                        $"KMZ ist unkomprimiert größer als erlaubt: {declaredBytes:N0} Bytes > {MaxDeclaredUncompressedBytes:N0} Bytes.");
+
+                    return new(
+                        false,
+                        null,
+                        0,
+                        0,
+                        errors,
+                        warnings);
+                }
+            }
+
+            var duplicateEntries =
+                archive.Entries
+                    .GroupBy(
+                        entry => entry.FullName,
+                        StringComparer.Ordinal)
+                    .Where(group =>
+                        group.Count() > 1)
+                    .Select(group =>
+                        group.Key)
+                    .ToArray();
+
+            if (duplicateEntries.Length > 0)
+            {
+                errors.Add(
+                    "Doppelte KMZ-Einträge sind nicht zulässig: " +
+                    string.Join(
+                        ", ",
+                        duplicateEntries));
+
+                return new(
+                    false,
+                    null,
+                    0,
+                    0,
+                    errors,
+                    warnings);
+            }
+
             var templateEntry = archive.GetEntry("wpmz/template.kml");
             var waylinesEntry = archive.GetEntry("wpmz/waylines.wpml");
             var hasResources = archive.Entries.Any(e =>
@@ -179,8 +271,34 @@ public static class DjiKmzValidator
     {
         try
         {
-            using var stream = entry.Open();
-            return XDocument.Load(stream, LoadOptions.None);
+            if (entry.Length >
+                MaxXmlEntryBytes)
+            {
+                errors.Add(
+                    $"{label} ist größer als das zulässige XML-Limit von {MaxXmlEntryBytes:N0} Bytes.");
+
+                return null;
+            }
+
+            using var stream =
+                entry.Open();
+
+            using var reader =
+                XmlReader.Create(
+                    stream,
+                    new XmlReaderSettings
+                    {
+                        DtdProcessing =
+                            DtdProcessing.Prohibit,
+                        XmlResolver =
+                            null,
+                        MaxCharactersInDocument =
+                            MaxXmlEntryBytes
+                    });
+
+            return XDocument.Load(
+                reader,
+                LoadOptions.None);
         }
         catch (Exception ex)
         {
