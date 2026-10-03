@@ -215,6 +215,39 @@ public static class ProjectPipelineStore
             overwrite: true);
     }
 
+    public static ProjectPipelineState Rebase(
+        string oldProjectPath,
+        string newProjectPath,
+        ProjectPipelineState state)
+    {
+        var source =
+            ResolveSourceFolder(
+                oldProjectPath,
+                state);
+
+        var flightPlan =
+            ResolveFlightPlan(
+                oldProjectPath,
+                state);
+
+        return state with
+        {
+            SourceFolder =
+                ToStoredPath(
+                    newProjectPath,
+                    source),
+            FlightPlan =
+                string.IsNullOrWhiteSpace(
+                    flightPlan)
+                    ? null
+                    : ToStoredPath(
+                        newProjectPath,
+                        flightPlan),
+            UpdatedAtUtc =
+                DateTimeOffset.UtcNow
+        };
+    }
+
     public static ProjectPipelineState RefreshStage(
         string projectPath,
         DroneDashProject project,
