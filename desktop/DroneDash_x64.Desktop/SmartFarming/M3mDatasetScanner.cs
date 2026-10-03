@@ -1,26 +1,50 @@
 using System.Globalization;
 using System.IO;
-using System.Text;
 using System.Windows.Media.Imaging;
-using System.Xml.Linq;
+using DroneDash_x64.Desktop.Imaging;
 
 namespace DroneDash_x64.Desktop.SmartFarming;
 
 public static class M3mDatasetScanner
 {
-    private const int MaxXmpScanBytes = 32 * 1024 * 1024;
-
-    public static M3mDatasetResult Scan(string sourceFolder)
+    public static M3mDatasetResult Scan(
+        string sourceFolder,
+        CancellationToken cancellationToken = default,
+        IProgress<DatasetScanProgress>? progress = null)
     {
         if (!Directory.Exists(sourceFolder))
             throw new DirectoryNotFoundException(sourceFolder);
 
         var builders = new Dictionary<string, CaptureBuilder>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var path in Directory.EnumerateFiles(sourceFolder, "*", SearchOption.AllDirectories))
+        var files = SafeDatasetFileEnumerator
+            .EnumerateFiles(
+                sourceFolder,
+                path => M3mCaptureKeyParser.TryParse(
+                    Path.GetFileName(path),
+                    out _,
+                    out _),
+                cancellationToken)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        progress?.Report(new DatasetScanProgress(
+            files.Length,
+            0,
+            null));
+
+        for (var index = 0; index < files.Length; index++)
         {
-            if (!M3mCaptureKeyParser.TryParse(Path.GetFileName(path), out var key, out var kind))
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var path = files[index];
+            if (!M3mCaptureKeyParser.TryParse(
+                    Path.GetFileName(path),
+                    out var key,
+                    out var kind))
+            {
                 continue;
+            }
 
             if (!builders.TryGetValue(key, out var builder))
             {
@@ -37,6 +61,11 @@ public static class M3mDatasetScanner
             var band = M3mCaptureKeyParser.BandFromKind(kind);
             if (band is not null)
                 builder.SetBand(ReadBandMetadata(path, band.Value));
+
+            progress?.Report(new DatasetScanProgress(
+                files.Length,
+                index + 1,
+                Path.GetFileName(path)));
         }
 
         var captures = builders.Values
@@ -61,7 +90,11 @@ public static class M3mDatasetScanner
     private static M3mBandMetadata ReadBandMetadata(string path, M3mBand band)
     {
         var issues = new List<string>();
-        var fields = ReadXmpFields(path);
+        var xmp = DjiXmpMetadataReader.Read(path);
+        var fields = xmp.Fields;
+
+        if (!string.IsNullOrWhiteSpace(xmp.Error))
+            issues.Add(xmp.Error);
         int width;
         int height;
         int bitsPerSample;
@@ -112,38 +145,6 @@ public static class M3mDatasetScanner
             longitude, rtkStatus, issues);
     }
 
-    private static Dictionary<string, string> ReadXmpFields(string path)
-    {
-        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var xmp = TryReadXmp(path);
-        if (string.IsNullOrWhiteSpace(xmp))
-            return result;
-
-        try
-        {
-            var document = XDocument.Parse(xmp, LoadOptions.None);
-            foreach (var element in document.Descendants())
-            {
-                foreach (var attribute in element.Attributes().Where(a => !a.IsNamespaceDeclaration))
-                    AddField(result, attribute.Name.LocalName, attribute.Value);
-                if (!element.HasElements)
-                    AddField(result, element.Name.LocalName, element.Value);
-            }
-        }
-        catch
-        {
-        }
-
-        return result;
-    }
-
-    private static void AddField(IDictionary<string, string> fields, string key, string rawValue)
-    {
-        var value = rawValue.Trim();
-        if (value.Length > 0)
-            fields.TryAdd(key, value);
-    }
-
     private static double? Number(IReadOnlyDictionary<string, string> fields, string key)
     {
         if (!fields.TryGetValue(key, out var value))
@@ -156,34 +157,6 @@ public static class M3mDatasetScanner
             out var result) && double.IsFinite(result)
                 ? result
                 : null;
-    }
-
-    private static string? TryReadXmp(string path)
-    {
-        using var stream = File.OpenRead(path);
-        var length = (int)Math.Min(stream.Length, MaxXmpScanBytes);
-        var bytes = new byte[length];
-        var offset = 0;
-
-        while (offset < bytes.Length)
-        {
-            var read = stream.Read(bytes, offset, bytes.Length - offset);
-            if (read == 0) break;
-            offset += read;
-        }
-
-        var text = Encoding.UTF8.GetString(bytes, 0, offset);
-        var start = text.IndexOf("<x:xmpmeta", StringComparison.OrdinalIgnoreCase);
-        if (start < 0)
-            start = text.IndexOf("<xmpmeta", StringComparison.OrdinalIgnoreCase);
-        if (start < 0)
-            return null;
-
-        var endTag = text.IndexOf("</x:xmpmeta>", start, StringComparison.OrdinalIgnoreCase) >= 0
-            ? "</x:xmpmeta>"
-            : "</xmpmeta>";
-        var end = text.IndexOf(endTag, start, StringComparison.OrdinalIgnoreCase);
-        return end < 0 ? null : text[start..(end + endTag.Length)];
     }
 
     private sealed class CaptureBuilder
