@@ -29,7 +29,7 @@ public static class FlightPlanProjectStore
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        FlightPlanValidation.ValidateInput(
+        FlightPlanValidation.ValidateProjectData(
             geometry,
             settings);
 
@@ -111,7 +111,7 @@ public static class FlightPlanProjectStore
 
         try
         {
-            FlightPlanValidation.ValidateInput(
+            FlightPlanValidation.ValidateProjectData(
                 project.Geometry,
                 project.Settings);
         }
