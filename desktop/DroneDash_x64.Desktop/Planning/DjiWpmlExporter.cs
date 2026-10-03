@@ -127,24 +127,20 @@ public static class DjiWpmlExporter
     private static void ValidatePlanForExport(
         FlightPlanResult plan)
     {
-        var minimumGeometryPoints =
-            plan.Settings.Mode ==
-                FlightPlanMode.MappingStrip
-                ? 2
-                : 3;
-
-        if (plan.Geometry.Count <
-            minimumGeometryPoints)
+        try
         {
-            throw new InvalidDataException(
-                $"Flugplan enthält zu wenig Geometriepunkte für {plan.Settings.Mode}.");
+            FlightPlanValidation.ValidateInput(
+                plan.Geometry,
+                plan.Settings);
         }
-
-        if (plan.Geometry.Any(point =>
-                !ValidCoordinate(point)))
+        catch (Exception ex)
+            when (ex is
+                ArgumentException or
+                InvalidOperationException)
         {
             throw new InvalidDataException(
-                "Flugplan enthält ungültige oder nicht-endliche WGS84-Koordinaten.");
+                $"Flugplan ist nicht exportierbar: {ex.Message}",
+                ex);
         }
 
         if (!double.IsFinite(
@@ -153,17 +149,6 @@ public static class DjiWpmlExporter
         {
             throw new InvalidDataException(
                 "Flugplan enthält keinen gültigen Fotoabstand.");
-        }
-
-        if (!double.IsFinite(
-                plan.Settings.AltitudeMeters) ||
-            plan.Settings.AltitudeMeters <= 0 ||
-            !double.IsFinite(
-                plan.Settings.SpeedMetersPerSecond) ||
-            plan.Settings.SpeedMetersPerSecond <= 0)
-        {
-            throw new InvalidDataException(
-                "Flugplan enthält keine gültige Höhe oder Geschwindigkeit.");
         }
 
         if (plan.Passes.Count == 0)
