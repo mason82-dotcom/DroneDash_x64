@@ -97,7 +97,17 @@ public partial class FlightPlanningView : System.Windows.Controls.UserControl
             };
 
             if (!string.IsNullOrWhiteSpace(_currentProjectPath))
-                dialog.InitialDirectory = Path.GetDirectoryName(_currentProjectPath);
+            {
+                dialog.InitialDirectory =
+                    Path.GetDirectoryName(
+                        _currentProjectPath);
+            }
+            else if (ProjectWorkspaceLayout.TryGetActiveFolder(
+                         ProjectWorkspaceFolder.Planning) is string planningFolder)
+            {
+                dialog.InitialDirectory =
+                    planningFolder;
+            }
 
             if (dialog.ShowDialog() != WinForms.DialogResult.OK)
                 return;
@@ -282,6 +292,125 @@ public partial class FlightPlanningView : System.Windows.Controls.UserControl
         };
     }
 
+    private async void HandoffFlightPlan_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (sender is not Button button ||
+            !Enum.TryParse<ProjectNavigationTarget>(
+                button.Tag?.ToString(),
+                ignoreCase: true,
+                out var target))
+        {
+            return;
+        }
+
+        try
+        {
+            var path =
+                await SaveForHandoffAsync();
+
+            if (string.IsNullOrWhiteSpace(path))
+                return;
+
+            DroneDashProjectSession.RequestNavigation(
+                target,
+                path,
+                $"Flugplan direkt an {target} übergeben");
+
+            PlanningStatusText.Text =
+                $"Flugplan gespeichert und an {target} übergeben: {path}";
+        }
+        catch (Exception ex)
+        {
+            PlanningStatusText.Text =
+                $"Flugplan-Übergabe fehlgeschlagen: {ex.Message}";
+
+            System.Windows.MessageBox.Show(
+                ex.Message,
+                "Flugplan übergeben",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
+    private async Task<string?> SaveForHandoffAsync()
+    {
+        var path =
+            _currentProjectPath;
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            var projectFolder =
+                ProjectWorkspaceLayout.TryGetActiveFolder(
+                    ProjectWorkspaceFolder.Planning);
+
+            if (!string.IsNullOrWhiteSpace(projectFolder))
+            {
+                var baseName =
+                    SafeFileName(
+                        PlanNameBox.Text);
+
+                path =
+                    Path.Combine(
+                        projectFolder,
+                        baseName + ".ddplan");
+
+                if (File.Exists(path))
+                {
+                    path =
+                        Path.Combine(
+                            projectFolder,
+                            $"{baseName}_{DateTimeOffset.Now:yyyyMMdd_HHmmss}.ddplan");
+                }
+            }
+            else
+            {
+                using var dialog =
+                    new WinForms.SaveFileDialog
+                    {
+                        Title = "Flugplan für Übergabe speichern",
+                        Filter = "DroneDash Flugplan (*.ddplan)|*.ddplan|JSON (*.json)|*.json",
+                        DefaultExt = "ddplan",
+                        AddExtension = true,
+                        FileName =
+                            SafeFileName(
+                                PlanNameBox.Text) +
+                            ".ddplan"
+                    };
+
+                if (dialog.ShowDialog() !=
+                    WinForms.DialogResult.OK)
+                {
+                    return null;
+                }
+
+                path =
+                    dialog.FileName;
+            }
+        }
+
+        FlightPlanProjectStore.Save(
+            path,
+            ReadSettings(),
+            _geometry);
+
+        _currentProjectPath =
+            Path.GetFullPath(path);
+
+        ProjectInfoText.Text =
+            $"Gespeichert: {_currentProjectPath}";
+
+        if (DroneDashProjectSession.IsOpen)
+        {
+            await DroneDashProjectSession.RegisterFileAsync(
+                _currentProjectPath,
+                ProjectArtifactKind.FlightPlan);
+        }
+
+        return _currentProjectPath;
+    }
+
     private void GenerateGrid_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -316,6 +445,13 @@ public partial class FlightPlanningView : System.Windows.Controls.UserControl
                 AddExtension = true,
                 FileName = SafeFileName(_plan.Settings.Name) + ".kmz"
             };
+
+            if (ProjectWorkspaceLayout.TryGetActiveFolder(
+                    ProjectWorkspaceFolder.Planning) is string planningFolder)
+            {
+                dialog.InitialDirectory =
+                    planningFolder;
+            }
 
             if (dialog.ShowDialog() != WinForms.DialogResult.OK)
                 return;
