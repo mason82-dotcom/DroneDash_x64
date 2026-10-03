@@ -174,7 +174,8 @@ public static class ProjectArtifactService
         if (extension is ".tif" or ".tiff")
         {
             if (name.Equals("dsm.tif", StringComparison.OrdinalIgnoreCase) ||
-                name.Equals("dtm.tif", StringComparison.OrdinalIgnoreCase))
+                name.Equals("dtm.tif", StringComparison.OrdinalIgnoreCase) ||
+                name.Equals("chm.tif", StringComparison.OrdinalIgnoreCase))
             {
                 return ProjectArtifactKind.ElevationModel;
             }
@@ -449,7 +450,9 @@ public static class ProjectArtifactService
             ProjectArtifactKind.ElevationModel =>
                 name.Equals("dtm.tif", StringComparison.OrdinalIgnoreCase)
                     ? $"Geländemodell (DTM) · {name}"
-                    : $"Oberflächenmodell (DSM) · {name}",
+                    : name.Equals("chm.tif", StringComparison.OrdinalIgnoreCase)
+                        ? $"Bestandshöhe (CHM) · {name}"
+                        : $"Oberflächenmodell (DSM) · {name}",
             ProjectArtifactKind.PointCloud =>
                 $"Punktwolke · {name}",
             _ => name

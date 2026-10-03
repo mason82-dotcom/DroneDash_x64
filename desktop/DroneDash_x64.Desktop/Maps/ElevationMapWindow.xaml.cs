@@ -15,15 +15,23 @@ public partial class ElevationMapWindow : Window
     private readonly DemPreview _preview;
     private readonly string _previewFolder;
     private readonly string _layerTitle;
+    private readonly ElevationAnalysisContext? _analysis;
+    private readonly CancellationTokenSource _closing = new();
 
-    public ElevationMapWindow(DemPreview preview, string previewFolder, string layerTitle)
+    public ElevationMapWindow(
+        DemPreview preview,
+        string previewFolder,
+        string layerTitle,
+        ElevationAnalysisContext? analysis = null)
     {
         InitializeComponent();
         _preview = preview;
         _previewFolder = previewFolder;
         _layerTitle = layerTitle;
+        _analysis = analysis;
         Title = $"Höhenmodell · {layerTitle}";
         Loaded += async (_, _) => await InitializeMapAsync();
+        Closed += (_, _) => _closing.Cancel();
     }
 
     private async Task InitializeMapAsync()
@@ -52,6 +60,57 @@ public partial class ElevationMapWindow : Window
         }
     }
 
+    private static IReadOnlyList<(double Lon, double Lat)> ReadCoordinates(JsonElement root) =>
+        root.GetProperty("coordinates")
+            .EnumerateArray()
+            .Select(point => (point[0].GetDouble(), point[1].GetDouble()))
+            .ToArray();
+
+    private async Task RunAnalysisAsync(JsonElement request)
+    {
+        var id = request.GetProperty("id").GetInt32();
+        var type = request.GetProperty("type").GetString();
+        object reply;
+
+        try
+        {
+            if (_analysis is null)
+                throw new InvalidOperationException("Für dieses Höhenmodell sind keine Analysen verfügbar.");
+
+            var coordinates = ReadCoordinates(request);
+            StatusText.Text = type == "profileRequest" ? "Höhenprofil wird berechnet …" : "Volumen wird berechnet …";
+
+            if (type == "profileRequest")
+            {
+                var profile = await ElevationAnalysisService.ProfileAsync(_analysis, coordinates, _closing.Token);
+                reply = new { type = "analysisResult", id, kind = "profile", result = profile };
+                StatusText.Text = $"Höhenprofil · Länge {profile.LengthMeters:N2} m";
+            }
+            else
+            {
+                var baseMode = Enum.Parse<VolumeBase>(request.GetProperty("base").GetString()!, ignoreCase: true);
+                double? baseHeight = request.TryGetProperty("baseHeight", out var h) && h.ValueKind == JsonValueKind.Number
+                    ? h.GetDouble()
+                    : null;
+                var volume = await ElevationAnalysisService.VolumeAsync(_analysis, coordinates, baseMode, baseHeight, _closing.Token);
+                reply = new { type = "analysisResult", id, kind = "volume", result = volume };
+                StatusText.Text = $"Volumen · Auftrag {volume.CutCubicMeters:N1} m³ · Abtrag {volume.FillCubicMeters:N1} m³ · Fläche {volume.AreaSquareMeters:N1} m²";
+            }
+        }
+        catch (OperationCanceledException) when (_closing.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            reply = new { type = "analysisError", id, message = ex.Message };
+            StatusText.Text = $"Analyse fehlgeschlagen: {ex.Message}";
+        }
+
+        MapView.CoreWebView2?.PostWebMessageAsJson(
+            JsonSerializer.Serialize(reply, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+    }
+
     private void MapView_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
         try
@@ -71,7 +130,10 @@ public partial class ElevationMapWindow : Window
                         title = _layerTitle,
                         preview = _preview,
                         imageUrl = $"https://{DataHost}/{Uri.EscapeDataString(_preview.Image)}?v={version}",
-                        gridUrl = $"https://{DataHost}/{Uri.EscapeDataString(_preview.Grid)}?v={version}"
+                        gridUrl = $"https://{DataHost}/{Uri.EscapeDataString(_preview.Grid)}?v={version}",
+                        analysis = _analysis is null
+                            ? null
+                            : new { hasBaseModel = _analysis.BaseModelPath is not null }
                     };
                     MapView.CoreWebView2.PostWebMessageAsJson(
                         JsonSerializer.Serialize(message, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
@@ -87,6 +149,11 @@ public partial class ElevationMapWindow : Window
                     StatusText.Text = root.TryGetProperty("message", out var detail)
                         ? $"Fehler: {detail.GetString()}"
                         : "Fehler beim Laden des Höhenmodells.";
+                    break;
+
+                case "profileRequest":
+                case "volumeRequest":
+                    _ = RunAnalysisAsync(root.Clone());
                     break;
             }
         }

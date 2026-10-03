@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 
+from .analysis import canopy_height, dem_profile, dem_volume
 from .dem import dem_preview
 from .geospatial import geospatial_index, geospatial_zones
 from .indices import vegetation_index
@@ -101,6 +102,17 @@ def main(argv=None):
     parser.add_argument("--max-size", type=int, default=2048)
     parser.add_argument("--pointcloud-preview", action="store_true")
     parser.add_argument("--max-points", type=int, default=3_000_000)
+    parser.add_argument("--dem-profile", action="store_true")
+    parser.add_argument("--dem-volume", action="store_true")
+    parser.add_argument("--chm", action="store_true")
+    parser.add_argument("--line")
+    parser.add_argument("--polygon")
+    parser.add_argument("--base", choices=["plane", "lowest", "fixed", "dtm"], default="plane")
+    parser.add_argument("--base-height", type=float)
+    parser.add_argument("--base-dem")
+    parser.add_argument("--dsm")
+    parser.add_argument("--dtm")
+    parser.add_argument("--max-samples", type=int, default=2000)
     parser.add_argument("--reference")
     parser.add_argument("--moving")
     parser.add_argument("--positive-band")
@@ -165,12 +177,15 @@ def main(argv=None):
             bool(args.geo_zones),
             bool(args.dem_preview),
             bool(args.pointcloud_preview),
+            bool(args.dem_profile),
+            bool(args.dem_volume),
+            bool(args.chm),
         ]
     )
 
     if selected_modes != 1:
         parser.error(
-            "choose exactly one of --serve-jsonl, --probe, --register, --index, --geo-index, --geo-zones, --dem-preview or --pointcloud-preview"
+            "choose exactly one of --serve-jsonl, --probe, --register, --index, --geo-index, --geo-zones, --dem-preview, --pointcloud-preview, --dem-profile, --dem-volume or --chm"
         )
 
     if args.serve_jsonl:
@@ -208,6 +223,24 @@ def main(argv=None):
                 "--geo-index requires --source, --positive-band-index, --comparison-band-index, --index-type and --output"
             )
         geospatial_index(args)
+        return
+
+    if args.dem_profile:
+        if not args.source or not args.line:
+            parser.error("--dem-profile requires --source and --line")
+        dem_profile(args)
+        return
+
+    if args.dem_volume:
+        if not args.source or not args.polygon:
+            parser.error("--dem-volume requires --source and --polygon")
+        dem_volume(args)
+        return
+
+    if args.chm:
+        if not args.dsm or not args.dtm or not args.output:
+            parser.error("--chm requires --dsm, --dtm and --output")
+        canopy_height(args)
         return
 
     if args.pointcloud_preview:
