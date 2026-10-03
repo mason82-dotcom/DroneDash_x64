@@ -135,4 +135,15 @@ public partial class FlightPlanningView
         throw new FormatException($"{label}: ungültige Ganzzahl.");
     }
 
+
+    private static string SafeFileName(string value)
+    {
+        foreach (var c in Path.GetInvalidFileNameChars())
+            value = value.Replace(c, '_');
+
+        return string.IsNullOrWhiteSpace(value)
+            ? "DroneDash_Mapping"
+            : value;
+    }
+
 }
