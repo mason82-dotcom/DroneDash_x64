@@ -328,6 +328,13 @@ static void ValidateDuplicateKmzEntryRejected(
                 output.CreateEntry(
                     entry.FullName);
 
+            if (entry.FullName.EndsWith(
+                    "/",
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
             using var inputStream =
                 entry.Open();
 
