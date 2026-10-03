@@ -12,6 +12,7 @@ from .indices import vegetation_index
 from .pointcloud import pointcloud_preview
 from .probes import probe
 from .ortho import ortho_tiles
+from .prescription import prescription_map
 from .registration import register
 from .surface import dem_difference, dtm_from_dsm
 from .terrain import terrain_check
@@ -118,6 +119,10 @@ def main(argv=None):
     parser.add_argument("--dtm")
     parser.add_argument("--max-samples", type=int, default=2000)
     parser.add_argument("--ortho-tiles", action="store_true")
+    parser.add_argument("--prescription", action="store_true")
+    parser.add_argument("--rates")
+    parser.add_argument("--unit")
+    parser.add_argument("--name")
     parser.add_argument("--dtm-from-dsm", action="store_true")
     parser.add_argument("--dem-diff", action="store_true")
     parser.add_argument("--cell", type=float, default=0.5)
@@ -209,12 +214,13 @@ def main(argv=None):
             bool(args.ortho_tiles),
             bool(args.dtm_from_dsm),
             bool(args.dem_diff),
+            bool(args.prescription),
         ]
     )
 
     if selected_modes != 1:
         parser.error(
-            "choose exactly one of --serve-jsonl, --probe, --register, --index, --geo-index, --geo-zones, --dem-preview, --pointcloud-preview, --dem-profile, --dem-volume, --chm, --colmap-georef, --colmap-products, --terrain-check, --ortho-tiles, --dtm-from-dsm or --dem-diff"
+            "choose exactly one of --serve-jsonl, --probe, --register, --index, --geo-index, --geo-zones, --dem-preview, --pointcloud-preview, --dem-profile, --dem-volume, --chm, --colmap-georef, --colmap-products, --terrain-check, --ortho-tiles, --dtm-from-dsm, --dem-diff or --prescription"
         )
 
     if args.serve_jsonl:
@@ -264,6 +270,12 @@ def main(argv=None):
         if not args.source or not args.polygon:
             parser.error("--dem-volume requires --source and --polygon")
         dem_volume(args)
+        return
+
+    if args.prescription:
+        if not args.source or not args.output_dir or not args.rates:
+            parser.error("--prescription requires --source, --output-dir and --rates")
+        prescription_map(args)
         return
 
     if args.dtm_from_dsm:

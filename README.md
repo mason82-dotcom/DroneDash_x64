@@ -624,6 +624,15 @@ uses adaptive GDAL tiles with CUDA/CuPy or NumPy; otherwise the existing OTB imp
 the fallback. The defaults are 0.20 / 0.40 / 0.60 / 0.80, and the UI explicitly treats these as
 scouting classes rather than agronomic diagnosis or machine-ready application rates.
 
+### Application map from scouting zones
+
+The **Applikationskarte** tab turns the NDVI scouting zone map (`ndvi_scouting_zones.tif`) into a
+machine-ready application map: the worker (`--prescription`) aggregates the zones to the
+machine grid (most frequent zone per cell, e.g. the working width), merges adjacent cells of one
+zone into polygons, attaches the operator's rate per zone and writes ESRI Shapefile and GeoJSON in
+WGS84 with the fields `ZONE`, `RATE` and `AREA_HA`, plus area and total amount per zone. The rates
+are the farm's agronomic decision; the zones show differences in the crop, not their cause.
+
 ## Unified DroneDash project workspace
 
 The Windows client now starts with a **Projekt** workspace. A versioned `.ddproj` file links the
