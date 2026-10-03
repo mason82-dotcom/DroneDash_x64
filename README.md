@@ -165,8 +165,16 @@ The same checks run locally:
 
 ```powershell
 dotnet build DroneDash_x64.slnx -c Release
+dotnet test desktop/DroneDash_x64.Tests/DroneDash_x64.Tests.csproj -c Release
 python tests/python/verify_opencv_m3m_worker.py
+python -m pip install numpy pytest
+python -m pytest tests/python
 ```
+
+The xUnit suite covers flight-plan validation and GSD/overlap math, route-to-image matching,
+PV hotspot detection edge cases, M3M capture-name parsing, project path storage/rebasing and
+processing-job transitions. The pytest suite covers the worker's CPU vegetation-index math,
+NDVI zone classes, tiled raster statistics and option parsing without OpenCV, GDAL or CUDA.
 
 Shared compiler settings for all desktop projects live in `desktop/Directory.Build.props`.
 

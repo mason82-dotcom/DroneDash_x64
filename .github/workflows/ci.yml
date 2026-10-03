@@ -40,6 +40,11 @@ jobs:
       - name: Validate Smart Farming Python worker
         run: python tests/python/verify_opencv_m3m_worker.py
 
+      - name: Run Smart Farming worker unit tests
+        run: |
+          python -m pip install --disable-pip-version-check --quiet numpy pytest
+          python -m pytest tests/python -q
+
       - name: Verify real M3T thermal fixture with Windows PowerShell 5.1
         shell: powershell
         run: ./scripts/verify-m3t-thermal-fixture.ps1

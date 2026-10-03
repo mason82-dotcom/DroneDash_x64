@@ -12,6 +12,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="DroneDash_x64.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Content Include="Planning\route-editor.html"
              CopyToOutputDirectory="PreserveNewest"
              Link="planning\route-editor.html" />
