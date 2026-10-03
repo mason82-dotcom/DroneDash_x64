@@ -137,6 +137,11 @@ public partial class PhotogrammetryWorkspaceView : System.Windows.Controls.UserC
         DatasetProgress.IsIndeterminate = true;
         DatasetStatusText.Text = "DJI-XMP/RTK-Metadaten werden analysiert …";
 
+        ProjectProcessingCoordinator.BeginActive(
+            ProjectProcessingWorkerKind.PhotogrammetryDatasetAnalysis,
+            "DJI-XMP/RTK-Metadaten werden analysiert.",
+            "dataset-analysis");
+
         try
         {
             var source = _sourceFolder;
@@ -155,9 +160,19 @@ public partial class PhotogrammetryWorkspaceView : System.Windows.Controls.UserC
                     ? "Keine unterstützten JPG/JPEG/DNG/TIF/TIFF-Dateien gefunden."
                     : "Analyse abgeschlossen. Quelldateien wurden nicht verändert.";
             ExportManifestButton.IsEnabled = _dataset.Images.Count > 0;
+
+            ProjectProcessingCoordinator.AwaitOutputActive(
+                ProjectProcessingWorkerKind.PhotogrammetryDatasetAnalysis,
+                _dataset.Images.Count == 0
+                    ? "Analyse abgeschlossen; kein exportierbares Manifest."
+                    : "Analyse abgeschlossen; Processing-Manifest exportieren.");
         }
         catch (Exception ex)
         {
+            ProjectProcessingCoordinator.FailActive(
+                ProjectProcessingWorkerKind.PhotogrammetryDatasetAnalysis,
+                ex.Message);
+
             DatasetStatusText.Text = $"Analyse fehlgeschlagen: {ex.Message}";
             System.Windows.MessageBox.Show(
                 ex.Message,
@@ -211,6 +226,15 @@ public partial class PhotogrammetryWorkspaceView : System.Windows.Controls.UserC
                     await DroneDashProjectSession.RegisterDirectoryAsync(
                         _dataset.SourceFolder,
                         ProjectArtifactKind.SourceDataFolder);
+
+                    ProjectProcessingCoordinator.RecordOutputActive(
+                        ProjectProcessingWorkerKind.PhotogrammetryDatasetAnalysis,
+                        output.JsonPath,
+                        ProjectArtifactKind.PhotogrammetryManifest);
+
+                    ProjectProcessingCoordinator.CompleteActive(
+                        ProjectProcessingWorkerKind.PhotogrammetryDatasetAnalysis,
+                        "Photogrammetrie-Manifest exportiert und im Projekt registriert.");
                 }
                 catch (Exception ex)
                 {
