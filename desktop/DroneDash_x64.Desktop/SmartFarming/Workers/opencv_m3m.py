@@ -1202,6 +1202,8 @@ def _safe_tile_candidates(
     cuda_free_bytes,
 ):
     candidates = [
+        128,
+        256,
         512,
         1024,
         2048,
@@ -1213,8 +1215,8 @@ def _safe_tile_candidates(
         int(height),
     )
 
-    if max_dimension <= 512:
-        return [512]
+    if max_dimension <= 128:
+        return [128]
 
     safe = []
 
@@ -1228,10 +1230,7 @@ def _safe_tile_candidates(
         host_ok = (
             system_available_bytes is None
             or host_bytes <=
-            max(
-                256 * 1024 * 1024,
-                int(system_available_bytes * 0.20),
-            )
+            int(system_available_bytes * 0.20)
         )
 
         cuda_bytes = _estimated_cuda_working_bytes(
@@ -1243,75 +1242,124 @@ def _safe_tile_candidates(
             backend != "cuda"
             or cuda_free_bytes is None
             or cuda_bytes <=
-            max(
-                128 * 1024 * 1024,
-                int(cuda_free_bytes * 0.30),
-            )
+            int(cuda_free_bytes * 0.30)
         )
 
         if host_ok and cuda_ok:
             safe.append(tile_size)
 
     if not safe:
-        return [512]
+        raise RuntimeError(
+            "no safe GDAL tile size fits the current RAM/VRAM budget"
+        )
 
     return safe
 
 
+def _release_cuda_memory_pool():
+    try:
+        import cupy as cp
+
+        cp.get_default_memory_pool().free_all_blocks()
+        cp.get_default_pinned_memory_pool().free_all_blocks()
+    except Exception:
+        pass
+
+
 def _benchmark_tiles(candidates, benchmark):
+    import statistics
+
     results = []
 
     for tile_size in candidates:
-        sample = benchmark(tile_size)
+        try:
+            benchmark(tile_size, -1)
+            _release_cuda_memory_pool()
 
-        read_seconds = max(
-            float(sample["readSeconds"]),
-            0.0,
-        )
-        compute_seconds = max(
-            float(sample["computeSeconds"]),
-            0.0,
-        )
-        total_seconds = max(
-            read_seconds + compute_seconds,
-            1e-9,
-        )
-        pixels = max(
-            int(sample["pixels"]),
-            1,
-        )
+            samples = [
+                benchmark(tile_size, sample_index)
+                for sample_index in range(3)
+            ]
 
-        results.append(
-            {
-                "tileSize": int(tile_size),
-                "pixels": pixels,
-                "readSeconds": read_seconds,
-                "computeSeconds": compute_seconds,
-                "pixelsPerSecond": (
-                    pixels / total_seconds
-                ),
-            }
-        )
+            read_seconds = statistics.median(
+                max(
+                    float(sample["readSeconds"]),
+                    0.0,
+                )
+                for sample in samples
+            )
+            compute_seconds = statistics.median(
+                max(
+                    float(sample["computeSeconds"]),
+                    0.0,
+                )
+                for sample in samples
+            )
+            pixels = max(
+                int(statistics.median(
+                    int(sample["pixels"])
+                    for sample in samples
+                )),
+                1,
+            )
+            total_seconds = max(
+                read_seconds + compute_seconds,
+                1e-9,
+            )
+
+            results.append(
+                {
+                    "tileSize": int(tile_size),
+                    "success": True,
+                    "pixels": pixels,
+                    "readSeconds": read_seconds,
+                    "computeSeconds": compute_seconds,
+                    "pixelsPerSecond": (
+                        pixels / total_seconds
+                    ),
+                }
+            )
+        except Exception as exc:
+            results.append(
+                {
+                    "tileSize": int(tile_size),
+                    "success": False,
+                    "error": str(exc),
+                }
+            )
+        finally:
+            _release_cuda_memory_pool()
 
     return results
 
 
 def _choose_benchmark_tile(results):
-    if not results:
+    successful = [
+        item
+        for item in results
+        if item.get("success", True)
+    ]
+
+    if not successful:
+        errors = "; ".join(
+            f"{item.get('tileSize')}: {item.get('error', 'failed')}"
+            for item in results
+        )
         raise RuntimeError(
-            "auto-tuning produced no tile benchmark results"
+            "auto-tuning produced no successful tile benchmark results" +
+            (f": {errors}" if errors else "")
         )
 
     best_score = max(
         item["pixelsPerSecond"]
-        for item in results
+        for item in successful
     )
 
     threshold = best_score * 0.90
 
     near_best = [
         item
-        for item in results
+        for item in successful
         if item["pixelsPerSecond"] >= threshold
     ]
 
@@ -1400,10 +1448,7 @@ def _choose_pipeline_depth(
         if (
             system_available_bytes is None
             or estimated <=
-            max(
-                256 * 1024 * 1024,
-                int(system_available_bytes * 0.20),
-            )
+            int(system_available_bytes * 0.20)
         ):
             break
 
