@@ -5,6 +5,10 @@ import os
 import sys
 
 
+_CUDA_INDEX_PROCESSORS = {}
+_CUDA_ZONE_PROCESSOR = None
+
+
 def _cuda_probe(cv2):
     count = 0
     name = None
@@ -456,41 +460,76 @@ def _index_cpu(positive, comparison, epsilon, np):
     return result
 
 
+class _CudaIndexProcessor:
+    def __init__(self, epsilon):
+        import cupy as cp
+
+        self._cp = cp
+        self._epsilon = float(epsilon)
+        self._shape = None
+        self._positive = None
+        self._comparison = None
+        self._result = None
+        self._kernel = cp.ElementwiseKernel(
+            "float32 positive, float32 comparison, float32 epsilon",
+            "float32 result",
+            """
+            const float denominator = positive + comparison;
+            if (
+                isfinite(positive) &&
+                isfinite(comparison) &&
+                fabsf(denominator) >= epsilon
+            ) {
+                result = (positive - comparison) / denominator;
+            } else {
+                result = NAN;
+            }
+            """,
+            "dronedash_vegetation_index",
+        )
+
+    def _ensure_buffers(self, shape):
+        if self._shape == shape:
+            return
+
+        cp = self._cp
+        self._shape = shape
+        self._positive = cp.empty(shape, dtype=cp.float32)
+        self._comparison = cp.empty(shape, dtype=cp.float32)
+        self._result = cp.empty(shape, dtype=cp.float32)
+
+    def compute(self, positive, comparison):
+        self._ensure_buffers(positive.shape)
+        self._positive.set(positive)
+        self._comparison.set(comparison)
+
+        self._kernel(
+            self._positive,
+            self._comparison,
+            self._cp.float32(self._epsilon),
+            self._result,
+        )
+
+        # Device-to-host transfer synchronizes the active stream.
+        return self._cp.asnumpy(self._result)
+
+
+def _get_cuda_index_processor(epsilon):
+    key = float(epsilon)
+    processor = _CUDA_INDEX_PROCESSORS.get(key)
+
+    if processor is None:
+        processor = _CudaIndexProcessor(key)
+        _CUDA_INDEX_PROCESSORS[key] = processor
+
+    return processor
+
+
 def _index_cuda(positive, comparison, epsilon):
-    import cupy as cp
-
-    positive_gpu = cp.asarray(
+    return _get_cuda_index_processor(epsilon).compute(
         positive,
-        dtype=cp.float32,
-    )
-    comparison_gpu = cp.asarray(
         comparison,
-        dtype=cp.float32,
     )
-
-    denominator = positive_gpu + comparison_gpu
-    valid = (
-        cp.isfinite(positive_gpu)
-        & cp.isfinite(comparison_gpu)
-        & (cp.abs(denominator) >= epsilon)
-    )
-
-    result_gpu = cp.full(
-        positive_gpu.shape,
-        cp.nan,
-        dtype=cp.float32,
-    )
-
-    cp.divide(
-        positive_gpu - comparison_gpu,
-        denominator,
-        out=result_gpu,
-        where=valid,
-    )
-
-    cp.cuda.get_current_stream().synchronize()
-    return cp.asnumpy(result_gpu)
-
 
 def vegetation_index(args):
     import cv2
@@ -1964,46 +2003,76 @@ def _zones_cpu(values, thresholds, np):
     return output
 
 
+class _CudaZoneProcessor:
+    def __init__(self):
+        import cupy as cp
+
+        self._cp = cp
+        self._shape = None
+        self._values = None
+        self._result = None
+        self._kernel = cp.ElementwiseKernel(
+            (
+                "float32 value, "
+                "float32 threshold1, "
+                "float32 threshold2, "
+                "float32 threshold3, "
+                "float32 threshold4"
+            ),
+            "uint8 result",
+            """
+            if (!isfinite(value)) {
+                result = 0;
+            } else if (value < threshold1) {
+                result = 1;
+            } else if (value < threshold2) {
+                result = 2;
+            } else if (value < threshold3) {
+                result = 3;
+            } else if (value < threshold4) {
+                result = 4;
+            } else {
+                result = 5;
+            }
+            """,
+            "dronedash_ndvi_zones",
+        )
+
+    def _ensure_buffers(self, shape):
+        if self._shape == shape:
+            return
+
+        cp = self._cp
+        self._shape = shape
+        self._values = cp.empty(shape, dtype=cp.float32)
+        self._result = cp.empty(shape, dtype=cp.uint8)
+
+    def compute(self, values, thresholds):
+        self._ensure_buffers(values.shape)
+        self._values.set(values)
+
+        self._kernel(
+            self._values,
+            self._cp.float32(thresholds[0]),
+            self._cp.float32(thresholds[1]),
+            self._cp.float32(thresholds[2]),
+            self._cp.float32(thresholds[3]),
+            self._result,
+        )
+
+        return self._cp.asnumpy(self._result)
+
+
 def _zones_cuda(values, thresholds):
-    import cupy as cp
+    global _CUDA_ZONE_PROCESSOR
 
-    gpu = cp.asarray(
+    if _CUDA_ZONE_PROCESSOR is None:
+        _CUDA_ZONE_PROCESSOR = _CudaZoneProcessor()
+
+    return _CUDA_ZONE_PROCESSOR.compute(
         values,
-        dtype=cp.float32,
+        thresholds,
     )
-    finite = cp.isfinite(gpu)
-    output = cp.zeros(
-        gpu.shape,
-        dtype=cp.uint8,
-    )
-
-    output[
-        finite & (gpu < thresholds[0])
-    ] = 1
-    output[
-        finite
-        & (gpu >= thresholds[0])
-        & (gpu < thresholds[1])
-    ] = 2
-    output[
-        finite
-        & (gpu >= thresholds[1])
-        & (gpu < thresholds[2])
-    ] = 3
-    output[
-        finite
-        & (gpu >= thresholds[2])
-        & (gpu < thresholds[3])
-    ] = 4
-    output[
-        finite & (gpu >= thresholds[3])
-    ] = 5
-
-    cp.cuda.get_current_stream().synchronize()
-    return cp.asnumpy(
-        output
-    )
-
 
 def geospatial_zones(args):
     import time
@@ -2334,10 +2403,85 @@ def geospatial_zones(args):
         writer.abort()
 
 
-def main():
+def _serve_jsonl():
+    import contextlib
+    import io
+
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+
+        request_id = None
+
+        try:
+            request = json.loads(line)
+            request_id = request.get("id")
+
+            if request.get("shutdown"):
+                print(
+                    json.dumps(
+                        {
+                            "id": request_id,
+                            "ok": True,
+                            "stdout": [],
+                            "stderr": [],
+                        }
+                    ),
+                    flush=True,
+                )
+                return
+
+            arguments = request.get("arguments")
+
+            if (
+                not isinstance(arguments, list)
+                or not all(isinstance(value, str) for value in arguments)
+                or "--serve-jsonl" in arguments
+            ):
+                raise ValueError(
+                    "server request requires a string arguments array"
+                )
+
+            stdout_buffer = io.StringIO()
+            stderr_buffer = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(stderr_buffer):
+                main(arguments)
+
+            print(
+                json.dumps(
+                    {
+                        "id": request_id,
+                        "ok": True,
+                        "stdout": stdout_buffer.getvalue().splitlines(),
+                        "stderr": stderr_buffer.getvalue().splitlines(),
+                    }
+                ),
+                flush=True,
+            )
+        except BaseException as exc:
+            if isinstance(exc, KeyboardInterrupt):
+                raise
+
+            print(
+                json.dumps(
+                    {
+                        "id": request_id,
+                        "ok": False,
+                        "stdout": [],
+                        "stderr": [],
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                ),
+                flush=True,
+            )
+
+
+def main(argv=None):
     parser = argparse.ArgumentParser(
         description="DroneDash M3M OpenCV/CUDA processing worker"
     )
+    parser.add_argument("--serve-jsonl", action="store_true")
     parser.add_argument("--probe", action="store_true")
     parser.add_argument("--register", action="store_true")
     parser.add_argument("--index", action="store_true")
@@ -2386,10 +2530,11 @@ def main():
         default="auto",
         help="auto or a bounded GDAL read/write pipeline depth (1..4)",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     selected_modes = sum(
         [
+            bool(args.serve_jsonl),
             bool(args.probe),
             bool(args.register),
             bool(args.index),
@@ -2400,8 +2545,12 @@ def main():
 
     if selected_modes != 1:
         parser.error(
-            "choose exactly one of --probe, --register, --index, --geo-index or --geo-zones"
+            "choose exactly one of --serve-jsonl, --probe, --register, --index, --geo-index or --geo-zones"
         )
+
+    if args.serve_jsonl:
+        _serve_jsonl()
+        return
 
     if args.probe:
         probe()
