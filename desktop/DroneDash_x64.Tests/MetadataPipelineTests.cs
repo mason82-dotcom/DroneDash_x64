@@ -76,7 +76,8 @@ public sealed class MetadataPipelineTests
                         Path.GetExtension(path)
                             .Equals(
                                 ".tif",
-                                StringComparison.OrdinalIgnoreCase))
+                                StringComparison.OrdinalIgnoreCase),
+                    TestContext.Current.CancellationToken)
                 .Select(Path.GetFileName)
                 .OrderBy(name => name)
                 .ToArray();
