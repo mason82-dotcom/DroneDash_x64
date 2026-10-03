@@ -906,6 +906,16 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
 
     private ProjectNavigationTarget ResolveModuleTarget()
     {
+        if (_pipelineState is not null)
+        {
+            var pipelineTarget =
+                ProjectPipelineStore.ToNavigationTarget(
+                    _pipelineState.Module);
+
+            if (pipelineTarget.HasValue)
+                return pipelineTarget.Value;
+        }
+
         if (_project is null)
             return ProjectNavigationTarget.Photogrammetry;
 
@@ -1189,10 +1199,16 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
             ProjectWorkflowAnalyzer.Analyze(
                 _project);
 
+        var pipelineText =
+            _pipelineState is null
+                ? "Pipeline offen"
+                : $"Pipeline {_pipelineState.Module}/{_pipelineState.Stage}";
+
         return
             $"{prefix} · Artefakte {_project.Artifacts.Count:N0} · " +
             $"{workflow.SummaryText} · " +
             $"{ProjectDashboardAnalyzer.Analyze(_projectPath, _project).SummaryText} · " +
+            $"{pipelineText} · " +
             $"OK {ok:N0} · geändert {modified:N0} · fehlt {missing:N0} · Fehler {errors:N0}";
     }
 
