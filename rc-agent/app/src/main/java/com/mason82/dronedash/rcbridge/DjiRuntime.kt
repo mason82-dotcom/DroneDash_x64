@@ -43,8 +43,17 @@ class DjiRuntime(private val application: Application) {
 
                 override fun onRegisterFailure(error: IDJIError?) {
                     registered.set(false)
-                    val description = error?.description() ?: "Unknown DJI registration error"
-                    lastError.set(description)
+                    val description =
+                        error?.description() ?: "Unknown DJI registration error"
+                    val code =
+                        error?.errorCode()?.toString()
+                    lastError.set(
+                        if (code.isNullOrBlank()) {
+                            description
+                        } else {
+                            "$code: $description"
+                        }
+                    )
                     phase.set("REGISTRATION_FAILED")
                 }
 

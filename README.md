@@ -54,13 +54,25 @@ Version 0.2 hardens the bridge and build path:
 
 - DJI Mobile SDK V5: **5.18.0**
 - DJI Thermal SDK (optional Windows x64 runtime): **1.8**
-- Android compile/target SDK: **35**
+- Android compile/target SDK: **36**
 - Android min SDK: **24**
-- Android Gradle Plugin: **8.7.0**
+- Android Gradle Plugin: **8.10.1**
 - Kotlin: **2.1.0**
 - Gradle: **8.12**
 - Java: **17**
 - Windows desktop: **.NET 10 / WPF**
+
+## Local environment check
+
+Run the read-only preflight before building:
+
+```powershell
+.\scripts\doctor.ps1
+```
+
+It checks the Git clone, .NET 10, NuGet, Java 17, Android SDK/API 36, Build Tools 35.0.0,
+Gradle, ADB and whether DJI credentials are configured without printing their values.
+Use `-Strict` when warnings should also fail the check.
 
 ## Run the Windows UI without DJI hardware
 
@@ -93,7 +105,7 @@ BRIDGE_BIND_ADDRESS=127.0.0.1
 For deliberate LAN operation, set `BRIDGE_BIND_ADDRESS=0.0.0.0` and configure a strong
 `BRIDGE_TOKEN`. The agent refuses a non-loopback bind when the token is still the default value or shorter than 24 characters.
 
-3. Install Android SDK Platform 35, Build Tools 35.x, Java 17 and Gradle 8.12. Generate the wrapper once:
+3. Install Android SDK Platform 36, Build Tools 35.0.0, Java 17 and Gradle 8.12. Generate the wrapper once:
    `cd rc-agent && gradle wrapper --gradle-version 8.12`
 4. Build:
    `./gradlew :app:assembleDebug`
@@ -137,7 +149,7 @@ only on loopback.
 `.github/workflows/ci.yml` verifies both sides of the project:
 
 - Windows: restore and Release-build the WPF desktop application and mock RC;
-- Android: Java 17 + Gradle 8.12, then `:app:assembleDebug`; pull requests use CI-only placeholders,
+- Android: Java 17 + Gradle 8.12 + Android API 36, then `:app:assembleDebug`; pull requests use CI-only placeholders,
   while trusted push/manual runs consume `DJI_API_KEY` and `BRIDGE_TOKEN` repository secrets when configured.
 
 This makes SDK/dependency or compiler regressions visible immediately after a push.

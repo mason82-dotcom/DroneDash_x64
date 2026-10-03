@@ -21,6 +21,14 @@ Do not commit the App Key to this repository.
 
 ## 2. Local Windows build
 
+The Android toolchain is pinned to API 36 / AGP 8.10.1 / Gradle 8.12 / Java 17.
+Install Android SDK Platform 36 and Build Tools 35.0.0 before building. You can verify
+the local environment without exposing secret values:
+
+```powershell
+.\scripts\doctor.ps1
+```
+
 Create or edit:
 
 ```text
