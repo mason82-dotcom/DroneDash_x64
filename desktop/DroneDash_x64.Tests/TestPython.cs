@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using Xunit;
 
@@ -7,14 +8,28 @@ namespace DroneDash_x64.Tests;
 /// <summary>
 /// Optional end-to-end tests run the real Python worker. They need DRONEDASH_TEST_PYTHON
 /// pointing at an interpreter that has the required module, and are skipped otherwise.
+/// With DRONEDASH_TEST_PYTHON_REQUIRED=1 (the GDAL CI job) a missing interpreter or module fails
+/// the test instead, so a broken environment cannot pass as "skipped".
 /// </summary>
 internal static class TestPython
 {
+    private static bool Required =>
+        Environment.GetEnvironmentVariable("DRONEDASH_TEST_PYTHON_REQUIRED") == "1";
+
+    [DoesNotReturn]
+    private static void SkipOrFail(string reason)
+    {
+        if (Required)
+            Assert.Fail(reason + " (DRONEDASH_TEST_PYTHON_REQUIRED=1)");
+
+        Assert.Skip(reason);
+    }
+
     public static async Task<string> RequireModuleAsync(string module)
     {
         var python = Environment.GetEnvironmentVariable("DRONEDASH_TEST_PYTHON");
         if (string.IsNullOrWhiteSpace(python))
-            Assert.Skip("DRONEDASH_TEST_PYTHON ist nicht gesetzt.");
+            SkipOrFail("DRONEDASH_TEST_PYTHON ist nicht gesetzt.");
 
         using var probe = Process.Start(new ProcessStartInfo(python, ["-c", $"import {module}"])
         {
@@ -24,7 +39,7 @@ internal static class TestPython
         await probe.WaitForExitAsync(TestContext.Current.CancellationToken);
 
         if (probe.ExitCode != 0)
-            Assert.Skip($"{python} hat das Modul {module} nicht.");
+            SkipOrFail($"{python} hat das Modul {module} nicht.");
 
         return python!;
     }

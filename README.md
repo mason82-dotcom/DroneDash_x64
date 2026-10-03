@@ -178,6 +178,10 @@ only on loopback.
 `.github/workflows/ci.yml` verifies both sides of the project:
 
 - Windows: restore and Release-build `DroneDash_x64.slnx` (desktop, mock RC, smoke tools and tests) with a NuGet cache, run Planning/PV/Smart-Farming/Project smoke coverage, execute ThermalSmoke in SDK-optional mode, run xUnit metadata/core tests and verify the Smart Farming Python worker;
+- Windows GIS worker: a conda-forge environment with GDAL, NumPy and `laspy[lazrs]` runs the full pytest suite
+  and the xUnit end-to-end tests against the real worker (DSM preview, profile/volume/canopy height, point cloud
+  preview, COLMAP georeferencing and DSM, terrain check). `DRONEDASH_REQUIRE_GIS=1` and
+  `DRONEDASH_TEST_PYTHON_REQUIRED=1` turn skipped GIS tests into failures there, so a broken environment cannot pass;
 - Android: Java 17 + Gradle 8.12 + Android API 36, then `:app:assembleDebug`; pull requests use CI-only placeholders,
   while trusted push/manual runs consume `DJI_API_KEY` and `BRIDGE_TOKEN` repository secrets when configured.
 
@@ -191,6 +195,14 @@ dotnet test desktop/DroneDash_x64.Tests/DroneDash_x64.Tests.csproj -c Release
 python tests/python/verify_opencv_m3m_worker.py
 python -m pip install numpy pytest
 python -m pytest tests/python
+```
+
+With a GDAL Python (OSGeo4W or conda) the end-to-end tests run as well instead of being skipped:
+
+```powershell
+$env:DRONEDASH_TEST_PYTHON = "C:\path\to\python.exe"   # with osgeo.gdal and laspy[lazrs]
+& $env:DRONEDASH_TEST_PYTHON -m pytest tests/python
+dotnet test desktop/DroneDash_x64.Tests/DroneDash_x64.Tests.csproj -c Release
 ```
 
 The xUnit suite covers flight-plan validation and GSD/overlap math, route-to-image matching,

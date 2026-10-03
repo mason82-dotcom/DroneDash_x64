@@ -85,6 +85,59 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  gis-worker:
+    name: Windows GIS worker (GDAL)
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        # Login shell so the conda environment is active in every step.
+        shell: bash -el {0}
+    env:
+      # Skipped GIS tests fail here: GDAL and laspy are installed, a skip means a broken setup.
+      DRONEDASH_REQUIRE_GIS: "1"
+      DRONEDASH_TEST_PYTHON_REQUIRED: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Setup Python 3.12 with GDAL (conda-forge)
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          python-version: "3.12"
+          activate-environment: dronedash-gis
+          channels: conda-forge
+          conda-remove-defaults: "true"
+
+      - name: Install GDAL, NumPy, laspy (LAZ) and pytest
+        run: |
+          conda install --yes --quiet gdal numpy pytest
+          python -m pip install --disable-pip-version-check --quiet "laspy[lazrs]"
+          python -c "from osgeo import gdal; import laspy; assert laspy.LazBackend.detect_available(); print('GDAL', gdal.__version__, '| laspy', laspy.__version__)"
+
+      - name: Run worker tests including GDAL/laspy round trips
+        run: python -m pytest tests/python -q -rs
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('desktop/**/*.csproj', 'desktop/Directory.Build.props', 'global.json', 'NuGet.Config') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Run desktop end-to-end tests against the worker
+        run: |
+          export DRONEDASH_TEST_PYTHON="$(python -c 'import sys; print(sys.executable)')"
+          echo "DRONEDASH_TEST_PYTHON=$DRONEDASH_TEST_PYTHON"
+          dotnet test desktop/DroneDash_x64.Tests/DroneDash_x64.Tests.csproj --configuration Release
+
   rc-agent:
     name: Android RC agent
     runs-on: ubuntu-latest
