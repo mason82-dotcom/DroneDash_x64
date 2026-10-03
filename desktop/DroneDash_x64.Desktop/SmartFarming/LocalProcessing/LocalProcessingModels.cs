@@ -4,7 +4,8 @@ public enum LocalImageToolKind
 {
     Gdal,
     OrfeoToolBox,
-    PythonOpenCv
+    PythonOpenCv,
+    NvidiaCuda
 }
 
 public sealed record LocalImageToolStatus(
@@ -26,6 +27,7 @@ public sealed record LocalImageToolchainStatus(
     LocalImageToolStatus Gdal,
     LocalImageToolStatus Otb,
     LocalImageToolStatus OpenCv,
+    LocalImageToolStatus Cuda,
     string? GdalBuildVrt,
     string? OtbBandMath,
     string? OtbBandMathX,
@@ -41,8 +43,16 @@ public sealed record LocalImageToolchainStatus(
         !string.IsNullOrWhiteSpace(OtbBandMathX) &&
         !string.IsNullOrWhiteSpace(PythonExecutable);
 
+    public bool CudaAvailable =>
+        Cuda.Available;
+
+    public string OpenCvBackend =>
+        CudaAvailable
+            ? "CUDA (Auto-Fallback auf CPU)"
+            : "CPU";
+
     public IReadOnlyList<LocalImageToolStatus> Tools =>
-        [Gdal, Otb, OpenCv];
+        [Gdal, Otb, OpenCv, Cuda];
 }
 
 public sealed record LocalProcessingCommand(
