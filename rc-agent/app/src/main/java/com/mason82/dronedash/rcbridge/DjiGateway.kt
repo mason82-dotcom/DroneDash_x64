@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.sqrt
 
 class DjiGateway {
+    private val configurationWriteLock = Any()
     private val keys get() = KeyManager.getInstance()
 
     fun status(runtime: DjiRuntime): JSONObject {
@@ -152,7 +153,8 @@ class DjiGateway {
     fun isFlying(): Boolean =
         keys.getValue(KeyTools.createKey(FlightControllerKey.KeyIsFlying)) == true
 
-    fun updateConfiguration(payload: JSONObject): JSONObject {
+    fun updateConfiguration(payload: JSONObject): JSONObject =
+        synchronized(configurationWriteLock) {
         val heightLimit = readOptionalAltitude(payload, "heightLimitMeters")
         val goHomeHeight = readOptionalAltitude(payload, "goHomeHeightMeters")
 
@@ -236,7 +238,7 @@ class DjiGateway {
             }
         }
 
-        return configuration()
+        configuration()
     }
 
     private fun readOptionalAltitude(payload: JSONObject, name: String): Int? {
