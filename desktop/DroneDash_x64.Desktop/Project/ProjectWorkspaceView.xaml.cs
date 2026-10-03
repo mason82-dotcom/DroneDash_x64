@@ -717,7 +717,7 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         RoutedEventArgs e)
     {
         if (!EnsureProjectLoaded() ||
-            sender is not Button button)
+            sender is not System.Windows.Controls.Button button)
         {
             return;
         }
