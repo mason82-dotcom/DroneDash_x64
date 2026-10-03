@@ -99,7 +99,11 @@ var fakeToolchain = new LocalImageToolchainStatus(
     @"C:\tools\otbcli_BandMath.exe",
     @"C:\tools\otbcli_BandMathX.exe",
     @"C:\Python\python.exe",
-    @"C:\DroneDash\smart-farming\opencv_m3m.py");
+    @"C:\DroneDash\smart-farming\opencv_m3m.py")
+{
+    OpenCvCudaAvailable = true,
+    CupyCudaAvailable = true
+};
 
 var localPlan = LocalProcessingPlanBuilder.Build(
     fakeCapture,
@@ -111,17 +115,36 @@ if (localPlan.Steps.Count != 11)
         $"Expected 11 local processing steps, got {localPlan.Steps.Count}.");
 
 if (localPlan.Steps.Count(step => step.Tool == "Python/OpenCV") != 3 ||
+    localPlan.Steps.Count(step => step.Tool == "Python/CUDA") != 3 ||
     localPlan.Steps.Count(step => step.Tool == "GDAL") != 1 ||
-    localPlan.Steps.Count(step => step.Tool == "Orfeo ToolBox") != 7)
+    localPlan.Steps.Count(step => step.Tool == "Orfeo ToolBox") != 4)
 {
     throw new InvalidDataException("Unexpected local processing tool distribution.");
 }
 
-if (!localPlan.Steps.Any(step =>
+var indexSteps =
+    localPlan.Steps
+        .Where(step =>
+            step.Tool == "Python/CUDA")
+        .ToArray();
+
+if (indexSteps.Length != 3 ||
+    indexSteps.Any(step =>
+        !step.Arguments.Contains("--index") ||
+        !step.Arguments.Contains("--backend") ||
+        !step.Arguments.Contains("auto")) ||
+    !indexSteps.Any(step =>
         step.Id == "index-ndvi" &&
-        step.Arguments.Contains("(im1b4-im1b2)/(im1b4+im1b2+1e-12)")))
+        step.Arguments.Contains("ndvi")) ||
+    !indexSteps.Any(step =>
+        step.Id == "index-ndre" &&
+        step.Arguments.Contains("ndre")) ||
+    !indexSteps.Any(step =>
+        step.Id == "index-gndvi" &&
+        step.Arguments.Contains("gndvi")))
 {
-    throw new InvalidDataException("NDVI local-processing expression missing.");
+    throw new InvalidDataException(
+        "CUDA-aware vegetation-index processing steps are incomplete.");
 }
 
 var registrationSteps =
@@ -141,10 +164,27 @@ if (registrationSteps.Length != 3 ||
 
 if (!fakeToolchain.CudaAvailable ||
     fakeToolchain.OpenCvBackend !=
-        "CUDA (Auto-Fallback auf CPU)")
+        "CUDA (Auto-Fallback auf CPU)" ||
+    fakeToolchain.VegetationIndexBackend !=
+        "CUDA/CuPy (Auto-Fallback auf NumPy)")
 {
     throw new InvalidDataException(
         "CUDA capability model is inconsistent.");
+}
+
+var cpuFallbackToolchain =
+    fakeToolchain with
+    {
+        OpenCvCudaAvailable = false,
+        CupyCudaAvailable = false
+    };
+
+if (cpuFallbackToolchain.CudaAvailable ||
+    cpuFallbackToolchain.OpenCvBackend != "CPU" ||
+    cpuFallbackToolchain.VegetationIndexBackend != "CPU/NumPy")
+{
+    throw new InvalidDataException(
+        "CUDA CPU-fallback model is inconsistent.");
 }
 
 Console.WriteLine(
