@@ -416,6 +416,25 @@ if (!fakeToolchain.GdalTileEngineAvailable ||
         "GDAL/CUDA tile-engine capability model is inconsistent.");
 }
 
+var gdalWithoutOpenCv =
+    fakeToolchain with
+    {
+        OpenCv =
+            fakeToolchain.OpenCv with
+            {
+                Available = false
+            },
+        OpenCvCudaAvailable = false
+    };
+
+if (!gdalWithoutOpenCv.GdalTileEngineAvailable ||
+    gdalWithoutOpenCv.GeoRasterBackend !=
+        "GDAL Tiles + CUDA/CuPy")
+{
+    throw new InvalidDataException(
+        "GDAL tile engine must not depend on OpenCV availability.");
+}
+
 var otbFallbackToolchain =
     fakeToolchain with
     {
