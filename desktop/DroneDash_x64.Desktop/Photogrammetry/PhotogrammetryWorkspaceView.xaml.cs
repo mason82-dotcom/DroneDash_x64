@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
+using DroneDash_x64.Desktop.Imaging;
 using DroneDash_x64.Desktop.Project;
 using WinForms = System.Windows.Forms;
 
@@ -12,6 +13,7 @@ public partial class PhotogrammetryWorkspaceView : System.Windows.Controls.UserC
     private string? _sourceFolder;
     private string? _flightPlanProjectPath;
     private PhotogrammetryDatasetResult? _dataset;
+    private CancellationTokenSource? _datasetAnalysisCts;
 
     public PhotogrammetryWorkspaceView()
     {
@@ -132,9 +134,15 @@ public partial class PhotogrammetryWorkspaceView : System.Windows.Controls.UserC
             return;
         }
 
+        _datasetAnalysisCts?.Cancel();
+        _datasetAnalysisCts?.Dispose();
+        _datasetAnalysisCts = new CancellationTokenSource();
+        var analysisCts = _datasetAnalysisCts;
+
         AnalyzeButton.IsEnabled = false;
         ExportManifestButton.IsEnabled = false;
-        DatasetProgress.IsIndeterminate = true;
+        DatasetProgress.IsIndeterminate = false;
+        DatasetProgress.Value = 0;
         DatasetStatusText.Text = "DJI-XMP/RTK-Metadaten werden analysiert …";
 
         ProjectProcessingCoordinator.BeginActive(
@@ -146,9 +154,25 @@ public partial class PhotogrammetryWorkspaceView : System.Windows.Controls.UserC
         {
             var source = _sourceFolder;
             var plan = _flightPlanProjectPath;
+            var scanProgress = new Progress<DatasetScanProgress>(value =>
+            {
+                DatasetProgress.Value = value.Percent;
+                DatasetStatusText.Text =
+                    value.TotalFiles <= 0
+                        ? "Keine unterstützten Bilddateien gefunden."
+                        : $"Metadaten {value.ProcessedFiles}/{value.TotalFiles}" +
+                          (string.IsNullOrWhiteSpace(value.CurrentFile)
+                              ? ""
+                              : $" · {value.CurrentFile}");
+            });
 
-            _dataset = await Task.Run(() =>
-                PhotogrammetryDatasetAnalyzer.Analyze(source, plan));
+            _dataset = await Task.Run(
+                () => PhotogrammetryDatasetAnalyzer.Analyze(
+                    source,
+                    plan,
+                    analysisCts.Token,
+                    scanProgress),
+                analysisCts.Token);
 
             _images.Clear();
             foreach (var image in _dataset.Images)
@@ -167,6 +191,14 @@ public partial class PhotogrammetryWorkspaceView : System.Windows.Controls.UserC
                     ? "Analyse abgeschlossen; kein exportierbares Manifest."
                     : "Analyse abgeschlossen; Processing-Manifest exportieren.");
         }
+        catch (OperationCanceledException)
+        {
+            ProjectProcessingCoordinator.FailActive(
+                ProjectProcessingWorkerKind.PhotogrammetryDatasetAnalysis,
+                "Analyse abgebrochen.");
+
+            DatasetStatusText.Text = "Analyse abgebrochen.";
+        }
         catch (Exception ex)
         {
             ProjectProcessingCoordinator.FailActive(
@@ -184,6 +216,12 @@ public partial class PhotogrammetryWorkspaceView : System.Windows.Controls.UserC
         {
             DatasetProgress.IsIndeterminate = false;
             AnalyzeButton.IsEnabled = true;
+
+            if (ReferenceEquals(_datasetAnalysisCts, analysisCts))
+            {
+                _datasetAnalysisCts.Dispose();
+                _datasetAnalysisCts = null;
+            }
         }
     }
 
@@ -262,6 +300,7 @@ public partial class PhotogrammetryWorkspaceView : System.Windows.Controls.UserC
 
     private void InvalidateDataset()
     {
+        _datasetAnalysisCts?.Cancel();
         _dataset = null;
         _images.Clear();
         DatasetSummaryText.Text = "Datensatz geändert · Analyse neu starten.";
