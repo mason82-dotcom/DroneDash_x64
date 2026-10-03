@@ -254,6 +254,43 @@ def _resolve_index_backend(requested):
     return "cpu", cupy
 
 
+def _select_compute_backend(
+    capability_backend,
+    requested_backend,
+    pixel_count,
+    cuda_min_pixels,
+):
+    if capability_backend != "cuda":
+        return "cpu"
+
+    if requested_backend == "cuda":
+        return "cuda"
+
+    threshold = max(
+        0,
+        int(cuda_min_pixels),
+    )
+
+    return (
+        "cuda"
+        if int(pixel_count) >= threshold
+        else "cpu"
+    )
+
+
+def _backend_usage(
+    cuda_operations,
+    cpu_operations,
+):
+    if cuda_operations > 0 and cpu_operations > 0:
+        return "mixed"
+
+    if cuda_operations > 0:
+        return "cuda"
+
+    return "cpu"
+
+
 def register(args):
     import cv2
     import numpy as np
@@ -552,9 +589,16 @@ def vegetation_index(args):
             f"positive={positive.shape} comparison={comparison.shape}"
         )
 
-    backend, cupy = _resolve_index_backend(
+    capability_backend, cupy = _resolve_index_backend(
         args.backend
     )
+    backend = _select_compute_backend(
+        capability_backend,
+        args.backend,
+        int(positive.size),
+        args.cuda_min_pixels,
+    )
+    backend_fallback_reason = None
 
     if backend == "cuda":
         try:
@@ -563,10 +607,13 @@ def vegetation_index(args):
                 comparison,
                 args.index_epsilon,
             )
-        except Exception:
+        except Exception as exc:
             if args.backend == "cuda":
                 raise
 
+            backend_fallback_reason = (
+                f"{type(exc).__name__}: {exc}"
+            )
             backend = "cpu"
             values = _index_cpu(
                 positive,
@@ -632,6 +679,12 @@ def vegetation_index(args):
         "average": float(np.mean(finite_values)),
         "backendRequested": args.backend,
         "backendUsed": backend,
+        "cudaMinPixels": max(
+            0,
+            int(args.cuda_min_pixels),
+        ),
+        "backendFallbackReason":
+            backend_fallback_reason,
         "cupyVersion": cupy["cupyVersion"],
         "cudaDeviceCount": int(cupy["cupyDeviceCount"]),
         "cudaDeviceName": cupy["cupyDeviceName"],
@@ -1239,6 +1292,7 @@ def _safe_tile_candidates(
     backend,
     system_available_bytes,
     cuda_free_bytes,
+    cuda_min_pixels=0,
 ):
     candidates = [
         128,
@@ -1277,8 +1331,19 @@ def _safe_tile_candidates(
             operation,
         )
 
+        requires_cuda = (
+            backend == "cuda"
+            and (
+                int(tile_size) * int(tile_size)
+                >= max(
+                    0,
+                    int(cuda_min_pixels),
+                )
+            )
+        )
+
         cuda_ok = (
-            backend != "cuda"
+            not requires_cuda
             or cuda_free_bytes is None
             or cuda_bytes <=
             int(cuda_free_bytes * 0.30)
@@ -1544,6 +1609,7 @@ def _auto_tune_geospatial(
     operation,
     backend,
     benchmark,
+    cuda_min_pixels=0,
 ):
     import time
 
@@ -1597,6 +1663,13 @@ def _auto_tune_geospatial(
 
         if (
             backend == "cuda"
+            and (
+                int(manual_tile) * int(manual_tile)
+                >= max(
+                    0,
+                    int(cuda_min_pixels),
+                )
+            )
             and cuda_memory["freeBytes"] is not None
             and cuda_bytes >
             int(cuda_memory["freeBytes"] * 0.30)
@@ -1615,6 +1688,7 @@ def _auto_tune_geospatial(
             backend,
             system_available,
             cuda_memory["freeBytes"],
+            cuda_min_pixels,
         )
 
     benchmark_results = []
@@ -1750,7 +1824,7 @@ def geospatial_index(args):
             "requested source band index is outside the GDAL raster"
         )
 
-    backend, cupy = _resolve_index_backend(
+    capability_backend, cupy = _resolve_index_backend(
         args.backend
     )
 
@@ -1816,7 +1890,14 @@ def geospatial_index(args):
         )
         compute_started = time.perf_counter()
 
-        if backend == "cuda":
+        benchmark_backend = _select_compute_backend(
+            capability_backend,
+            args.backend,
+            width * height,
+            args.cuda_min_pixels,
+        )
+
+        if benchmark_backend == "cuda":
             _index_cuda(
                 positive,
                 comparison,
@@ -1848,15 +1929,20 @@ def geospatial_index(args):
             source.RasterXSize,
             source.RasterYSize,
             "index",
-            backend,
+            capability_backend,
             benchmark_index,
+            (
+                0
+                if args.backend == "cuda"
+                else args.cuda_min_pixels
+            ),
         )
     except Exception as exc:
         if (
-            backend == "cuda"
+            capability_backend == "cuda"
             and args.backend == "auto"
         ):
-            backend = "cpu"
+            capability_backend = "cpu"
             backend_fallback_reason = (
                 "CUDA auto-tuning failed; "
                 f"CPU fallback selected: {exc}"
@@ -1867,8 +1953,9 @@ def geospatial_index(args):
                 source.RasterXSize,
                 source.RasterYSize,
                 "index",
-                backend,
+                capability_backend,
                 benchmark_index,
+                args.cuda_min_pixels,
             )
         else:
             raise
@@ -1901,6 +1988,8 @@ def geospatial_index(args):
     }
 
     tiles = 0
+    cuda_tiles = 0
+    cpu_tiles = 0
 
     try:
         reader_state = {}
@@ -1990,18 +2079,26 @@ def geospatial_index(args):
             read_index_tile,
             pipeline_depth,
         ):
-            if backend == "cuda":
+            tile_backend = _select_compute_backend(
+                capability_backend,
+                args.backend,
+                width * height,
+                args.cuda_min_pixels,
+            )
+
+            if tile_backend == "cuda":
                 try:
                     values = _index_cuda(
                         positive,
                         comparison,
                         args.index_epsilon,
                     )
+                    cuda_tiles += 1
                 except Exception as exc:
                     if args.backend == "cuda":
                         raise
 
-                    backend = "cpu"
+                    capability_backend = "cpu"
                     backend_fallback_reason = (
                         f"CUDA processing failed at tile x={x} y={y}; "
                         f"CPU fallback selected: {exc}"
@@ -2013,6 +2110,7 @@ def geospatial_index(args):
                         args.index_epsilon,
                         np,
                     )
+                    cpu_tiles += 1
             else:
                 values = _index_cpu(
                     positive,
@@ -2020,6 +2118,7 @@ def geospatial_index(args):
                     args.index_epsilon,
                     np,
                 )
+                cpu_tiles += 1
 
             writer.submit(
                 (x, y, width, height),
@@ -2052,6 +2151,11 @@ def geospatial_index(args):
             1e-9,
         )
 
+        backend_used = _backend_usage(
+            cuda_tiles,
+            cpu_tiles,
+        )
+
         metadata = {
             "schemaVersion": 1,
             "operation": "geospatial-index",
@@ -2079,7 +2183,13 @@ def geospatial_index(args):
                     int(source.RasterYSize)
                 ) / processing_elapsed_seconds,
             "backendRequested": args.backend,
-            "backendUsed": backend,
+            "backendUsed": backend_used,
+            "cudaMinPixels": max(
+                0,
+                int(args.cuda_min_pixels),
+            ),
+            "cudaTiles": cuda_tiles,
+            "cpuTiles": cpu_tiles,
             "backendFallbackReason":
                 backend_fallback_reason,
             "gdalVersion": gdal.VersionInfo(
@@ -2260,7 +2370,7 @@ def geospatial_zones(args):
             f"GDAL cannot open NDVI source raster: {source_path}"
         )
 
-    backend, cupy = _resolve_index_backend(
+    capability_backend, cupy = _resolve_index_backend(
         args.backend
     )
 
@@ -2307,7 +2417,14 @@ def geospatial_zones(args):
         )
         compute_started = time.perf_counter()
 
-        if backend == "cuda":
+        benchmark_backend = _select_compute_backend(
+            capability_backend,
+            args.backend,
+            width * height,
+            args.cuda_min_pixels,
+        )
+
+        if benchmark_backend == "cuda":
             _zones_cuda(
                 values,
                 thresholds,
@@ -2337,15 +2454,20 @@ def geospatial_zones(args):
             source.RasterXSize,
             source.RasterYSize,
             "zones",
-            backend,
+            capability_backend,
             benchmark_zones,
+            (
+                0
+                if args.backend == "cuda"
+                else args.cuda_min_pixels
+            ),
         )
     except Exception as exc:
         if (
-            backend == "cuda"
+            capability_backend == "cuda"
             and args.backend == "auto"
         ):
-            backend = "cpu"
+            capability_backend = "cpu"
             backend_fallback_reason = (
                 "CUDA auto-tuning failed; "
                 f"CPU fallback selected: {exc}"
@@ -2356,8 +2478,9 @@ def geospatial_zones(args):
                 source.RasterXSize,
                 source.RasterYSize,
                 "zones",
-                backend,
+                capability_backend,
                 benchmark_zones,
+                args.cuda_min_pixels,
             )
         else:
             raise
@@ -2381,6 +2504,8 @@ def geospatial_zones(args):
     processing_started_at = time.perf_counter()
     absolute_output = None
     tiles = 0
+    cuda_tiles = 0
+    cpu_tiles = 0
     counts = [0, 0, 0, 0, 0]
 
     try:
@@ -2444,17 +2569,25 @@ def geospatial_zones(args):
             read_zone_tile,
             pipeline_depth,
         ):
-            if backend == "cuda":
+            tile_backend = _select_compute_backend(
+                capability_backend,
+                args.backend,
+                width * height,
+                args.cuda_min_pixels,
+            )
+
+            if tile_backend == "cuda":
                 try:
                     zones = _zones_cuda(
                         values,
                         thresholds,
                     )
+                    cuda_tiles += 1
                 except Exception as exc:
                     if args.backend == "cuda":
                         raise
 
-                    backend = "cpu"
+                    capability_backend = "cpu"
                     backend_fallback_reason = (
                         f"CUDA processing failed at tile x={x} y={y}; "
                         f"CPU fallback selected: {exc}"
@@ -2465,12 +2598,14 @@ def geospatial_zones(args):
                         thresholds,
                         np,
                     )
+                    cpu_tiles += 1
             else:
                 zones = _zones_cpu(
                     values,
                     thresholds,
                     np,
                 )
+                cpu_tiles += 1
 
             writer.submit(
                 (x, y, width, height),
@@ -2496,6 +2631,11 @@ def geospatial_zones(args):
             time.perf_counter() -
             processing_started_at,
             1e-9,
+        )
+
+        backend_used = _backend_usage(
+            cuda_tiles,
+            cpu_tiles,
         )
 
         metadata = {
@@ -2524,7 +2664,13 @@ def geospatial_zones(args):
             "thresholds": thresholds,
             "zonePixelCounts": counts,
             "backendRequested": args.backend,
-            "backendUsed": backend,
+            "backendUsed": backend_used,
+            "cudaMinPixels": max(
+                0,
+                int(args.cuda_min_pixels),
+            ),
+            "cudaTiles": cuda_tiles,
+            "cpuTiles": cpu_tiles,
             "backendFallbackReason":
                 backend_fallback_reason,
             "gdalVersion": gdal.VersionInfo(
@@ -2673,6 +2819,15 @@ def main(argv=None):
     parser.add_argument("--iterations", type=int, default=150)
     parser.add_argument("--epsilon", type=float, default=1e-6)
     parser.add_argument("--index-epsilon", type=float, default=1e-12)
+    parser.add_argument(
+        "--cuda-min-pixels",
+        type=int,
+        default=1_048_576,
+        help=(
+            "minimum pixel count for CUDA in auto mode; "
+            "smaller operations use CPU to avoid transfer overhead"
+        ),
+    )
     parser.add_argument(
         "--tile-size",
         default="auto",
