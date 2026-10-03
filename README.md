@@ -164,7 +164,8 @@ DroneDash-generated processing plans select GPU backends independently per stage
 
 - OpenCV-CUDA accelerates registration resize and final affine/perspective warping;
 - CuPy-CUDA accelerates local NDVI, NDRE and GNDVI raster arithmetic;
-- Python GDAL bindings optionally provide a tile-based geospatial engine for large ODM orthomosaics;
+- Python GDAL bindings optionally provide a pipelined tile-based geospatial engine for large ODM orthomosaics;
+- a dedicated GDAL read-ahead thread prefetches up to two future tiles while the main thread computes/writes the current tile;
 - GDAL preserves raster windows, CRS/geotransform and GeoTIFF output while CuPy/NumPy computes each tile;
 - OpenCV ECC transform estimation remains CPU-based;
 - each CUDA stage falls back independently to CPU when unavailable.
@@ -175,7 +176,7 @@ bindings are available and falls back to the existing OTB path otherwise. No CUD
 Python GDAL package or CuPy package is bundled in the repository.
 
 See `docs/NVIDIA_CUDA.md` for Windows setup, `DRONEDASH_CUDA_BIN`, OpenCV `WITH_CUDA=ON`,
-CuPy/Python-GDAL setup, tile processing, runtime probing and backend behavior.
+CuPy/Python-GDAL setup, bounded read-ahead pipelining, tile processing, runtime probing and backend behavior.
 
 
 ## DJI Thermal SDK v1.8
