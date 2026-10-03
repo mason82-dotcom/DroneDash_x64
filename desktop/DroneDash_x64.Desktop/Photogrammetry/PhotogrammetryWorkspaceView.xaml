@@ -70,6 +70,49 @@
                    Text="Noch kein Datensatz analysiert."
                    TextWrapping="Wrap"/>
       </Border>
+
+      <Expander x:Name="NodeOdmExpander"
+                Header="DSM / DTM / Punktwolke mit NodeODM berechnen"
+                Margin="4,0,4,10">
+        <StackPanel Margin="10">
+          <TextBlock TextWrapping="Wrap" Opacity="0.8"
+                     Text="Sendet die RGB-Bilder des analysierten Datensatzes an einen NodeODM-Server. Ergebnis: Oberflächenmodell (DSM), Geländemodell (DTM), Orthomosaik und georeferenzierte Punktwolke. Thermal-, Zoom- und Multispektralbilder werden automatisch ausgeschlossen."/>
+          <Grid Margin="0,8,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="110"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="Endpunkt" VerticalAlignment="Center"/>
+            <TextBox x:Name="OdmEndpointBox" Grid.Row="0" Grid.Column="1" Margin="0,2"/>
+            <TextBlock Grid.Row="1" Text="Token" VerticalAlignment="Center"/>
+            <PasswordBox x:Name="OdmTokenBox" Grid.Row="1" Grid.Column="1" Margin="0,2"/>
+            <TextBlock Grid.Row="2" Text="Qualität" VerticalAlignment="Center"/>
+            <ComboBox x:Name="OdmPresetBox" Grid.Row="2" Grid.Column="1" Margin="0,2" SelectedIndex="1">
+              <ComboBoxItem Content="Schnell · DSM 10 cm/px, Punktwolke niedrig" Tag="Fast"/>
+              <ComboBoxItem Content="Standard · DSM 5 cm/px, Punktwolke mittel" Tag="Standard"/>
+              <ComboBoxItem Content="Hoch · DSM 2 cm/px, Punktwolke hoch (lange Laufzeit)" Tag="High"/>
+            </ComboBox>
+          </Grid>
+          <WrapPanel Margin="0,6,0,0">
+            <Button Content="Server prüfen" Click="CheckOdmServer_Click"/>
+            <Button x:Name="StartOdmButton" Content="Task starten" Click="StartOdmTask_Click" IsEnabled="False"/>
+            <Button x:Name="CancelOdmButton" Content="Abbrechen" Click="CancelOdmTask_Click" IsEnabled="False"/>
+            <Button x:Name="ImportOdmButton" Content="Ergebnis laden &amp; importieren" Click="ImportOdmResult_Click" IsEnabled="False"/>
+            <Button Content="Vorhandenes all.zip importieren" Click="ImportExistingOdmZip_Click"/>
+          </WrapPanel>
+          <ProgressBar x:Name="OdmProgress" Height="4" Margin="0,8,0,4"/>
+          <TextBlock x:Name="OdmStatusText" Text="Noch kein Server geprüft." TextWrapping="Wrap"/>
+          <TextBlock x:Name="OdmProductsText" Margin="0,4,0,0" TextWrapping="Wrap"/>
+          <TextBox x:Name="OdmLogText" Height="110" Margin="0,6,0,0" IsReadOnly="True"
+                   FontFamily="Consolas" FontSize="11"
+                   VerticalScrollBarVisibility="Auto" TextWrapping="NoWrap"/>
+        </StackPanel>
+      </Expander>
     </StackPanel>
 
     <DataGrid x:Name="DatasetGrid"

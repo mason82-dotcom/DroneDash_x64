@@ -163,7 +163,7 @@ public sealed class NodeOdmClient : IDisposable
             .ToArray();
     }
 
-    public async Task<string> CreateM3mTaskAsync(
+    public Task<string> CreateM3mTaskAsync(
         M3mDatasetResult dataset,
         string taskName,
         string radiometricCalibration,
@@ -177,16 +177,73 @@ public sealed class NodeOdmClient : IDisposable
                 "Keine vollständigen M3M-Multispektralaufnahmen vorhanden.");
         }
 
+        return CreateTaskAsync(
+            files,
+            taskName,
+            BuildM3mOptions(radiometricCalibration),
+            progress,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Option names the server's ODM engine accepts (GET /options). NodeODM rejects
+    /// a task that names an unknown option, so optional ones are filtered against this.
+    /// </summary>
+    public async Task<IReadOnlySet<string>> GetSupportedOptionNamesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await _httpClient.GetAsync(
+            BuildUri("options"),
+            cancellationToken);
+
+        var content =
+            await response.Content.ReadAsStringAsync(
+                cancellationToken);
+
+        EnsureSuccess(
+            response,
+            content,
+            "NodeODM-Optionen konnten nicht gelesen werden.");
+
+        using var json = JsonDocument.Parse(content);
+        var names = new HashSet<string>(StringComparer.Ordinal);
+
+        if (json.RootElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var option in json.RootElement.EnumerateArray())
+            {
+                if (option.ValueKind == JsonValueKind.Object &&
+                    option.TryGetProperty("name", out var name) &&
+                    name.ValueKind == JsonValueKind.String)
+                {
+                    names.Add(name.GetString()!);
+                }
+            }
+        }
+
+        return names;
+    }
+
+    public async Task<string> CreateTaskAsync(
+        IReadOnlyList<string> files,
+        string taskName,
+        IReadOnlyList<NodeOdmOption> options,
+        IProgress<NodeOdmUploadProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (files.Count == 0)
+            throw new InvalidOperationException("Keine Eingabebilder für NodeODM.");
+
         foreach (var file in files)
         {
             if (!File.Exists(file))
                 throw new FileNotFoundException(
-                    "M3M-Eingabedatei fehlt.",
+                    "NodeODM-Eingabedatei fehlt.",
                     file);
         }
 
         var optionsJson = JsonSerializer.Serialize(
-            BuildM3mOptions(radiometricCalibration)
+            options
                 .Select(option => new
                 {
                     name = option.Name,

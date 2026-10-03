@@ -339,6 +339,27 @@ This is the handoff point for future Orthomosaic, DSM/DTM, 3D reconstruction and
 multispectral processing. The current implementation does not copy, rename or alter source images.
 
 
+### DSM, DTM and point clouds with NodeODM
+
+An analyzed photogrammetry dataset can be processed on a NodeODM server directly from the
+**Photogrammetrie** workspace (*DSM / DTM / Punktwolke mit NodeODM berechnen*):
+
+- only RGB survey images with GPS are sent; DJI thermal (`_T`), zoom (`_Z`) and M3M multispectral
+  bands are excluded, and the JPEG is preferred over DNG/TIFF copies of the same capture;
+- three presets (Schnell / Standard / Hoch) set `pc-quality`, `feature-quality`, `dem-resolution`
+  (10 / 5 / 2 cm/px) and `orthophoto-resolution`; `dsm` and `dtm` are always requested;
+- optional options such as `pc-copc` (cloud-optimized point cloud) and `auto-boundary` are only
+  sent when the server's `GET /options` lists them, so older NodeODM versions keep working;
+- the task is monitored with progress and console log and can be cancelled;
+- the result `all.zip` (downloaded, or an existing one) is extracted with the same zip-slip and
+  size guards as the Smart Farming import, then `odm_dem/dsm.tif`, `odm_dem/dtm.tif`,
+  `odm_orthophoto/odm_orthophoto.tif` and the georeferenced point cloud (COPC preferred over
+  LAZ/LAS/PLY) are located and registered in the open project as *Oberflächenmodell (DSM)*,
+  *Geländemodell (DTM)*, *Orthomosaik* and *Punktwolke*.
+
+Map display, a 3D point-cloud viewer, profile/volume/canopy-height analysis and terrain checks
+for flight planning build on these products in later steps.
+
 ## PV analysis
 
 The Windows client now contains a dedicated **PV-Analyse** module for radiometric M3T

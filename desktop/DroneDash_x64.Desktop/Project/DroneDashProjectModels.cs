@@ -15,7 +15,10 @@ public enum ProjectArtifactKind
     MultispectralImage,
     SourceDataFolder,
     ProcessingWorkspace,
-    Other
+    Other,
+    Orthomosaic,
+    ElevationModel,
+    PointCloud
 }
 
 public enum ProjectReferenceKind
