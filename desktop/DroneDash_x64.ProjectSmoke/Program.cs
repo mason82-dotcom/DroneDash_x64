@@ -705,10 +705,316 @@ try
             "Pipeline Save As changed the dataset target.");
     }
 
+    var processingRoot =
+        Path.Combine(
+            root,
+            "processing-orchestrator");
+
+    Directory.CreateDirectory(
+        processingRoot);
+
+    var processingProjectPath =
+        Path.Combine(
+            processingRoot,
+            "processing.ddproj");
+
+    var processingProject =
+        DroneDashProjectStore.Create(
+            "Processing Orchestrator");
+
+    DroneDashProjectStore.Save(
+        processingProjectPath,
+        processingProject);
+
+    DroneDashProjectSession.Activate(
+        processingProjectPath,
+        DroneDashProjectStore.Load(
+            processingProjectPath),
+        "processing smoke");
+
+    var processingPipeline =
+        ProjectPipelineStore.Start(
+            processingProjectPath,
+            smartProbeFolder,
+            sessionPlan);
+
+    var processingActive =
+        DroneDashProjectSession.CurrentProject
+        ?? throw new InvalidDataException(
+            "Processing smoke project was not activated.");
+
+    var datasetJob =
+        ProjectProcessingCoordinator.EnsureForPipeline(
+            processingProjectPath,
+            processingActive,
+            processingPipeline)
+        ?? throw new InvalidDataException(
+            "Dataset worker job was not created.");
+
+    if (datasetJob.Worker !=
+            ProjectProcessingWorkerKind.SmartFarmingDatasetQa ||
+        datasetJob.Status !=
+            ProjectProcessingJobStatus.Queued)
+    {
+        throw new InvalidDataException(
+            $"Unexpected initial worker: {datasetJob.Worker}/{datasetJob.Status}");
+    }
+
+    ProjectProcessingCoordinator.BeginActive(
+        ProjectProcessingWorkerKind.SmartFarmingDatasetQa,
+        "smoke dataset",
+        "scan");
+
+    ProjectProcessingCoordinator.ReportActive(
+        ProjectProcessingWorkerKind.SmartFarmingDatasetQa,
+        42d,
+        "smoke progress",
+        "scan",
+        appendLog: true);
+
+    ProjectProcessingCoordinator.AwaitOutputActive(
+        ProjectProcessingWorkerKind.SmartFarmingDatasetQa,
+        "smoke dataset output");
+
+    var smartQaPath =
+        Path.Combine(
+            processingRoot,
+            "smart-farming-dataset.json");
+
+    File.WriteAllText(
+        smartQaPath,
+        """{"schemaVersion":1,"summary":{"captureCount":1,"completeCaptureCount":1,"issueCount":0},"captures":[]}""");
+
+    await DroneDashProjectSession.RegisterFileAsync(
+        smartQaPath,
+        ProjectArtifactKind.SmartFarmingDataset);
+
+    ProjectProcessingCoordinator.RecordOutputActive(
+        ProjectProcessingWorkerKind.SmartFarmingDatasetQa,
+        smartQaPath,
+        ProjectArtifactKind.SmartFarmingDataset);
+
+    ProjectProcessingCoordinator.CompleteActive(
+        ProjectProcessingWorkerKind.SmartFarmingDatasetQa,
+        "smoke dataset complete");
+
+    processingActive =
+        DroneDashProjectSession.CurrentProject!;
+
+    var nodeJob =
+        ProjectProcessingCoordinator.EnsureForPipeline(
+            processingProjectPath,
+            processingActive,
+            processingPipeline)
+        ?? throw new InvalidDataException(
+            "NodeODM worker job was not created.");
+
+    if (nodeJob.Worker !=
+            ProjectProcessingWorkerKind.SmartFarmingNodeOdm ||
+        nodeJob.Status !=
+            ProjectProcessingJobStatus.Queued)
+    {
+        throw new InvalidDataException(
+            $"Unexpected NodeODM worker: {nodeJob.Worker}/{nodeJob.Status}");
+    }
+
+    ProjectProcessingCoordinator.BeginActive(
+        ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+        "smoke nodeodm",
+        "nodeodm");
+
+    ProjectProcessingCoordinator.ReportActive(
+        ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+        75d,
+        "smoke nodeodm progress",
+        "nodeodm");
+
+    ProjectProcessingCoordinator.AwaitOutputActive(
+        ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+        "smoke nodeodm output");
+
+    var nodeZip =
+        Path.Combine(
+            processingRoot,
+            "all.zip");
+
+    File.WriteAllBytes(
+        nodeZip,
+        [1, 2, 3]);
+
+    await DroneDashProjectSession.RegisterFileAsync(
+        nodeZip,
+        ProjectArtifactKind.NodeOdmResultArchive);
+
+    ProjectProcessingCoordinator.RecordOutputActive(
+        ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+        nodeZip,
+        ProjectArtifactKind.NodeOdmResultArchive);
+
+    ProjectProcessingCoordinator.CompleteActive(
+        ProjectProcessingWorkerKind.SmartFarmingNodeOdm,
+        "smoke nodeodm complete");
+
+    processingActive =
+        DroneDashProjectSession.CurrentProject!;
+
+    var fieldJob =
+        ProjectProcessingCoordinator.EnsureForPipeline(
+            processingProjectPath,
+            processingActive,
+            processingPipeline)
+        ?? throw new InvalidDataException(
+            "Field-product worker job was not created.");
+
+    if (fieldJob.Worker !=
+            ProjectProcessingWorkerKind.SmartFarmingFieldProducts ||
+        fieldJob.Status !=
+            ProjectProcessingJobStatus.Queued)
+    {
+        throw new InvalidDataException(
+            $"Unexpected field worker: {fieldJob.Worker}/{fieldJob.Status}");
+    }
+
+    ProjectProcessingCoordinator.BeginActive(
+        ProjectProcessingWorkerKind.SmartFarmingFieldProducts,
+        "smoke field products",
+        "field-products");
+
+    var fieldManifest =
+        Path.Combine(
+            processingRoot,
+            "field-products.json");
+
+    File.WriteAllText(
+        fieldManifest,
+        """{"schemaVersion":1}""");
+
+    await DroneDashProjectSession.RegisterFileAsync(
+        fieldManifest,
+        ProjectArtifactKind.SmartFarmingFieldProducts);
+
+    ProjectProcessingCoordinator.RecordOutputActive(
+        ProjectProcessingWorkerKind.SmartFarmingFieldProducts,
+        fieldManifest,
+        ProjectArtifactKind.SmartFarmingFieldProducts);
+
+    ProjectProcessingCoordinator.CompleteActive(
+        ProjectProcessingWorkerKind.SmartFarmingFieldProducts,
+        "smoke field products complete");
+
+    processingActive =
+        DroneDashProjectSession.CurrentProject!;
+
+    var finalJob =
+        ProjectProcessingCoordinator.EnsureForPipeline(
+            processingProjectPath,
+            processingActive,
+            processingPipeline)
+        ?? throw new InvalidDataException(
+            "Final processing job was not retained.");
+
+    var processingLedger =
+        ProjectProcessingCoordinator.Load(
+            processingProjectPath);
+
+    if (processingLedger.Jobs.Count != 3 ||
+        processingLedger.Jobs.Any(job =>
+            job.Status !=
+            ProjectProcessingJobStatus.Succeeded) ||
+        processingLedger.Jobs.Any(job =>
+            !File.Exists(
+                ProjectProcessingCoordinator.ResolveLogPath(
+                    processingProjectPath,
+                    job)!)))
+    {
+        throw new InvalidDataException(
+            "Processing ledger did not persist three successful workers with logs.");
+    }
+
+    if (processingLedger.Jobs.Sum(job =>
+            job.Outputs.Count) < 3)
+    {
+        throw new InvalidDataException(
+            "Processing worker outputs were not associated with jobs.");
+    }
+
+    var finalProcessingGates =
+        ProjectPipelineGateEvaluator.Evaluate(
+            processingProjectPath,
+            processingActive,
+            processingPipeline);
+
+    if (finalProcessingGates.Dataset.State !=
+            ProjectPipelineGateState.Pass ||
+        finalProcessingGates.Processing.State !=
+            ProjectPipelineGateState.Pass ||
+        finalProcessingGates.Results.State !=
+            ProjectPipelineGateState.Pass)
+    {
+        throw new InvalidDataException(
+            $"Processing outputs did not release gates: dataset={finalProcessingGates.Dataset.State}, " +
+            $"processing={finalProcessingGates.Processing.State}, results={finalProcessingGates.Results.State}");
+    }
+
+    var processingCopyRoot =
+        Path.Combine(
+            root,
+            "processing-orchestrator-copy");
+
+    Directory.CreateDirectory(
+        processingCopyRoot);
+
+    var processingCopyPath =
+        Path.Combine(
+            processingCopyRoot,
+            "processing-copy.ddproj");
+
+    await DroneDashProjectSession.SaveAsAsync(
+        processingCopyPath,
+        "Processing Orchestrator Copy",
+        "processing ledger save-as smoke");
+
+    var rebasedProcessingLedger =
+        ProjectProcessingCoordinator.Load(
+            processingCopyPath);
+
+    if (rebasedProcessingLedger.Jobs.Count !=
+        processingLedger.Jobs.Count)
+    {
+        throw new InvalidDataException(
+            "Processing ledger was not copied by project Save As.");
+    }
+
+    for (var jobIndex = 0;
+         jobIndex < processingLedger.Jobs.Count;
+         jobIndex++)
+    {
+        var originalLog =
+            ProjectProcessingCoordinator.ResolveLogPath(
+                processingProjectPath,
+                processingLedger.Jobs[jobIndex]);
+
+        var rebasedLog =
+            ProjectProcessingCoordinator.ResolveLogPath(
+                processingCopyPath,
+                rebasedProcessingLedger.Jobs[jobIndex]);
+
+        if (!string.Equals(
+                Path.GetFullPath(
+                    originalLog!),
+                Path.GetFullPath(
+                    rebasedLog!),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException(
+                "Processing Save As changed a worker log target.");
+        }
+    }
+
     Console.WriteLine(
         $"PASS project session · workflow={workflow.SummaryText} · " +
         $"dashboard={dashboard.SummaryText} · pipeline={pipelineGates.SummaryText} · " +
-        $"events={sessionChangeCount}");
+        $"processingJobs={processingLedger.Jobs.Count} · events={sessionChangeCount}");
 
     Console.WriteLine(
         $"PASS DroneDash project · id={loaded.ProjectId} · artifacts={loaded.Artifacts.Count} · discovered={discovered.Count}");
