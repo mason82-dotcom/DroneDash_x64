@@ -126,13 +126,13 @@ The worker modes are:
 
 For `--geo-index`, GDAL reads only the requested source-band windows. NDVI, NDRE and GNDVI are calculated tile-by-tile and immediately written to a tiled DEFLATE-compressed GeoTIFF. The source geotransform and projection are copied to the result. This prevents large ODM orthomosaics from being loaded completely into CPU or GPU memory.
 
-The source raster is opened a second time by a dedicated read-ahead worker. That worker is the only thread that accesses its GDAL dataset instance. The main thread owns the output dataset and performs CUDA/NumPy calculation plus writes. By default, up to two future tiles are prefetched, so source I/O for tile N+1 can overlap compute/write work for tile N without sharing a GDAL dataset across threads.
+The source raster is opened a second time by a dedicated read-ahead worker. That worker is the only thread that accesses its GDAL dataset instance. A separate writer thread owns the output GeoTIFF dataset, while the main thread performs CUDA/NumPy calculation. By default, the bounded pipeline depth is two, allowing source I/O for tile N+1, compute for tile N, and output I/O for tile N-1 to overlap without sharing a GDAL dataset instance across threads.
 
 `--geo-zones` classifies the NDVI result into the configured five scouting zones using the same tile pipeline. Zone 0 is reserved for NoData.
 
-Both operations use unique temporary GeoTIFFs and publish the final output only after the GDAL dataset has been flushed and closed. JSON sidecars record tile size, tile count, pipeline depth/read-ahead status, backend, GDAL version, CUDA/CuPy device data and raster statistics.
+Both operations use unique temporary GeoTIFFs and publish the final output only after the writer thread has flushed and closed its GDAL dataset. JSON sidecars record tile size, tile count, pipeline depth, read-ahead/async-write status, backend, GDAL version, CUDA/CuPy device data and raster statistics.
 
-The worker exposes `--pipeline-depth` with a bounded range of 1–4. DroneDash plans currently use depth 2 to limit memory while still overlapping source reads with processing.
+The worker exposes `--pipeline-depth` with a bounded range of 1–4. The same bound controls pending source reads and pending output writes. DroneDash plans currently use depth 2 to limit memory while still overlapping read, compute and write stages.
 
 Requirements for this optional path:
 
