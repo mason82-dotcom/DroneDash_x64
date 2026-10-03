@@ -165,7 +165,8 @@ DroneDash-generated processing plans select GPU backends independently per stage
 - OpenCV-CUDA accelerates registration resize and final affine/perspective warping;
 - CuPy-CUDA accelerates local NDVI, NDRE and GNDVI raster arithmetic;
 - Python GDAL bindings optionally provide a pipelined tile-based geospatial engine for large ODM orthomosaics;
-- a dedicated GDAL read-ahead thread prefetches up to two future tiles while the main thread computes/writes the current tile;
+- a dedicated GDAL read-ahead thread prefetches future tiles while the main thread computes the current tile;
+- a dedicated GDAL writer thread writes the previous tile concurrently, giving a bounded read → compute → write pipeline;
 - GDAL preserves raster windows, CRS/geotransform and GeoTIFF output while CuPy/NumPy computes each tile;
 - OpenCV ECC transform estimation remains CPU-based;
 - each CUDA stage falls back independently to CPU when unavailable.
