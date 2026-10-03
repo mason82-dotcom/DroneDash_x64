@@ -15,7 +15,7 @@ public partial class PhotogrammetryWorkspaceView
     private async void ShowDsm_Click(object sender, RoutedEventArgs e)
     {
         if (_odmProducts?.DsmPath is { } path)
-            await ShowElevationModelAsync(path, "Oberflächenmodell (DSM)");
+            await ShowElevationModelAsync(path, "Oberflächenmodell (DSM)", _odmProducts.DtmPath);
     }
 
     private async void ShowDtm_Click(object sender, RoutedEventArgs e)
@@ -136,7 +136,54 @@ public partial class PhotogrammetryWorkspaceView
         }
     }
 
-    private async Task ShowElevationModelAsync(string demPath, string title)
+    private async void CanopyHeight_Click(object sender, RoutedEventArgs e)
+    {
+        if (_odmProducts is not { DsmPath: { } dsm, DtmPath: { } dtm } || _elevationBusy)
+            return;
+
+        _elevationBusy = true;
+        OdmProgress.IsIndeterminate = true;
+        string? chmPath = null;
+
+        try
+        {
+            var toolchain = await RequireToolchainAsync(requireGdal: true);
+            OdmStatusText.Text = "Bestandshöhe (DSM − DTM) wird berechnet …";
+            var chm = await ElevationAnalysisService.CanopyHeightAsync(
+                toolchain.PythonExecutable!, toolchain.OpenCvWorkerPath, dsm, dtm);
+            chmPath = chm.Output;
+
+            OdmStatusText.Text =
+                $"Bestandshöhe: Mittel {chm.Mean:F2} m · Median {chm.Median:F2} m · P95 {chm.P95:F2} m · Max {chm.Maximum:F2} m" +
+                (chm.NegativeClippedFraction > 0.05 ? $" · {chm.NegativeClippedFraction:P0} negative Werte auf 0 gesetzt (DSM/DTM prüfen)" : "");
+
+            if (DroneDashProjectSession.IsOpen)
+            {
+                try
+                {
+                    await DroneDashProjectSession.RegisterFileAsync(chm.Output, ProjectArtifactKind.ElevationModel);
+                }
+                catch (Exception ex)
+                {
+                    OdmStatusText.Text += $" · Projektregistrierung fehlgeschlagen: {ex.Message}";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            OdmStatusText.Text = $"Bestandshöhe fehlgeschlagen: {ex.Message}";
+        }
+        finally
+        {
+            OdmProgress.IsIndeterminate = false;
+            _elevationBusy = false;
+        }
+
+        if (chmPath is not null)
+            await ShowElevationModelAsync(chmPath, "Bestandshöhe (CHM)");
+    }
+
+    private async Task ShowElevationModelAsync(string demPath, string title, string? baseModelPath = null)
     {
         if (_elevationBusy)
             return;
@@ -162,7 +209,13 @@ public partial class PhotogrammetryWorkspaceView
             OdmStatusText.Text =
                 $"{title}: {preview.Minimum:F2} – {preview.Maximum:F2} m · Mittel {preview.Mean:F2} m";
 
-            new ElevationMapWindow(preview, DemPreviewService.PreviewFolderFor(demPath), title)
+            // Profile/volume tools need Python GDAL on the original model; without it the map stays view-only.
+            _toolchain ??= await LocalImageToolchain.ProbeAsync();
+            var analysis = _toolchain is { PythonExecutable: { } python, GdalPythonAvailable: true }
+                ? new ElevationAnalysisContext(python, _toolchain.OpenCvWorkerPath, Path.GetFullPath(demPath), baseModelPath)
+                : null;
+
+            new ElevationMapWindow(preview, DemPreviewService.PreviewFolderFor(demPath), title, analysis)
             {
                 Owner = Window.GetWindow(this)
             }.Show();

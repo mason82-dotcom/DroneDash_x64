@@ -329,6 +329,7 @@ public partial class PhotogrammetryWorkspaceView
         ShowDsmButton.IsEnabled = products.DsmPath is not null;
         ShowDtmButton.IsEnabled = products.DtmPath is not null;
         ShowPointCloudButton.IsEnabled = products.PointCloudPath is not null;
+        ChmButton.IsEnabled = products.DsmPath is not null && products.DtmPath is not null;
 
         var registration = await RegisterOdmProductsAsync(zipPath, products);
         if (registration is not null)

@@ -403,8 +403,22 @@ three.js viewer inside the app:
 - point colours are drawn verbatim (no sRGB→linear brightening); previews are reused until the
   cloud changes. Requires `pip install "laspy[lazrs]"` in the configured Python.
 
-Profile/volume/canopy-height analysis and terrain checks for flight planning build on these
-products in later steps.
+The elevation map also measures on the **full-resolution** model (not the map preview), when the
+configured Python has GDAL:
+
+- **Profil** — draw a line; the worker (`--dem-profile`) samples the model bilinearly at pixel
+  spacing (max. 2000 samples) and reports length (true ground distance on the GRS80 ellipsoid),
+  min/max, ascent/descent and a chart whose cursor is mirrored on the map;
+- **Volumen** — draw a polygon; `--dem-volume` rasterises it on the model grid (pixel centres) and
+  integrates cut/fill above/below a base: a least-squares plane through the polygon boundary
+  (stockpiles; slope and boundary RMSE are reported), the lowest boundary point, a fixed height or
+  the DTM. Volumes need a projected model (e.g. UTM);
+- **Bestandshöhe (DSM − DTM)** — `--chm` writes `odm_dem/chm.tif` (DTM resampled onto the DSM grid,
+  processed in blocks, small negatives clipped to 0) with mean/median/P95/max, registers it and
+  opens it on the map, where the polygon tool with a fixed base of 0 gives e.g. the mean crop
+  height of a field.
+
+Terrain checks for flight planning build on these products in a later step.
 
 ## PV analysis
 

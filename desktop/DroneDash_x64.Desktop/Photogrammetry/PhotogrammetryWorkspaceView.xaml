@@ -108,6 +108,7 @@
           <WrapPanel Margin="0,4,0,0">
             <Button x:Name="ShowDsmButton" Content="DSM auf Karte" Click="ShowDsm_Click" IsEnabled="False"/>
             <Button x:Name="ShowDtmButton" Content="DTM auf Karte" Click="ShowDtm_Click" IsEnabled="False"/>
+            <Button x:Name="ChmButton" Content="Bestandshöhe (DSM − DTM)" Click="CanopyHeight_Click" IsEnabled="False"/>
             <Button Content="Höhenmodell (GeoTIFF) öffnen …" Click="OpenElevationModel_Click"/>
             <Button x:Name="ShowPointCloudButton" Content="Punktwolke 3D" Click="ShowPointCloud_Click" IsEnabled="False"/>
             <Button Content="Punktwolke (LAS/LAZ) öffnen …" Click="OpenPointCloud_Click"/>

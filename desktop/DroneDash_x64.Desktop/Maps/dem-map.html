@@ -15,12 +15,26 @@ body{background:#101318;font-family:Segoe UI,Arial,sans-serif}
 #legend .ends{display:flex;justify-content:space-between;font-size:12px;opacity:.85}
 #legend input{width:100%}
 #error{position:absolute;z-index:1001;top:50%;left:50%;transform:translate(-50%,-50%);display:none;max-width:70%}
+#tools{display:none}
+#tools button{display:block;width:100%;margin:3px 0;padding:4px 8px;cursor:pointer}
+#tools button.active{background:#2f81f7;color:#fff}
+#drawhint{position:absolute;z-index:1000;top:52px;left:50%;transform:translateX(-50%);display:none}
+#drawhint button{margin-left:8px}
+#analysis{position:absolute;z-index:1000;bottom:28px;left:50%;transform:translateX(-50%);display:none;min-width:420px;max-width:92%}
+#analysis table{border-collapse:collapse;margin-top:4px}
+#analysis td{padding:1px 10px 1px 0}
+#analysis td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+#analysis .close{float:right;cursor:pointer;margin-left:12px}
+#analysis select,#analysis input{margin:4px 6px 4px 0}
+#analysis svg text{fill:#ccc;font-size:11px}
 </style>
 </head>
 <body>
 <div id="map"></div>
 <div id="readout" class="panel">Höhenmodell wird geladen …</div>
 <div id="error" class="panel"></div>
+<div id="drawhint" class="panel"><span id="drawhint-text"></span><button id="finish" type="button">Fertig</button><button id="cancel" type="button">Abbrechen</button></div>
+<div id="analysis" class="panel"><span class="close" id="analysis-close">✕</span><div id="analysis-body"></div></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const BASEMAP_KEY='dronedash.maps.basemap';
@@ -114,6 +128,8 @@ async function load(m){
     const bounds=[[p.bounds.south,p.bounds.west],[p.bounds.north,p.bounds.east]];
     const overlay=L.imageOverlay(m.imageUrl,bounds,{opacity:.85,interactive:false}).addTo(map);
     model={preview:p,grid,overlay,title:m.title};
+    analysis=m.analysis||null;
+    document.getElementById('tools').style.display=analysis?'block':'none';
     layerControl.addOverlay(overlay,m.title||'Höhenmodell');
     if(!document.getElementById('legend')) legend.addTo(map);
     renderLegend(p,.85);
@@ -126,9 +142,185 @@ async function load(m){
   }
 }
 
+// ---------------------------------------------------------------- analysis tools
+let analysis=null;          // {hasBaseModel}
+let drawing=null;           // {mode, points:[LatLng], layer}
+let shapeLayer=L.layerGroup().addTo(map);
+let hoverMarker=null;
+let lastPolygon=null, requestId=0;
+const pending=new Map();
+
+const tools=L.control({position:'topleft'});
+tools.onAdd=()=>{
+  const div=L.DomUtil.create('div','panel'); div.id='tools';
+  div.innerHTML='<button id="tool-profile" type="button">Profil</button>'+
+                '<button id="tool-volume" type="button">Volumen</button>'+
+                '<button id="tool-clear" type="button">Löschen</button>';
+  L.DomEvent.disableClickPropagation(div);
+  return div;
+};
+tools.addTo(map);
+
+const analysisBox=document.getElementById('analysis');
+const analysisBody=document.getElementById('analysis-body');
+const drawHint=document.getElementById('drawhint');
+function showAnalysis(nodes){ analysisBody.replaceChildren(...nodes); analysisBox.style.display='block'; }
+function el(tag,text,attrs={}){ const e=document.createElement(tag); if(text!==undefined) e.textContent=text; Object.assign(e,attrs); return e; }
+function row(label,value){ const tr=el('tr'); tr.append(el('td',label),el('td',value)); return tr; }
+
+function startDrawing(mode){
+  cancelDrawing();
+  if(hoverMarker){ map.removeLayer(hoverMarker); hoverMarker=null; }
+  drawing={mode,points:[],layer:null};
+  map.doubleClickZoom.disable();
+  map.getContainer().style.cursor='crosshair';
+  document.getElementById('tool-'+mode).classList.add('active');
+  document.getElementById('drawhint-text').textContent=mode==='profile'
+    ?'Profil: Punkte der Linie anklicken, Doppelklick beendet'
+    :'Volumen: Fläche umfahren, Doppelklick schließt die Fläche';
+  drawHint.style.display='block';
+}
+
+function cancelDrawing(){
+  if(drawing && drawing.layer) shapeLayer.removeLayer(drawing.layer);
+  drawing=null;
+  map.doubleClickZoom.enable();
+  map.getContainer().style.cursor='';
+  for(const id of ['tool-profile','tool-volume']) document.getElementById(id).classList.remove('active');
+  drawHint.style.display='none';
+}
+
+function redrawSketch(){
+  if(drawing.layer) shapeLayer.removeLayer(drawing.layer);
+  const style={color:'#ff7b00',weight:3,dashArray:'6 4'};
+  drawing.layer=(drawing.mode==='volume' && drawing.points.length>=3 ? L.polygon(drawing.points,style) : L.polyline(drawing.points,style)).addTo(shapeLayer);
+}
+
+function finishDrawing(){
+  if(!drawing) return;
+  const {mode,points}=drawing, needed=mode==='profile'?2:3;
+  if(points.length<needed){ cancelDrawing(); return; }
+  const coordinates=points.map(p=>[p.lng,p.lat]);
+  const style={color:'#ff7b00',weight:3};
+  shapeLayer.clearLayers();
+  (mode==='volume'?L.polygon(points,style):L.polyline(points,style)).addTo(shapeLayer);
+  cancelDrawing();
+  if(mode==='profile') requestProfile(coordinates); else { lastPolygon=coordinates; showVolumeForm(); }
+}
+
+map.on('click',e=>{
+  if(!drawing) return;
+  // A double-click also fires two clicks; ignore points on top of the previous one.
+  const last=drawing.points[drawing.points.length-1];
+  if(last && map.latLngToContainerPoint(last).distanceTo(e.containerPoint)<3) return;
+  drawing.points.push(e.latlng); redrawSketch();
+});
+map.on('dblclick',e=>{ if(!drawing) return; L.DomEvent.stop(e); finishDrawing(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') cancelDrawing(); });
+document.getElementById('finish').addEventListener('click',finishDrawing);
+document.getElementById('cancel').addEventListener('click',cancelDrawing);
+document.getElementById('tool-profile').addEventListener('click',()=>startDrawing('profile'));
+document.getElementById('tool-volume').addEventListener('click',()=>startDrawing('volume'));
+document.getElementById('tool-clear').addEventListener('click',()=>{
+  cancelDrawing(); shapeLayer.clearLayers(); analysisBox.style.display='none'; lastPolygon=null;
+  if(hoverMarker){ map.removeLayer(hoverMarker); hoverMarker=null; }
+});
+document.getElementById('analysis-close').addEventListener('click',()=>{ analysisBox.style.display='none'; });
+
+function request(message){
+  const id=++requestId; pending.set(id,message.type);
+  post({...message,id});
+  showAnalysis([el('div','Berechnung auf dem Originalmodell läuft …')]);
+}
+
+function requestProfile(coordinates){ request({type:'profileRequest',coordinates}); }
+
+function showVolumeForm(result){
+  const select=el('select'); select.id='volume-base';
+  const options=[['plane','Ebene durch den Rand (Haufwerk)'],['lowest','Tiefster Randpunkt'],['fixed','Feste Höhe']];
+  if(analysis.hasBaseModel) options.push(['dtm','Geländemodell (DTM)']);
+  for(const [v,t] of options) select.append(el('option',t,{value:v}));
+  const height=el('input',undefined,{type:'number',step:'0.01',placeholder:'Höhe m',id:'volume-height'});
+  height.style.width='90px';
+  const button=el('button','Berechnen',{type:'button'});
+  const sync=()=>{ height.style.display=select.value==='fixed'?'inline-block':'none'; };
+  select.addEventListener('change',sync);
+  if(result){ select.value=result.base; if(result.baseHeight!=null && result.base==='fixed') height.value=result.baseHeight; }
+  sync();
+  button.addEventListener('click',()=>{
+    const base=select.value, h=parseFloat(height.value);
+    if(base==='fixed' && !Number.isFinite(h)){ height.focus(); return; }
+    request({type:'volumeRequest',coordinates:lastPolygon,base,baseHeight:base==='fixed'?h:null});
+  });
+  const nodes=[el('b','Volumen'),el('div'),select,height,button];
+  if(result) nodes.push(volumeTable(result));
+  showAnalysis(nodes);
+}
+
+function volumeTable(r){
+  const t=el('table');
+  t.append(row('Fläche',`${fmt(r.areaSquareMeters,1)} m²`),
+           row('Auftrag (über Basis)',`${fmt(r.cutCubicMeters,1)} m³`),
+           row('Abtrag (unter Basis)',`${fmt(r.fillCubicMeters,1)} m³`),
+           row('Netto',`${fmt(r.netCubicMeters,1)} m³`));
+  if(r.meanHeightAboveBase!=null) t.append(row('Mittlere / max. Höhe über Basis',`${fmt(r.meanHeightAboveBase,2)} / ${fmt(r.maxHeightAboveBase,2)} m`));
+  if(r.baseHeight!=null) t.append(row('Basishöhe',`${fmt(r.baseHeight,2)} m`));
+  if(r.planeSlopePercent!=null) t.append(row('Basisebene Neigung / Rand-RMSE',`${fmt(r.planeSlopePercent,2)} % / ${fmt(r.boundaryRmse,2)} m`));
+  t.append(row('Gültige Pixel',`${fmt(r.validFraction*100,1)} % · ${fmt(r.pixelSizeMeters*100,1)} cm/px`));
+  return t;
+}
+
+function profileChart(r){
+  const W=560,H=170,P={l:48,r:10,t:10,b:24};
+  const svgNs='http://www.w3.org/2000/svg';
+  const svg=document.createElementNS(svgNs,'svg'); svg.setAttribute('width',W); svg.setAttribute('height',H);
+  const valid=r.samples.filter(s=>s.elevation!==null);
+  if(!valid.length){ return el('div','Keine Höhendaten entlang der Linie.'); }
+  const lo=r.minimum, hi=Math.max(r.maximum,lo+0.1), len=Math.max(r.lengthMeters,1e-6);
+  const x=d=>P.l+(d/len)*(W-P.l-P.r), y=z=>H-P.b-((z-lo)/(hi-lo))*(H-P.t-P.b);
+  let d='', pen=false;
+  for(const s of r.samples){
+    if(s.elevation===null){ pen=false; continue; }
+    d+=(pen?'L':'M')+x(s.distance).toFixed(1)+','+y(s.elevation).toFixed(1); pen=true;
+  }
+  const add=(tag,attrs,text)=>{ const n=document.createElementNS(svgNs,tag); for(const k in attrs) n.setAttribute(k,attrs[k]); if(text!==undefined) n.textContent=text; svg.append(n); return n; };
+  add('rect',{x:P.l,y:P.t,width:W-P.l-P.r,height:H-P.t-P.b,fill:'rgba(255,255,255,0.04)'});
+  add('path',{d,fill:'none',stroke:'#ff7b00','stroke-width':2});
+  add('text',{x:4,y:P.t+10},`${fmt(hi,1)} m`); add('text',{x:4,y:H-P.b},`${fmt(lo,1)} m`);
+  add('text',{x:P.l,y:H-6},'0 m'); add('text',{x:W-P.r-60,y:H-6},`${fmt(len,1)} m`);
+  const cursor=add('line',{x1:0,x2:0,y1:P.t,y2:H-P.b,stroke:'#fff','stroke-width':1,visibility:'hidden'});
+  const label=add('text',{x:P.l+6,y:P.t+14},'');
+  svg.addEventListener('mousemove',ev=>{
+    const rect=svg.getBoundingClientRect(), dist=((ev.clientX-rect.left-P.l)/(W-P.l-P.r))*len;
+    let best=r.samples[0]; for(const s of r.samples) if(Math.abs(s.distance-dist)<Math.abs(best.distance-dist)) best=s;
+    cursor.setAttribute('x1',x(best.distance)); cursor.setAttribute('x2',x(best.distance)); cursor.setAttribute('visibility','visible');
+    label.textContent=best.elevation===null?`${fmt(best.distance,1)} m · keine Daten`:`${fmt(best.distance,1)} m · ${fmt(best.elevation,2)} m`;
+    if(!hoverMarker) hoverMarker=L.circleMarker([best.lat,best.lon],{radius:6,color:'#fff',fillColor:'#ff7b00',fillOpacity:1}).addTo(map);
+    else hoverMarker.setLatLng([best.lat,best.lon]);
+  });
+  return svg;
+}
+
+function showProfile(r){
+  const t=el('table');
+  t.append(row('Länge',`${fmt(r.lengthMeters,2)} m`),
+           row('Min / Max',r.minimum==null?'—':`${fmt(r.minimum,2)} / ${fmt(r.maximum,2)} m`),
+           row('Anstieg / Abstieg',`${fmt(r.ascentMeters,2)} / ${fmt(r.descentMeters,2)} m`),
+           row('Abtastung',`${r.samples.length} Punkte · ${fmt(r.stepMeters*100,0)} cm`));
+  showAnalysis([el('b','Höhenprofil'),profileChart(r),t]);
+}
+
 window.chrome.webview.addEventListener('message',e=>{
   const m=e.data||{};
   if(m.type==='load') load(m);
+  if(m.type==='analysisResult' && pending.has(m.id)){
+    pending.delete(m.id);
+    if(m.kind==='profile') showProfile(m.result); else showVolumeForm(m.result);
+  }
+  if(m.type==='analysisError' && pending.has(m.id)){
+    pending.delete(m.id);
+    showAnalysis([el('b','Analyse fehlgeschlagen'),el('div',m.message||'Unbekannter Fehler')]);
+  }
 });
 post({type:'ready'});
 </script>
