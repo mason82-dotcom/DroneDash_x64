@@ -72,6 +72,9 @@ public partial class FlightPlanningView
                 return;
             }
 
+            if (TryHandleTerrainMessage(type, root))
+                return;
+
             TryHandleVertexMessage(type, root);
         }
         catch (Exception ex)
@@ -172,6 +175,10 @@ public partial class FlightPlanningView
                 SelectedMode() == FlightPlanMode.MappingStrip
                     ? "strip"
                     : "polygon",
+            startPoint = _takeOffPoint is { } takeOff
+                ? new { latitude = takeOff.Latitude, longitude = takeOff.Longitude }
+                : null,
+            terrain = TerrainMapMessage(),
             polygon = _geometry.Select(p => new
             {
                 latitude = p.Latitude,

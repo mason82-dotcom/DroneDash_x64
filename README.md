@@ -418,7 +418,19 @@ configured Python has GDAL:
   opens it on the map, where the polygon tool with a fixed base of 0 gives e.g. the mean crop
   height of a field.
 
-Terrain checks for flight planning build on these products in a later step.
+### Terrain and obstacle check in flight planning
+
+*Gelände & Hindernisse (DSM)* in **Flugplanung** checks a computed route against a surface model
+(any projected GeoTIFF, e.g. the NodeODM or COLMAP DSM). DJI waylines fly relative to the take-off
+point, so the flight level is *take-off height + altitude AGL*; the take-off point is set on the
+map (default: first route point) and its height read from the model or entered manually (when the
+model shows a roof or tree there). The worker (`--terrain-check`) samples every flight line and
+the connecting legs at model resolution against the **highest surface within a lateral buffer**
+(default 10 m; the model is resampled with *max* so obstacles survive) and reports the minimum
+clearance, every stretch below the required clearance (default 30 m) and collisions. The map
+colours the route green / orange / red / grey (no model data) and marks the critical spots. With
+*Terrain Follow* the check approximates a constant height above the model. Power lines and other
+thin objects are usually missing from surface models; the check does not replace a site survey.
 
 ### Local DSM and point cloud with COLMAP (CUDA)
 
