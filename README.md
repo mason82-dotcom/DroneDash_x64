@@ -431,6 +431,8 @@ clearance, every stretch below the required clearance (default 30 m) and collisi
 colours the route green / orange / red / grey (no model data) and marks the critical spots. With
 *Terrain Follow* the check approximates a constant height above the model. Power lines and other
 thin objects are usually missing from surface models; the check does not replace a site survey.
+The model path, take-off point and height, clearance and buffer are saved in the `.ddplan` file
+(optional `terrain` block; older plans load unchanged).
 
 ### Local DSM and point cloud with COLMAP (CUDA)
 
