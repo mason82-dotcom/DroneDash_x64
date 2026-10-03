@@ -62,6 +62,7 @@ Version 0.2 hardens the bridge and build path:
 - Gradle: **8.12**
 - Java: **17**
 - Windows desktop: **.NET 10 / WPF**
+- NVIDIA CUDA (optional Smart Farming acceleration): **13.4.x target**, CPU fallback retained
 
 ## Local environment check
 
@@ -72,7 +73,7 @@ Run the read-only preflight before building:
 ```
 
 It checks the Git clone, .NET 10, NuGet, Java 17, Android SDK/API 36, Build Tools 35.0.0,
-Gradle, ADB and whether DJI credentials are configured without printing their values.
+Gradle, ADB, optional NVIDIA/CUDA/OpenCV-CUDA availability and whether DJI credentials are configured without printing their values.
 Use `-Strict` when warnings should also fail the check.
 
 ## Run the Windows UI without DJI hardware
@@ -154,6 +155,20 @@ only on loopback.
   while trusted push/manual runs consume `DJI_API_KEY` and `BRIDGE_TOKEN` repository secrets when configured.
 
 This makes SDK/dependency or compiler regressions visible immediately after a push.
+
+
+## NVIDIA CUDA acceleration
+
+The local DJI Mavic 3M OpenCV registration worker supports optional NVIDIA CUDA acceleration.
+DroneDash-generated processing plans use an automatic backend: CUDA is selected when the active
+OpenCV build exposes a CUDA-enabled NVIDIA device; otherwise processing falls back to CPU without
+disabling the rest of the Smart Farming toolchain.
+
+CUDA currently accelerates resize and final affine/perspective warping. OpenCV ECC transform
+estimation remains CPU-based. No CUDA runtime is bundled in the repository.
+
+See `docs/NVIDIA_CUDA.md` for Windows setup, `DRONEDASH_CUDA_BIN`, OpenCV `WITH_CUDA=ON`,
+runtime probing and backend behavior.
 
 
 ## DJI Thermal SDK v1.8

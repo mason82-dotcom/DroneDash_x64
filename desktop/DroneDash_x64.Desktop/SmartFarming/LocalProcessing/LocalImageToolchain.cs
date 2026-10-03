@@ -13,6 +13,9 @@ public static partial class LocalImageToolchain
     [GeneratedRegex(@"(?:OTB|Orfeo ToolBox)[^0-9]*([0-9]+(?:\.[0-9]+){1,3})", RegexOptions.IgnoreCase)]
     private static partial Regex OtbVersionRegex();
 
+    [GeneratedRegex(@"release\s+([0-9]+(?:\.[0-9]+){1,2})", RegexOptions.IgnoreCase)]
+    private static partial Regex CudaVersionRegex();
+
     public static async Task<LocalImageToolchainStatus> ProbeAsync(
         CancellationToken cancellationToken = default)
     {
@@ -40,6 +43,14 @@ public static partial class LocalImageToolchain
             "smart-farming",
             "opencv_m3m.py");
 
+        var nvidiaSmi =
+            ResolveCudaExecutable(
+                "nvidia-smi");
+
+        var nvcc =
+            ResolveCudaExecutable(
+                "nvcc");
+
         var gdal = await ProbeGdalAsync(
             gdalInfo,
             gdalBuildVrt,
@@ -50,15 +61,22 @@ public static partial class LocalImageToolchain
             otbBandMathX,
             cancellationToken);
 
-        var openCv = await ProbeOpenCvAsync(
+        var openCvProbe = await ProbeOpenCvAsync(
             python,
             worker,
+            cancellationToken);
+
+        var cuda = await ProbeCudaAsync(
+            openCvProbe,
+            nvidiaSmi,
+            nvcc,
             cancellationToken);
 
         return new LocalImageToolchainStatus(
             gdal,
             otb,
-            openCv,
+            openCvProbe.Status,
+            cuda,
             gdalBuildVrt,
             otbBandMath,
             otbBandMathX,
@@ -137,7 +155,14 @@ public static partial class LocalImageToolchain
                 : $"OTB-Probe fehlgeschlagen: {result.Output}");
     }
 
-    private static async Task<LocalImageToolStatus> ProbeOpenCvAsync(
+    private sealed record OpenCvProbeResult(
+        LocalImageToolStatus Status,
+        bool CudaAvailable,
+        int CudaDeviceCount,
+        string? CudaDeviceName,
+        string? CudaBuild);
+
+    private static async Task<OpenCvProbeResult> ProbeOpenCvAsync(
         string? python,
         string worker,
         CancellationToken cancellationToken)
@@ -145,23 +170,33 @@ public static partial class LocalImageToolchain
         if (python is null)
         {
             return new(
-                LocalImageToolKind.PythonOpenCv,
-                "Python + OpenCV",
+                new(
+                    LocalImageToolKind.PythonOpenCv,
+                    "Python + OpenCV",
+                    false,
+                    null,
+                    null,
+                    "Python nicht gefunden. Optional DRONEDASH_PYTHON setzen."),
                 false,
+                0,
                 null,
-                null,
-                "Python nicht gefunden. Optional DRONEDASH_PYTHON setzen.");
+                null);
         }
 
         if (!File.Exists(worker))
         {
             return new(
-                LocalImageToolKind.PythonOpenCv,
-                "Python + OpenCV",
+                new(
+                    LocalImageToolKind.PythonOpenCv,
+                    "Python + OpenCV",
+                    false,
+                    null,
+                    python,
+                    $"DroneDash OpenCV-Worker fehlt: {worker}"),
                 false,
+                0,
                 null,
-                python,
-                $"DroneDash OpenCV-Worker fehlt: {worker}");
+                null);
         }
 
         var result = await RunProbeAsync(
@@ -170,32 +205,214 @@ public static partial class LocalImageToolchain
             cancellationToken);
 
         string? version = null;
+        var cudaAvailable = false;
+        var cudaDeviceCount = 0;
+        string? cudaDeviceName = null;
+        string? cudaBuild = null;
+
         if (result.Success)
         {
             try
             {
-                using var document = JsonDocument.Parse(result.Output);
-                if (document.RootElement.TryGetProperty(
+                using var document =
+                    JsonDocument.Parse(
+                        result.Output);
+
+                var root =
+                    document.RootElement;
+
+                if (root.TryGetProperty(
                         "opencv",
                         out var opencv))
                 {
-                    version = opencv.GetString();
+                    version =
+                        opencv.GetString();
+                }
+
+                if (root.TryGetProperty(
+                        "cudaAvailable",
+                        out var available) &&
+                    available.ValueKind is
+                        JsonValueKind.True or
+                        JsonValueKind.False)
+                {
+                    cudaAvailable =
+                        available.GetBoolean();
+                }
+
+                if (root.TryGetProperty(
+                        "cudaDeviceCount",
+                        out var deviceCount) &&
+                    deviceCount.TryGetInt32(
+                        out var parsedCount))
+                {
+                    cudaDeviceCount =
+                        Math.Max(
+                            0,
+                            parsedCount);
+                }
+
+                if (root.TryGetProperty(
+                        "cudaDeviceName",
+                        out var deviceName) &&
+                    deviceName.ValueKind ==
+                        JsonValueKind.String)
+                {
+                    cudaDeviceName =
+                        deviceName.GetString();
+                }
+
+                if (root.TryGetProperty(
+                        "cudaBuild",
+                        out var build) &&
+                    build.ValueKind ==
+                        JsonValueKind.String)
+                {
+                    cudaBuild =
+                        build.GetString();
                 }
             }
             catch
             {
+                // OpenCV itself is still usable even if optional probe fields
+                // from an older worker cannot be parsed.
             }
         }
 
+        var status =
+            new LocalImageToolStatus(
+                LocalImageToolKind.PythonOpenCv,
+                "Python + OpenCV",
+                result.Success,
+                version,
+                python,
+                result.Success
+                    ? "OpenCV-ECC-Worker verfügbar."
+                    : $"OpenCV-Probe fehlgeschlagen: {result.Output}");
+
         return new(
-            LocalImageToolKind.PythonOpenCv,
-            "Python + OpenCV",
-            result.Success,
+            status,
+            cudaAvailable &&
+            cudaDeviceCount > 0,
+            cudaDeviceCount,
+            cudaDeviceName,
+            cudaBuild);
+    }
+
+    private static async Task<LocalImageToolStatus> ProbeCudaAsync(
+        OpenCvProbeResult openCv,
+        string? nvidiaSmi,
+        string? nvcc,
+        CancellationToken cancellationToken)
+    {
+        string? driverInfo = null;
+        string? toolkitVersion = null;
+
+        if (nvidiaSmi is not null)
+        {
+            var driverProbe =
+                await RunProbeAsync(
+                    nvidiaSmi,
+                    [
+                        "--query-gpu=name,driver_version",
+                        "--format=csv,noheader"
+                    ],
+                    cancellationToken);
+
+            if (driverProbe.Success &&
+                !string.IsNullOrWhiteSpace(
+                    driverProbe.Output))
+            {
+                driverInfo =
+                    driverProbe.Output
+                        .Split(
+                            ['\r', '\n'],
+                            StringSplitOptions.RemoveEmptyEntries |
+                            StringSplitOptions.TrimEntries)
+                        .FirstOrDefault();
+            }
+        }
+
+        if (nvcc is not null)
+        {
+            var toolkitProbe =
+                await RunProbeAsync(
+                    nvcc,
+                    ["--version"],
+                    cancellationToken);
+
+            if (toolkitProbe.Success)
+            {
+                var match =
+                    CudaVersionRegex()
+                        .Match(
+                            toolkitProbe.Output);
+
+                if (match.Success)
+                {
+                    toolkitVersion =
+                        match.Groups[1]
+                            .Value;
+                }
+            }
+        }
+
+        var available =
+            openCv.Status.Available &&
+            openCv.CudaAvailable;
+
+        var version =
+            toolkitVersion ??
+            openCv.CudaBuild;
+
+        string detail;
+
+        if (available)
+        {
+            var device =
+                string.IsNullOrWhiteSpace(
+                    openCv.CudaDeviceName)
+                    ? $"{openCv.CudaDeviceCount} CUDA-Gerät(e)"
+                    : openCv.CudaDeviceName;
+
+            detail =
+                $"OpenCV-CUDA aktiv · {device}" +
+                (string.IsNullOrWhiteSpace(
+                    driverInfo)
+                    ? ""
+                    : $" · NVIDIA {driverInfo}") +
+                (string.IsNullOrWhiteSpace(
+                    toolkitVersion)
+                    ? ""
+                    : $" · Toolkit {toolkitVersion}") +
+                ". ECC bleibt CPU; Resize und finales Warping nutzen CUDA.";
+        }
+        else if (!openCv.Status.Available)
+        {
+            detail =
+                "CUDA optional: Python/OpenCV-Worker ist nicht verfügbar.";
+        }
+        else if (!string.IsNullOrWhiteSpace(
+                     driverInfo))
+        {
+            detail =
+                $"NVIDIA-GPU erkannt ({driverInfo}), aber dieses Python/OpenCV sieht kein CUDA-Gerät. " +
+                "OpenCV muss mit WITH_CUDA=ON gebaut sein; CPU-Fallback bleibt aktiv.";
+        }
+        else
+        {
+            detail =
+                "Kein OpenCV-CUDA-Gerät verfügbar. CPU-Fallback bleibt aktiv.";
+        }
+
+        return new(
+            LocalImageToolKind.NvidiaCuda,
+            "NVIDIA CUDA",
+            available,
             version,
-            python,
-            result.Success
-                ? "OpenCV-ECC-Worker verfügbar."
-                : $"OpenCV-Probe fehlgeschlagen: {result.Output}");
+            nvcc ??
+            nvidiaSmi,
+            detail);
     }
 
     internal static string? ResolveExecutable(
@@ -222,6 +439,63 @@ public static partial class LocalImageToolchain
         }
 
         return null;
+    }
+
+    private static string? ResolveCudaExecutable(
+        string baseName)
+    {
+        var explicitBin =
+            Environment.GetEnvironmentVariable(
+                "DRONEDASH_CUDA_BIN");
+
+        var resolved =
+            ResolveFromRoot(
+                explicitBin,
+                baseName);
+
+        if (resolved is not null)
+            return resolved;
+
+        var cudaPath =
+            Environment.GetEnvironmentVariable(
+                "CUDA_PATH");
+
+        if (!string.IsNullOrWhiteSpace(
+                cudaPath))
+        {
+            resolved =
+                ResolveFromRoot(
+                    Path.Combine(
+                        cudaPath,
+                        "bin"),
+                    baseName);
+
+            if (resolved is not null)
+                return resolved;
+        }
+
+        if (OperatingSystem.IsWindows() &&
+            baseName.Equals(
+                "nvidia-smi",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            var systemRoot =
+                Environment.GetFolderPath(
+                    Environment.SpecialFolder.Windows);
+
+            resolved =
+                ResolveFromRoot(
+                    Path.Combine(
+                        systemRoot,
+                        "System32"),
+                    baseName);
+
+            if (resolved is not null)
+                return resolved;
+        }
+
+        return ResolveExecutable(
+            baseName);
     }
 
     private static string? ResolvePython()

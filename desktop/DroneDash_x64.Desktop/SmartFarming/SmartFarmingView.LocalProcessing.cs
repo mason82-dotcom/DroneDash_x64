@@ -28,8 +28,10 @@ public partial class SmartFarmingView
                 _toolStatuses.Add(tool);
 
             ToolchainSummaryText.Text = _toolchain.IsReady
-                ? "Toolchain bereit: OpenCV-ECC → OTB-Radiometrie → GDAL-VRT → OTB NDVI/NDRE/GNDVI."
-                : "Toolchain unvollständig. Fehlende Pfade installieren bzw. über DRONEDASH_GDAL_BIN, DRONEDASH_OTB_BIN oder DRONEDASH_PYTHON setzen.";
+                ? _toolchain.CudaAvailable
+                    ? "Toolchain bereit: NVIDIA CUDA aktiv für OpenCV Resize/Warp · ECC CPU → OTB-Radiometrie → GDAL-VRT → OTB NDVI/NDRE/GNDVI."
+                    : "Toolchain bereit: OpenCV läuft auf CPU · OTB-Radiometrie → GDAL-VRT → OTB NDVI/NDRE/GNDVI. NVIDIA CUDA ist optional."
+                : "Toolchain unvollständig. Fehlende Pfade installieren bzw. über DRONEDASH_GDAL_BIN, DRONEDASH_OTB_BIN, DRONEDASH_PYTHON oder DRONEDASH_CUDA_BIN setzen.";
 
             CreateLocalPlanButton.IsEnabled =
                 _toolchain.IsReady &&
