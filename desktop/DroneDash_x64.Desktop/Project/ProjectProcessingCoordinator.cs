@@ -152,6 +152,77 @@ public static class ProjectProcessingCoordinator
         return ledger;
     }
 
+    public static void CopyRebased(
+        string oldProjectPath,
+        string newProjectPath)
+    {
+        if (!File.Exists(
+                GetLedgerPath(
+                    oldProjectPath)))
+        {
+            return;
+        }
+
+        lock (Sync)
+        {
+            var ledger =
+                Load(
+                    oldProjectPath);
+
+            var jobs =
+                ledger.Jobs
+                    .Select(job =>
+                    {
+                        var oldLogPath =
+                            ResolvePath(
+                                oldProjectPath,
+                                job.LogPath);
+
+                        var rebasedLog =
+                            ToStoredPath(
+                                newProjectPath,
+                                oldLogPath);
+
+                        var outputs =
+                            job.Outputs
+                                .Select(output =>
+                                {
+                                    var oldOutput =
+                                        ResolvePath(
+                                            oldProjectPath,
+                                            output.Path);
+
+                                    return output with
+                                    {
+                                        Path =
+                                            ToStoredPath(
+                                                newProjectPath,
+                                                oldOutput)
+                                    };
+                                })
+                                .ToArray();
+
+                        return job with
+                        {
+                            LogPath =
+                                rebasedLog,
+                            Outputs =
+                                outputs,
+                            UpdatedAtUtc =
+                                DateTimeOffset.UtcNow
+                        };
+                    })
+                    .ToArray();
+
+            Save(
+                newProjectPath,
+                ledger with
+                {
+                    Jobs = jobs
+                });
+        }
+    }
+
     public static ProjectProcessingJob? GetCurrent(
         string projectPath)
     {
@@ -1034,6 +1105,20 @@ public static class ProjectProcessingCoordinator
         {
             return false;
         }
+    }
+
+    private static ProjectPipelinePath ToStoredPath(
+        string projectPath,
+        string targetPath)
+    {
+        var stored =
+            DroneDashProjectStore.ToStoredPath(
+                projectPath,
+                targetPath);
+
+        return new(
+            stored.StoredPath,
+            stored.IsRelative);
     }
 
     private static string ResolvePath(
