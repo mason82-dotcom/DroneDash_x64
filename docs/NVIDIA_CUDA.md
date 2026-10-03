@@ -130,7 +130,7 @@ The source raster is opened a second time by a dedicated read-ahead worker. That
 
 `--geo-zones` classifies the NDVI result into the configured five scouting zones using the same tile pipeline. Zone 0 is reserved for NoData.
 
-Both operations use unique temporary GeoTIFFs and publish the final output only after the writer thread has flushed and closed its GDAL dataset. JSON sidecars record tile size, tile count, pipeline depth, read-ahead/async-write status, backend, GDAL version, CUDA/CuPy device data and raster statistics.
+Both operations use unique temporary GeoTIFFs and publish the final output only after the writer thread has flushed and closed its GDAL dataset. JSON sidecars record tile size, tile count, pipeline depth, read-ahead/async-write status, elapsed time, tiles/second, backend, GDAL version, CUDA/CuPy device data and raster statistics.
 
 The worker exposes `--pipeline-depth` with a bounded range of 1–4. The same bound controls pending source reads and pending output writes. DroneDash plans currently use depth 2 to limit memory while still overlapping read, compute and write stages.
 
