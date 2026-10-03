@@ -132,7 +132,7 @@
           </Grid.RowDefinitions>
 
           <StackPanel Grid.Row="0">
-            <TextBlock Text="GDAL · Orfeo ToolBox · OpenCV"
+            <TextBlock Text="GDAL · Orfeo ToolBox · OpenCV · NVIDIA CUDA"
                        FontSize="16"
                        FontWeight="SemiBold"/>
             <TextBlock Margin="0,3,0,8"
@@ -177,7 +177,7 @@
                   Background="#FFF8D8">
             <TextBlock x:Name="ToolchainSummaryText"
                        TextWrapping="Wrap"
-                       Text="Noch nicht geprüft. Overrides: DRONEDASH_GDAL_BIN, DRONEDASH_OTB_BIN und DRONEDASH_PYTHON."/>
+                       Text="Noch nicht geprüft. Overrides: DRONEDASH_GDAL_BIN, DRONEDASH_OTB_BIN, DRONEDASH_PYTHON und DRONEDASH_CUDA_BIN. CUDA ist optional; CPU-Fallback bleibt verfügbar."/>
           </Border>
 
           <StackPanel Grid.Row="3">
