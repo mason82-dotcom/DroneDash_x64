@@ -871,6 +871,78 @@ def _create_geotiff_from_profile(
     return absolute_output, temp, target, band
 
 
+def _benchmark_geotiff_write(
+    values,
+    output,
+    data_type,
+    nodata,
+    description,
+):
+    import time
+
+    height, width = values.shape[:2]
+    directory = os.path.dirname(
+        os.path.abspath(output)
+    )
+    os.makedirs(
+        directory,
+        exist_ok=True,
+    )
+
+    benchmark_output = os.path.join(
+        directory,
+        ".dronedash-write-benchmark-" +
+        os.urandom(8).hex() +
+        ".tif",
+    )
+
+    profile = {
+        "width": int(width),
+        "height": int(height),
+        "transform": None,
+        "projection": None,
+    }
+
+    absolute_output = None
+    temp = None
+    target = None
+    band = None
+
+    try:
+        (
+            absolute_output,
+            temp,
+            target,
+            band,
+        ) = _create_geotiff_from_profile(
+            profile,
+            benchmark_output,
+            data_type,
+            nodata,
+            description,
+        )
+
+        started = time.perf_counter()
+
+        band.WriteArray(
+            values,
+            0,
+            0,
+        )
+        band = None
+        target.FlushCache()
+
+        return max(
+            time.perf_counter() - started,
+            0.0,
+        )
+    finally:
+        band = None
+        target = None
+        _cleanup_temp(temp)
+        _cleanup_temp(absolute_output)
+
+
 class _AsyncGeoTiffWriter:
     def __init__(
         self,
@@ -1381,6 +1453,19 @@ def _benchmark_tiles(candidates, benchmark):
                 )
                 for sample in samples
             )
+            write_samples = [
+                max(
+                    float(sample["writeSeconds"]),
+                    0.0,
+                )
+                for sample in samples
+                if sample.get("writeSeconds") is not None
+            ]
+            write_seconds = (
+                statistics.median(write_samples)
+                if write_samples
+                else 0.0
+            )
             pixels = max(
                 int(statistics.median(
                     int(sample["pixels"])
@@ -1388,9 +1473,26 @@ def _benchmark_tiles(candidates, benchmark):
                 )),
                 1,
             )
-            total_seconds = max(
-                read_seconds + compute_seconds,
+            serial_seconds = max(
+                read_seconds +
+                compute_seconds +
+                write_seconds,
                 1e-9,
+            )
+            pipeline_stage_seconds = max(
+                read_seconds,
+                compute_seconds,
+                write_seconds,
+                1e-9,
+            )
+            stages = {
+                "read": read_seconds,
+                "compute": compute_seconds,
+                "write": write_seconds,
+            }
+            bottleneck_stage = max(
+                stages,
+                key=stages.get,
             )
 
             results.append(
@@ -1400,9 +1502,15 @@ def _benchmark_tiles(candidates, benchmark):
                     "pixels": pixels,
                     "readSeconds": read_seconds,
                     "computeSeconds": compute_seconds,
-                    "pixelsPerSecond": (
-                        pixels / total_seconds
+                    "writeSeconds": write_seconds,
+                    "serialPixelsPerSecond": (
+                        pixels / serial_seconds
                     ),
+                    "pixelsPerSecond": (
+                        pixels / pipeline_stage_seconds
+                    ),
+                    "bottleneckStage":
+                        bottleneck_stage,
                 }
             )
         except Exception as exc:
@@ -1506,20 +1614,36 @@ def _choose_pipeline_depth(
             ),
             1e-9,
         )
+        write_seconds = max(
+            float(
+                benchmark_result.get(
+                    "writeSeconds",
+                    0.0,
+                )
+            ),
+            1e-9,
+        )
+        io_seconds = max(
+            read_seconds,
+            write_seconds,
+        )
 
         if (
             tile_count >= 16
-            and read_seconds >
+            and io_seconds >
             compute_seconds * 3.0
         ):
             target = 4
         elif (
             tile_count >= 8
-            and read_seconds >
+            and io_seconds >
             compute_seconds * 1.5
         ):
             target = 3
-        elif compute_seconds > read_seconds * 4.0:
+        elif (
+            compute_seconds >
+            io_seconds * 4.0
+        ):
             target = 1
         else:
             target = 2
@@ -1702,7 +1826,10 @@ def _auto_tune_geospatial(
                 "pixels": 0,
                 "readSeconds": 0.0,
                 "computeSeconds": 0.0,
+                "writeSeconds": 0.0,
+                "serialPixelsPerSecond": 0.0,
                 "pixelsPerSecond": 0.0,
+                "bottleneckStage": "none",
             }
         )
     else:
