@@ -192,7 +192,21 @@ After staging DJI Thermal SDK v1.8, run:
 
 The script runs the headless `DroneDash_x64.ThermalSmoke` executable against the real
 M3T fixture and fails if `dirp_measure_ex` does not return a valid 640×512 FLOAT32
-temperature matrix. The same fixture can be opened interactively with
+temperature matrix.
+
+The same real R-JPEG can also be passed through the robust PV hotspot detector:
+
+```powershell
+dotnet run --project .\desktop\DroneDash_x64.PvSmoke\DroneDash_x64.PvSmoke.csproj --configuration Release -- --fixture .\DJI_20261002154302_0001_T.JPG
+```
+
+This real-fixture mode validates the DJI radiometric decode plus the P50/P75 adaptive
+PV segmentation path and prints every thermal anomaly candidate with peak temperature,
+local median/P75 reference, delta-T, centroid, bounding box, area, fill ratio and
+equivalent diameter. Candidate output is an inspection aid, not an automatic electrical
+fault diagnosis.
+
+The same fixture can be opened interactively with
 **Medien → M3T Testbild**. After analysis, moving the mouse over the thermal image shows the
 exact source pixel and measured temperature. The original fixture is never modified.
 
