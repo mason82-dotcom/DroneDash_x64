@@ -187,12 +187,18 @@ public partial class SmartFarmingView
         _toolchain ??=
             await LocalImageToolchain.ProbeAsync();
 
-        if (!_toolchain.Otb.Available ||
-            string.IsNullOrWhiteSpace(_toolchain.OtbBandMath) ||
-            string.IsNullOrWhiteSpace(_toolchain.OtbBandMathX))
+        var otbAvailable =
+            _toolchain.Otb.Available &&
+            !string.IsNullOrWhiteSpace(
+                _toolchain.OtbBandMath) &&
+            !string.IsNullOrWhiteSpace(
+                _toolchain.OtbBandMathX);
+
+        if (!_toolchain.GdalTileEngineAvailable &&
+            !otbAvailable)
         {
             System.Windows.MessageBox.Show(
-                "Orfeo ToolBox mit BandMath und BandMathX wird für die georeferenzierten Feldprodukte benötigt.",
+                "Für georeferenzierte Feldprodukte wird entweder GDAL-Python (Tile Engine) oder Orfeo ToolBox mit BandMath/BandMathX benötigt.",
                 "ODM-Feldprodukte",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
@@ -257,6 +263,7 @@ public partial class SmartFarmingView
                 "Georeferenzierte Feldprodukte jetzt berechnen?\n\n" +
                 $"{_odmImported.Orthophoto.BandMap.ToDisplayText()}\n" +
                 $"{zoneSettings.LegendText}\n\n" +
+                $"Raster-Backend: {_toolchain.GeoRasterBackend}\n" +
                 "Die NDVI-Zonen sind ausschließlich Scouting-Klassen und keine automatische Betriebsmittel-Empfehlung.",
                 "ODM-Feldprodukte",
                 MessageBoxButton.YesNo,
