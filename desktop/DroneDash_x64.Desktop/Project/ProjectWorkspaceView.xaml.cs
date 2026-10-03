@@ -216,7 +216,7 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         try
         {
             await DroneDashProjectSession.SaveAsAsync(
-                dialog.FileName,
+                dialog.FileName!,
                 ProjectNameBox.Text,
                 ProjectDescriptionBox.Text);
         }

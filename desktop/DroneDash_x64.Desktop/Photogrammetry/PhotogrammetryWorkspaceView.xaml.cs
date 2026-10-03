@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
+using DroneDash_x64.Desktop.Project;
 using WinForms = System.Windows.Forms;
 
 namespace DroneDash_x64.Desktop.Photogrammetry;
