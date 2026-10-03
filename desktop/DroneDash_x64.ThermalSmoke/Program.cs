@@ -2,8 +2,16 @@ using System.IO;
 using System.Text.Json;
 using DroneDash_x64.Desktop.Thermal;
 
-var fixture = args.Length > 0
-    ? Path.GetFullPath(args[0])
+var allowMissingSdk = args.Any(argument =>
+    argument.Equals(
+        "--allow-missing-sdk",
+        StringComparison.OrdinalIgnoreCase));
+
+var fixtureArgument = args.FirstOrDefault(argument =>
+    !argument.StartsWith("--", StringComparison.Ordinal));
+
+var fixture = fixtureArgument is not null
+    ? Path.GetFullPath(fixtureArgument)
     : FindFixture("DJI_20261002154302_0001_T.JPG");
 
 if (fixture is null || !File.Exists(fixture))
@@ -15,6 +23,13 @@ if (fixture is null || !File.Exists(fixture))
 using var sdk = new DjiThermalSdk();
 if (!sdk.IsAvailable)
 {
+    if (allowMissingSdk)
+    {
+        Console.WriteLine(
+            $"SKIP native DJI Thermal SDK analysis · {sdk.Status}");
+        return 0;
+    }
+
     Console.Error.WriteLine(sdk.Status);
     return 2;
 }
