@@ -154,7 +154,6 @@
         "--no-build"
       ],
       "dependsOn": "Mock RC: build Debug",
-      "isBackground": true,
       "problemMatcher": []
     },
     {
