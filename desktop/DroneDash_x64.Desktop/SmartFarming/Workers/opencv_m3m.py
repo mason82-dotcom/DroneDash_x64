@@ -1457,6 +1457,46 @@ def _choose_pipeline_depth(
     return target
 
 
+def _benchmark_window(
+    raster_width,
+    raster_height,
+    tile_size,
+    sample_index,
+):
+    width = min(
+        int(tile_size),
+        int(raster_width),
+    )
+    height = min(
+        int(tile_size),
+        int(raster_height),
+    )
+
+    max_x = max(
+        0,
+        int(raster_width) - width,
+    )
+    max_y = max(
+        0,
+        int(raster_height) - height,
+    )
+
+    if sample_index < 0:
+        x = max_x // 2
+        y = max_y // 2
+    elif sample_index == 0:
+        x = 0
+        y = 0
+    elif sample_index == 1:
+        x = max_x // 2
+        y = max_y // 2
+    else:
+        x = max_x
+        y = max_y
+
+    return x, y, width, height
+
+
 def _auto_tune_geospatial(
     requested_tile_size,
     requested_pipeline_depth,
@@ -1497,6 +1537,35 @@ def _auto_tune_geospatial(
     )
 
     if manual_tile is not None:
+        host_bytes = _estimated_host_pipeline_bytes(
+            manual_tile,
+            provisional_depth,
+            operation,
+        )
+        cuda_bytes = _estimated_cuda_working_bytes(
+            manual_tile,
+            operation,
+        )
+
+        if (
+            system_available is not None
+            and host_bytes >
+            int(system_available * 0.20)
+        ):
+            raise RuntimeError(
+                "manual tile-size exceeds the current RAM safety budget"
+            )
+
+        if (
+            backend == "cuda"
+            and cuda_memory["freeBytes"] is not None
+            and cuda_bytes >
+            int(cuda_memory["freeBytes"] * 0.30)
+        ):
+            raise RuntimeError(
+                "manual tile-size exceeds the current VRAM safety budget"
+            )
+
         candidates = [manual_tile]
     else:
         candidates = _safe_tile_candidates(
@@ -1644,27 +1713,28 @@ def geospatial_index(args):
         comparison_band.GetNoDataValue()
     )
 
-    def benchmark_index(tile_size):
-        width = min(
-            int(tile_size),
+    def benchmark_index(
+        tile_size,
+        sample_index,
+    ):
+        x, y, width, height = _benchmark_window(
             source.RasterXSize,
-        )
-        height = min(
-            int(tile_size),
             source.RasterYSize,
+            tile_size,
+            sample_index,
         )
 
         read_started = time.perf_counter()
 
         positive = positive_band.ReadAsArray(
-            0,
-            0,
+            x,
+            y,
             width,
             height,
         )
         comparison = comparison_band.ReadAsArray(
-            0,
-            0,
+            x,
+            y,
             width,
             height,
         )
@@ -2105,21 +2175,22 @@ def geospatial_zones(args):
     input_band = source.GetRasterBand(1)
     input_nodata = input_band.GetNoDataValue()
 
-    def benchmark_zones(tile_size):
-        width = min(
-            int(tile_size),
+    def benchmark_zones(
+        tile_size,
+        sample_index,
+    ):
+        x, y, width, height = _benchmark_window(
             source.RasterXSize,
-        )
-        height = min(
-            int(tile_size),
             source.RasterYSize,
+            tile_size,
+            sample_index,
         )
 
         read_started = time.perf_counter()
 
         values = input_band.ReadAsArray(
-            0,
-            0,
+            x,
+            y,
             width,
             height,
         )
