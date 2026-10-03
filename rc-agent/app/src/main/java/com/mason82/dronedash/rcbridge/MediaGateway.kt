@@ -2,6 +2,7 @@ package com.mason82.dronedash.rcbridge
 
 import android.content.Context
 import dji.sdk.keyvalue.value.camera.CameraStorageLocation
+import dji.sdk.keyvalue.value.common.ComponentIndexType
 import dji.v5.common.callback.CommonCallbacks
 import dji.v5.common.error.IDJIError
 import dji.v5.manager.datacenter.MediaDataCenter
@@ -55,11 +56,6 @@ class MediaGateway {
     }
 
     private fun refreshList(): List<MediaFile> {
-        val source = MediaFileListDataSource.Builder()
-            .setLocation(CameraStorageLocation.SDCARD)
-            .build()
-        manager.setMediaFileDataSource(source)
-
         val upToDate = CountDownLatch(1)
         val listener = object : MediaFileListStateListener {
             override fun onUpdate(state: MediaFileListState) {
@@ -120,7 +116,7 @@ class MediaGateway {
                 }
 
                 override fun onFailure(error: IDJIError) {
-                    failure.set(error.description())
+                    failure.set("${error.errorCode()}: ${error.description()}")
                     latch.countDown()
                 }
             })
@@ -136,14 +132,26 @@ class MediaGateway {
     }
 
     private fun <T> withMediaMode(block: () -> T): T {
-        awaitCompletion("enable media manager", 15) { manager.enable(it) }
+        configureMediaSource()
+        awaitCompletion("enable media manager", 30) { manager.enable(it) }
         try {
             return block()
         } finally {
             runCatching {
+                manager.stopPullMediaFileListFromCamera()
+            }
+            runCatching {
                 awaitCompletion("disable media manager", 15) { manager.disable(it) }
             }
         }
+    }
+
+    private fun configureMediaSource() {
+        val source = MediaFileListDataSource.Builder()
+            .setIndexType(ComponentIndexType.LEFT_OR_MAIN)
+            .setLocation(CameraStorageLocation.SDCARD)
+            .build()
+        manager.setMediaFileDataSource(source)
     }
 
     private fun awaitCompletion(
@@ -160,7 +168,7 @@ class MediaGateway {
             }
 
             override fun onFailure(error: IDJIError) {
-                failure.set(error.description())
+                failure.set("${error.errorCode()}: ${error.description()}")
                 latch.countDown()
             }
         })
