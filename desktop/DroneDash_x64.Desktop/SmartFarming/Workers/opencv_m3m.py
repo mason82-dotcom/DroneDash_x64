@@ -1591,11 +1591,28 @@ def _auto_tune_geospatial(
 
     if manual_tile is not None:
         tile_size = manual_tile
+
+        if (
+            benchmark_results
+            and not benchmark_results[0].get(
+                "success",
+                True,
+            )
+        ):
+            raise RuntimeError(
+                "manual tile benchmark failed: " +
+                benchmark_results[0].get(
+                    "error",
+                    "unknown error",
+                )
+            )
+
         selected_benchmark = (
             benchmark_results[0]
             if benchmark_results
             else {
                 "tileSize": manual_tile,
+                "success": True,
                 "pixels": 0,
                 "readSeconds": 0.0,
                 "computeSeconds": 0.0,
@@ -1941,11 +1958,16 @@ def geospatial_index(args):
                         comparison,
                         args.index_epsilon,
                     )
-                except Exception:
+                except Exception as exc:
                     if args.backend == "cuda":
                         raise
 
                     backend = "cpu"
+                    backend_fallback_reason = (
+                        f"CUDA processing failed at tile x={x} y={y}; "
+                        f"CPU fallback selected: {exc}"
+                    )
+                    _release_cuda_memory_pool()
                     values = _index_cpu(
                         positive,
                         comparison,
@@ -2012,6 +2034,11 @@ def geospatial_index(args):
                 processing_elapsed_seconds,
             "tilesPerSecond":
                 tiles / processing_elapsed_seconds,
+            "pixelsPerSecond":
+                (
+                    int(source.RasterXSize) *
+                    int(source.RasterYSize)
+                ) / processing_elapsed_seconds,
             "backendRequested": args.backend,
             "backendUsed": backend,
             "backendFallbackReason":
@@ -2354,11 +2381,16 @@ def geospatial_zones(args):
                         values,
                         thresholds,
                     )
-                except Exception:
+                except Exception as exc:
                     if args.backend == "cuda":
                         raise
 
                     backend = "cpu"
+                    backend_fallback_reason = (
+                        f"CUDA processing failed at tile x={x} y={y}; "
+                        f"CPU fallback selected: {exc}"
+                    )
+                    _release_cuda_memory_pool()
                     zones = _zones_cpu(
                         values,
                         thresholds,
@@ -2415,6 +2447,11 @@ def geospatial_zones(args):
                 processing_elapsed_seconds,
             "tilesPerSecond":
                 tiles / processing_elapsed_seconds,
+            "pixelsPerSecond":
+                (
+                    int(source.RasterXSize) *
+                    int(source.RasterYSize)
+                ) / processing_elapsed_seconds,
             "thresholds": thresholds,
             "zonePixelCounts": counts,
             "backendRequested": args.backend,
