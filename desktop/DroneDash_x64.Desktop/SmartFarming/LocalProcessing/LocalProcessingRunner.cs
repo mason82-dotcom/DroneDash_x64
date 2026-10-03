@@ -64,7 +64,7 @@ public static class LocalProcessingRunner
         }
 
         await WriteLogAsync(
-            $"Start Smart Farming local processing · capture={plan.CaptureKey} · steps={plan.Steps.Count}");
+            $"Start local processing · {plan.CaptureKey} · steps={plan.Steps.Count}");
 
         var completed = 0;
         PersistentPythonWorkerSession? pythonWorker = null;
@@ -219,7 +219,7 @@ public static class LocalProcessingRunner
             }
 
             await WriteLogAsync(
-                "Smart Farming local processing erfolgreich abgeschlossen.");
+                "Local processing erfolgreich abgeschlossen.");
 
             return new(
                 Success: true,

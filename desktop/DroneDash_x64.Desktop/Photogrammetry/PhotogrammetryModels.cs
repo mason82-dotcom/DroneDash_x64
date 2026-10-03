@@ -27,6 +27,11 @@ public sealed record PhotogrammetryImageRecord(
     double? DistanceToRouteMeters,
     IReadOnlyList<string> Issues)
 {
+    /// <summary>Calibrated principal point in pixels (DJI XMP CalibratedOpticalCenterX/Y).</summary>
+    public double? OpticalCenterX { get; init; }
+
+    public double? OpticalCenterY { get; init; }
+
     public bool HasGps => Latitude.HasValue && Longitude.HasValue;
     public bool HasRtkMetadata => !string.IsNullOrWhiteSpace(RtkFlag);
     public bool HasRtkPrecision =>

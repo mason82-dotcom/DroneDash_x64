@@ -293,6 +293,45 @@ else {
     Write-Check WARN "OpenCV/CuPy CUDA" "Python worker could not be probed. CUDA acceleration remains optional."
 }
 
+$ColmapExe = $null
+$ColmapCandidates = @()
+if (-not [string]::IsNullOrWhiteSpace($env:DRONEDASH_COLMAP)) { $ColmapCandidates += $env:DRONEDASH_COLMAP }
+if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) { $ColmapCandidates += (Join-Path $env:LOCALAPPDATA "DroneDash\colmap") }
+foreach ($Candidate in $ColmapCandidates) {
+    if (Test-Path $Candidate -PathType Leaf) { $ColmapExe = $Candidate; break }
+    foreach ($Name in @("COLMAP.bat", "bin\colmap.exe", "colmap.exe")) {
+        $Path = Join-Path $Candidate $Name
+        if (Test-Path $Path -PathType Leaf) { $ColmapExe = $Path; break }
+    }
+    if ($ColmapExe) { break }
+}
+if (-not $ColmapExe) {
+    $Command = Get-Command colmap -ErrorAction SilentlyContinue
+    if ($Command) { $ColmapExe = $Command.Source }
+}
+
+if ($ColmapExe) {
+    try {
+        $ColmapHelp = (& $ColmapExe -h 2>&1 | Out-String)
+        $ColmapVersion = if ($ColmapHelp -match 'COLMAP\s+(\d+\.\d+(\.\d+)?)') { $Matches[1] } else { "?" }
+        if ($ColmapHelp -match 'with CUDA') {
+            Write-Check OK "COLMAP" "COLMAP $ColmapVersion with CUDA · $ColmapExe"
+        }
+        elseif ($ColmapHelp -match 'without CUDA') {
+            Write-Check WARN "COLMAP" "COLMAP $ColmapVersion without CUDA · local dense reconstruction needs the CUDA build (scripts\install-colmap.ps1)."
+        }
+        else {
+            Write-Check WARN "COLMAP" "COLMAP $ColmapVersion found, CUDA support unknown · $ColmapExe"
+        }
+    }
+    catch {
+        Write-Check WARN "COLMAP" "COLMAP could not be started: $($_.Exception.Message)"
+    }
+}
+else {
+    Write-Check WARN "COLMAP" "Optional local photogrammetry unavailable. Run scripts\install-colmap.ps1 or set DRONEDASH_COLMAP."
+}
+
 $ThermalDll = Join-Path $Root "desktop\DroneDash_x64.Desktop\third_party\dji-tsdk\runtime\libdirp.dll"
 if (Test-Path $ThermalDll) {
     Write-Check OK "DJI Thermal SDK" "Runtime staged locally."

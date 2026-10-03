@@ -71,6 +71,40 @@
                    TextWrapping="Wrap"/>
       </Border>
 
+      <Expander x:Name="ColmapExpander"
+                Header="DSM / Punktwolke lokal mit COLMAP (CUDA) berechnen"
+                Margin="4,0,4,10">
+        <StackPanel Margin="10">
+          <TextBlock TextWrapping="Wrap" Opacity="0.8"
+                     Text="Rechnet den analysierten Datensatz auf diesem PC: Merkmale und Matching auf der GPU, Kameras und dünne Punktwolke, dichte Rekonstruktion mit CUDA. DroneDash georeferenziert das Ergebnis über die GPS/RTK-Positionen der Bilder und erzeugt eine LAZ-Punktwolke und ein DSM. Benötigt COLMAP mit CUDA (scripts\install-colmap.ps1) und eine NVIDIA-GPU."/>
+          <Grid Margin="0,8,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="110"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="Qualität" VerticalAlignment="Center"/>
+            <ComboBox x:Name="ColmapPresetBox" Grid.Column="1" Margin="0,2" SelectedIndex="1">
+              <ComboBoxItem Content="Schnell · Bilder 1600/1200 px, DSM 20 cm/px" Tag="Fast"/>
+              <ComboBoxItem Content="Standard · Bilder 3200/2000 px, DSM 10 cm/px" Tag="Standard"/>
+              <ComboBoxItem Content="Hoch · Bilder 4800/3200 px, DSM 5 cm/px (viel GPU-Speicher)" Tag="High"/>
+            </ComboBox>
+          </Grid>
+          <WrapPanel Margin="0,6,0,0">
+            <Button Content="COLMAP prüfen" Click="CheckColmap_Click"/>
+            <Button x:Name="StartColmapButton" Content="Lokal berechnen" Click="StartColmap_Click" IsEnabled="False"/>
+            <Button x:Name="CancelColmapButton" Content="Abbrechen" Click="CancelColmap_Click" IsEnabled="False"/>
+            <Button x:Name="ColmapShowDsmButton" Content="DSM auf Karte" Click="ShowDsm_Click" IsEnabled="False"/>
+            <Button x:Name="ColmapShowPointCloudButton" Content="Punktwolke 3D" Click="ShowPointCloud_Click" IsEnabled="False"/>
+          </WrapPanel>
+          <ProgressBar x:Name="ColmapProgress" Height="4" Margin="0,8,0,4"/>
+          <TextBlock x:Name="ColmapStatusText" Text="COLMAP noch nicht geprüft." TextWrapping="Wrap"/>
+          <TextBlock x:Name="ColmapProductsText" Margin="0,4,0,0" TextWrapping="Wrap"/>
+          <TextBox x:Name="ColmapLogText" Height="110" Margin="0,6,0,0" IsReadOnly="True"
+                   FontFamily="Consolas" FontSize="11"
+                   VerticalScrollBarVisibility="Auto" TextWrapping="NoWrap"/>
+        </StackPanel>
+      </Expander>
+
       <Expander x:Name="NodeOdmExpander"
                 Header="DSM / DTM / Punktwolke mit NodeODM berechnen"
                 Margin="4,0,4,10">
