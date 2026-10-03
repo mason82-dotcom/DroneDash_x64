@@ -86,7 +86,11 @@ public static partial class LocalImageToolchain
             OpenCvCudaAvailable =
                 openCvProbe.CudaAvailable,
             CupyCudaAvailable =
-                openCvProbe.CupyAvailable
+                openCvProbe.CupyAvailable,
+            GdalPythonAvailable =
+                openCvProbe.GdalPythonAvailable,
+            GdalPythonVersion =
+                openCvProbe.GdalPythonVersion
         };
     }
 
@@ -170,7 +174,9 @@ public static partial class LocalImageToolchain
         bool CupyAvailable,
         string? CupyVersion,
         int CupyDeviceCount,
-        string? CupyDeviceName);
+        string? CupyDeviceName,
+        bool GdalPythonAvailable,
+        string? GdalPythonVersion);
 
     private static async Task<OpenCvProbeResult> ProbeOpenCvAsync(
         string? python,
@@ -194,6 +200,8 @@ public static partial class LocalImageToolchain
                 false,
                 null,
                 0,
+                null,
+                false,
                 null);
         }
 
@@ -214,6 +222,8 @@ public static partial class LocalImageToolchain
                 false,
                 null,
                 0,
+                null,
+                false,
                 null);
         }
 
@@ -231,6 +241,8 @@ public static partial class LocalImageToolchain
         string? cupyVersion = null;
         var cupyDeviceCount = 0;
         string? cupyDeviceName = null;
+        var gdalPythonAvailable = false;
+        string? gdalPythonVersion = null;
 
         if (result.Success)
         {
@@ -336,6 +348,27 @@ public static partial class LocalImageToolchain
                     cupyDeviceName =
                         cupyDeviceNameElement.GetString();
                 }
+
+                if (root.TryGetProperty(
+                        "gdalPythonAvailable",
+                        out var gdalPython) &&
+                    gdalPython.ValueKind is
+                        JsonValueKind.True or
+                        JsonValueKind.False)
+                {
+                    gdalPythonAvailable =
+                        gdalPython.GetBoolean();
+                }
+
+                if (root.TryGetProperty(
+                        "gdalPythonVersion",
+                        out var gdalPythonVersionElement) &&
+                    gdalPythonVersionElement.ValueKind ==
+                        JsonValueKind.String)
+                {
+                    gdalPythonVersion =
+                        gdalPythonVersionElement.GetString();
+                }
             }
             catch
             {
@@ -366,7 +399,9 @@ public static partial class LocalImageToolchain
             cupyDeviceCount > 0,
             cupyVersion,
             cupyDeviceCount,
-            cupyDeviceName);
+            cupyDeviceName,
+            gdalPythonAvailable,
+            gdalPythonVersion);
     }
 
     private static async Task<LocalImageToolStatus> ProbeCudaAsync(
