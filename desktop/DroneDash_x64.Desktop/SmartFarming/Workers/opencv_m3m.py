@@ -2376,12 +2376,15 @@ def main():
     parser.add_argument("--iterations", type=int, default=150)
     parser.add_argument("--epsilon", type=float, default=1e-6)
     parser.add_argument("--index-epsilon", type=float, default=1e-12)
-    parser.add_argument("--tile-size", type=int, default=2048)
+    parser.add_argument(
+        "--tile-size",
+        default="auto",
+        help="auto or a fixed GDAL tile size in pixels (128..8192)",
+    )
     parser.add_argument(
         "--pipeline-depth",
-        type=int,
-        default=2,
-        help="bounded GDAL read/write pipeline depth (1..4) for geospatial tile processing",
+        default="auto",
+        help="auto or a bounded GDAL read/write pipeline depth (1..4)",
     )
     args = parser.parse_args()
 
