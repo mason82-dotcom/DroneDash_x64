@@ -1,0 +1,44 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "DroneDash Desktop (Debug x64)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "Desktop: build Debug",
+      "program": "${workspaceFolder}/desktop/DroneDash_x64.Desktop/bin/Debug/net10.0-windows/win-x64/DroneDash_x64.Desktop.dll",
+      "cwd": "${workspaceFolder}",
+      "stopAtEntry": false,
+      "console": "internalConsole",
+      "justMyCode": true
+    },
+    {
+      "name": "Mock RC (Debug)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "Mock RC: build Debug",
+      "program": "${workspaceFolder}/desktop/DroneDash_x64.MockRc/bin/Debug/net10.0/DroneDash_x64.MockRc.dll",
+      "cwd": "${workspaceFolder}",
+      "stopAtEntry": false,
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Attach to .NET process",
+      "type": "coreclr",
+      "request": "attach",
+      "processId": "${command:pickProcess}",
+      "justMyCode": true
+    }
+  ],
+  "compounds": [
+    {
+      "name": "DroneDash + Mock RC",
+      "configurations": [
+        "Mock RC (Debug)",
+        "DroneDash Desktop (Debug x64)"
+      ],
+      "stopAll": true
+    }
+  ]
+}
