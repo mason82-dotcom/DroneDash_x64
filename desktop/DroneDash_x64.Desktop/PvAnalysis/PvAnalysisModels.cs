@@ -51,6 +51,8 @@ public sealed record PvHotspotCandidate(
     int PeakY,
     double PeakTemperatureC,
     double LocalBaselineC,
+    double LocalUpperQuartileC,
+    double AdaptiveSeedThresholdC,
     double DeltaC,
     double CentroidX,
     double CentroidY,
@@ -59,8 +61,28 @@ public sealed record PvHotspotCandidate(
     int MaxX,
     int MaxY)
 {
+    public int AreaPixels => PixelCount;
+
+    public int BoundingBoxAreaPixels =>
+        checked((MaxX - MinX + 1) * (MaxY - MinY + 1));
+
+    public double FillRatio =>
+        BoundingBoxAreaPixels <= 0
+            ? 0d
+            : PixelCount / (double)BoundingBoxAreaPixels;
+
+    public double EquivalentDiameterPixels =>
+        PixelCount <= 0
+            ? 0d
+            : 2d * Math.Sqrt(PixelCount / Math.PI);
+
     public string PixelText => $"{PeakX},{PeakY}";
-    public string BoundingBoxText => $"{MinX},{MinY} – {MaxX},{MaxY}";
+
+    public string CentroidText =>
+        $"{CentroidX:F1},{CentroidY:F1}";
+
+    public string BoundingBoxText =>
+        $"{MinX},{MinY} – {MaxX},{MaxY}";
 }
 
 public sealed record PvImageAnalysisResult(
@@ -167,5 +189,5 @@ public sealed record PvAnalysisManifest(
     PvDatasetSummary Summary,
     IReadOnlyList<PvImageAnalysisResult> Images)
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 }

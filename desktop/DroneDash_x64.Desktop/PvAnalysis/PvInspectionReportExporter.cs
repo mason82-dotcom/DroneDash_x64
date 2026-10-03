@@ -27,7 +27,7 @@ public static class PvInspectionReportExporter
         html.AppendLine("</style></head><body>");
         html.AppendLine("<h1>DroneDash PV-Analyse</h1>");
         html.AppendLine($"<p>Erstellt: {WebUtility.HtmlEncode(DateTimeOffset.Now.ToString("G"))}</p>");
-        html.AppendLine("<div class=\"note\">Thermische Anomalie-Kandidaten sind keine automatische elektrische Fehlerdiagnose. Ergebnisse müssen mit Anlagenzustand, Einstrahlung, Reflexion, Verschattung und Betriebsbedingungen fachlich verifiziert werden.</div>");
+        html.AppendLine("<div class=\"note\">Thermische Anomalie-Kandidaten sind keine automatische elektrische Fehlerdiagnose. Ergebnisse müssen mit Anlagenzustand, Einstrahlung, Reflexion, Verschattung und Betriebsbedingungen fachlich verifiziert werden. Flächenangaben sind Pixel²; eine physische Fläche in m² erfordert eine belastbare GSD/Geometrie.</div>");
 
         html.AppendLine("<h2>Zusammenfassung</h2><ul>");
         html.AppendLine($"<li>Quelle: {H(dataset.SourceFolder)}</li>");
@@ -44,6 +44,7 @@ public static class PvInspectionReportExporter
         html.AppendLine($"<li>Warnschwelle ΔT: {dataset.Settings.WarningDeltaC:F2} °C</li>");
         html.AppendLine($"<li>Kritische Schwelle ΔT: {dataset.Settings.CriticalDeltaC:F2} °C</li>");
         html.AppendLine($"<li>Lokaler Radius: {dataset.Settings.LocalWindowRadiusPixels} px</li>");
+        html.AppendLine("<li>Robuste Referenz: lokaler Median (P50), P75-basierte adaptive Schwelle, Hysterese-Segmentierung</li>");
         html.AppendLine($"<li>Minimale Clustergröße: {dataset.Settings.MinimumClusterPixels} px</li>");
         html.AppendLine("</ul>");
 
@@ -67,16 +68,18 @@ public static class PvInspectionReportExporter
         html.AppendLine("</tbody></table>");
 
         html.AppendLine("<h2>Anomalie-Kandidaten</h2>");
-        html.AppendLine("<table><thead><tr><th>Datei</th><th>#</th><th>Stufe</th><th>Pixel</th><th>Peak</th><th>Basis</th><th>ΔT</th><th>Peak XY</th><th>Bounding Box</th></tr></thead><tbody>");
+        html.AppendLine("<table><thead><tr><th>Datei</th><th>#</th><th>Stufe</th><th>Fläche px²</th><th>Füllgrad</th><th>Peak</th><th>Median-Basis</th><th>P75</th><th>ΔT</th><th>Peak XY</th><th>Zentrum XY</th><th>Bounding Box</th></tr></thead><tbody>");
         foreach (var image in dataset.Images)
         {
             foreach (var candidate in image.Candidates)
             {
                 html.AppendLine(
                     $"<tr><td>{H(image.FileName)}</td><td>{candidate.Index}</td><td>{H(candidate.Severity.ToString())}</td>" +
-                    $"<td>{candidate.PixelCount}</td><td>{candidate.PeakTemperatureC:F2} °C</td>" +
-                    $"<td>{candidate.LocalBaselineC:F2} °C</td><td>{candidate.DeltaC:F2} °C</td>" +
-                    $"<td>{H(candidate.PixelText)}</td><td>{H(candidate.BoundingBoxText)}</td></tr>");
+                    $"<td>{candidate.AreaPixels}</td><td>{candidate.FillRatio:P0}</td>" +
+                    $"<td>{candidate.PeakTemperatureC:F2} °C</td><td>{candidate.LocalBaselineC:F2} °C</td>" +
+                    $"<td>{candidate.LocalUpperQuartileC:F2} °C</td><td>{candidate.DeltaC:F2} °C</td>" +
+                    $"<td>{H(candidate.PixelText)}</td><td>{H(candidate.CentroidText)}</td>" +
+                    $"<td>{H(candidate.BoundingBoxText)}</td></tr>");
             }
         }
         html.AppendLine("</tbody></table>");
