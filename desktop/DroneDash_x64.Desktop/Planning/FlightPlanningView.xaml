@@ -25,6 +25,17 @@
               <Button Content="Projekt laden" Click="LoadProject_Click"/>
               <Button Content="DJI KMZ prüfen" Click="ValidateKmz_Click"/>
             </WrapPanel>
+            <WrapPanel Margin="0,6,0,0">
+              <Button Content="→ Photogrammetrie"
+                      Tag="Photogrammetry"
+                      Click="HandoffFlightPlan_Click"/>
+              <Button Content="→ PV"
+                      Tag="PvAnalysis"
+                      Click="HandoffFlightPlan_Click"/>
+              <Button Content="→ Smart Farming"
+                      Tag="SmartFarming"
+                      Click="HandoffFlightPlan_Click"/>
+            </WrapPanel>
             <TextBlock x:Name="ProjectInfoText"
                        Margin="4,7,0,0"
                        Text="Neues, noch nicht gespeichertes Projekt"

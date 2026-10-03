@@ -40,7 +40,7 @@
       </StatusBarItem>
     </StatusBar>
 
-    <TabControl Margin="12">
+    <TabControl x:Name="MainTabs" Margin="12">
       <TabItem Header="Projekt">
         <project:ProjectWorkspaceView/>
       </TabItem>
@@ -421,20 +421,20 @@
         </Grid>
       </TabItem>
 
-      <TabItem Header="Flugplanung">
-        <planning:FlightPlanningView/>
+      <TabItem x:Name="PlanningTab" Header="Flugplanung">
+        <planning:FlightPlanningView x:Name="FlightPlanningWorkspace"/>
       </TabItem>
 
-      <TabItem Header="Photogrammetrie">
-        <photo:PhotogrammetryWorkspaceView/>
+      <TabItem x:Name="PhotogrammetryTab" Header="Photogrammetrie">
+        <photo:PhotogrammetryWorkspaceView x:Name="PhotogrammetryWorkspace"/>
       </TabItem>
 
-      <TabItem Header="PV-Analyse">
-        <pv:PvAnalysisView/>
+      <TabItem x:Name="PvAnalysisTab" Header="PV-Analyse">
+        <pv:PvAnalysisView x:Name="PvAnalysisWorkspace"/>
       </TabItem>
 
-      <TabItem Header="Smart Farming">
-        <farming:SmartFarmingView/>
+      <TabItem x:Name="SmartFarmingTab" Header="Smart Farming">
+        <farming:SmartFarmingView x:Name="SmartFarmingWorkspace"/>
       </TabItem>
 
       <TabItem Header="Medien">

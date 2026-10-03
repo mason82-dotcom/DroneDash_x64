@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using DroneDash_x64.Desktop.Planning;
 using WinForms = System.Windows.Forms;
 
 namespace DroneDash_x64.Desktop.Project;
@@ -668,6 +669,144 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
 
         AnalysisStageDetailText.Text =
             snapshot.Analysis.Detail;
+
+        PlanningStageButton.IsEnabled =
+            _project is not null;
+
+        DatasetStageButton.IsEnabled =
+            _project is not null;
+
+        ProcessingStageButton.IsEnabled =
+            _project is not null;
+
+        AnalysisStageButton.IsEnabled =
+            _project is not null;
+
+        var dashboard =
+            ProjectDashboardAnalyzer.Analyze(
+                _projectPath,
+                _project);
+
+        RtkQaStateText.Text =
+            dashboard.Rtk.StateText;
+
+        RtkQaDetailText.Text =
+            dashboard.Rtk.Detail;
+
+        DatasetQaStateText.Text =
+            dashboard.Dataset.StateText;
+
+        DatasetQaDetailText.Text =
+            dashboard.Dataset.Detail;
+
+        ProcessingQaStateText.Text =
+            dashboard.Processing.StateText;
+
+        ProcessingQaDetailText.Text =
+            dashboard.Processing.Detail;
+
+        ResultsQaStateText.Text =
+            dashboard.Results.StateText;
+
+        ResultsQaDetailText.Text =
+            dashboard.Results.Detail;
+    }
+
+    private void WorkflowStage_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!EnsureProjectLoaded() ||
+            sender is not System.Windows.Controls.Button button)
+        {
+            return;
+        }
+
+        var stage =
+            button.Tag?.ToString() ??
+            "";
+
+        var target =
+            stage.Equals(
+                "Planning",
+                StringComparison.OrdinalIgnoreCase)
+                ? ProjectNavigationTarget.Planning
+                : ResolveModuleTarget();
+
+        DroneDashProjectSession.RequestNavigation(
+            target,
+            reason:
+                $"Projektworkflow · {stage}");
+    }
+
+    private ProjectNavigationTarget ResolveModuleTarget()
+    {
+        if (_project is null)
+            return ProjectNavigationTarget.Photogrammetry;
+
+        var kinds =
+            _project.Artifacts
+                .Select(item =>
+                    item.Kind)
+                .ToHashSet();
+
+        if (kinds.Contains(
+                ProjectArtifactKind.SmartFarmingDataset) ||
+            kinds.Contains(
+                ProjectArtifactKind.SmartFarmingFieldProducts) ||
+            kinds.Contains(
+                ProjectArtifactKind.VegetationRaster) ||
+            kinds.Contains(
+                ProjectArtifactKind.LocalProcessingPlan) ||
+            kinds.Contains(
+                ProjectArtifactKind.NodeOdmResultArchive))
+        {
+            return ProjectNavigationTarget.SmartFarming;
+        }
+
+        if (kinds.Contains(
+                ProjectArtifactKind.PvAnalysis) ||
+            kinds.Contains(
+                ProjectArtifactKind.ThermalImage))
+        {
+            return ProjectNavigationTarget.PvAnalysis;
+        }
+
+        if (kinds.Contains(
+                ProjectArtifactKind.PhotogrammetryManifest))
+        {
+            return ProjectNavigationTarget.Photogrammetry;
+        }
+
+        var flightPlan =
+            DroneDashProjectSession.TryResolveLatestArtifactPath(
+                ProjectArtifactKind.FlightPlan);
+
+        if (!string.IsNullOrWhiteSpace(
+                flightPlan))
+        {
+            try
+            {
+                var plan =
+                    FlightPlanProjectStore.Load(
+                        flightPlan);
+
+                return plan.Settings.Aircraft switch
+                {
+                    DjiAircraftProfile.M3M =>
+                        ProjectNavigationTarget.SmartFarming,
+                    DjiAircraftProfile.M3T =>
+                        ProjectNavigationTarget.PvAnalysis,
+                    _ =>
+                        ProjectNavigationTarget.Photogrammetry
+                };
+            }
+            catch
+            {
+            }
+        }
+
+        return ProjectNavigationTarget.Photogrammetry;
     }
 
     private void ApplyVerification(
@@ -730,6 +869,7 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         return
             $"{prefix} · Artefakte {_project.Artifacts.Count:N0} · " +
             $"{workflow.SummaryText} · " +
+            $"{ProjectDashboardAnalyzer.Analyze(_projectPath, _project).SummaryText} · " +
             $"OK {ok:N0} · geändert {modified:N0} · fehlt {missing:N0} · Fehler {errors:N0}";
     }
 

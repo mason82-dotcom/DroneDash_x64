@@ -17,7 +17,8 @@ public static class SmartFarmingExporter
 
     public static (string JsonPath, string CsvPath) ExportDataset(
         string destinationFolder,
-        M3mDatasetResult dataset)
+        M3mDatasetResult dataset,
+        string? flightPlanProjectPath = null)
     {
         Directory.CreateDirectory(destinationFolder);
 
@@ -25,6 +26,7 @@ public static class SmartFarmingExporter
             SmartFarmingManifest.CurrentSchemaVersion,
             DateTimeOffset.UtcNow,
             dataset.SourceFolder,
+            flightPlanProjectPath,
             dataset.Summary,
             dataset.Captures);
 

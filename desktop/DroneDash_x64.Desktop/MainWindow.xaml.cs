@@ -9,6 +9,7 @@ using System.Windows.Threading;
 using DroneDash_x64.Desktop.Api;
 using DroneDash_x64.Desktop.Imaging;
 using DroneDash_x64.Desktop.Models;
+using DroneDash_x64.Desktop.Project;
 using DroneDash_x64.Desktop.Thermal;
 using WinForms = System.Windows.Forms;
 
@@ -44,11 +45,17 @@ public partial class MainWindow : Window
             _thermalSdk.IsAvailable ? "DJI Thermal SDK v1.8 verfügbar." : _thermalSdk.Status);
         AddEvent("INFO", "App", "DroneDash_x64 gestartet.");
 
+        DroneDashProjectSession.NavigationRequested +=
+            ProjectNavigationRequested;
+
         _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _pollTimer.Tick += async (_, _) => await PollStatusAsync();
 
         Closed += (_, _) =>
         {
+            DroneDashProjectSession.NavigationRequested -=
+                ProjectNavigationRequested;
+
             _api.Dispose();
             _thermalSdk.Dispose();
             CleanupPreviewCache();
@@ -78,6 +85,81 @@ public partial class MainWindow : Window
             SetConnected(false, "Offline");
             AddEvent("ERROR", "Bridge", $"Verbindung fehlgeschlagen: {ex.Message}");
             ShowError("Verbindung fehlgeschlagen", ex);
+        }
+    }
+
+    private void ProjectNavigationRequested(
+        object? sender,
+        ProjectNavigationRequest request)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(() =>
+                ProjectNavigationRequested(
+                    sender,
+                    request));
+
+            return;
+        }
+
+        try
+        {
+            switch (request.Target)
+            {
+                case ProjectNavigationTarget.Planning:
+                    MainTabs.SelectedItem =
+                        PlanningTab;
+                    break;
+
+                case ProjectNavigationTarget.Photogrammetry:
+                    if (!string.IsNullOrWhiteSpace(
+                            request.FlightPlanPath))
+                    {
+                        PhotogrammetryWorkspace.AcceptFlightPlan(
+                            request.FlightPlanPath);
+                    }
+
+                    MainTabs.SelectedItem =
+                        PhotogrammetryTab;
+                    break;
+
+                case ProjectNavigationTarget.PvAnalysis:
+                    if (!string.IsNullOrWhiteSpace(
+                            request.FlightPlanPath))
+                    {
+                        PvAnalysisWorkspace.AcceptFlightPlan(
+                            request.FlightPlanPath);
+                    }
+
+                    MainTabs.SelectedItem =
+                        PvAnalysisTab;
+                    break;
+
+                case ProjectNavigationTarget.SmartFarming:
+                    if (!string.IsNullOrWhiteSpace(
+                            request.FlightPlanPath))
+                    {
+                        SmartFarmingWorkspace.AcceptFlightPlan(
+                            request.FlightPlanPath);
+                    }
+
+                    MainTabs.SelectedItem =
+                        SmartFarmingTab;
+                    break;
+            }
+
+            FooterText.Text =
+                request.Reason;
+        }
+        catch (Exception ex)
+        {
+            FooterText.Text =
+                $"Workflow-Navigation fehlgeschlagen: {ex.Message}";
+
+            AddEvent(
+                "ERROR",
+                "Project",
+                FooterText.Text);
         }
     }
 

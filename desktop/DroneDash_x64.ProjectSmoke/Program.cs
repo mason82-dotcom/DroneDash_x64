@@ -297,6 +297,36 @@ try
         sessionProject,
         "smoke");
 
+    var workspaceFolders =
+        ProjectWorkspaceLayout.EnsureStandardFolders(
+            sessionProjectPath);
+
+    foreach (var folder in
+             new[]
+             {
+                 ProjectWorkspaceFolder.Planning,
+                 ProjectWorkspaceFolder.PhotogrammetryDataset,
+                 ProjectWorkspaceFolder.PvDataset,
+                 ProjectWorkspaceFolder.SmartFarmingDataset,
+                 ProjectWorkspaceFolder.PhotogrammetryProcessing,
+                 ProjectWorkspaceFolder.PvProcessing,
+                 ProjectWorkspaceFolder.SmartFarmingProcessing,
+                 ProjectWorkspaceFolder.PhotogrammetryResults,
+                 ProjectWorkspaceFolder.PvResults,
+                 ProjectWorkspaceFolder.SmartFarmingResults,
+                 ProjectWorkspaceFolder.Exports
+             })
+    {
+        if (!workspaceFolders.TryGetValue(
+                folder,
+                out var folderPath) ||
+            !Directory.Exists(folderPath))
+        {
+            throw new InvalidDataException(
+                $"Standard project folder was not created: {folder}");
+        }
+    }
+
     var sessionPlan =
         Path.Combine(
             sessionRoot,
@@ -323,7 +353,7 @@ try
 
     File.WriteAllText(
         sessionDataset,
-        """{"schemaVersion":1}""");
+        """{"schemaVersion":1,"summary":{"imageCount":10,"rtkMetadataCount":10,"rtkPrecisionCount":10,"issueCount":0},"images":[]}""");
 
     File.WriteAllText(
         sessionProcessing,
@@ -331,7 +361,7 @@ try
 
     File.WriteAllText(
         sessionAnalysis,
-        """{"schemaVersion":1}""");
+        """{"schemaVersion":1,"summary":{"thermalImageCount":1,"failedCount":0},"images":[{"rtkFlag":"RTK_FIX","rtkStdLongitudeMeters":0.01,"rtkStdLatitudeMeters":0.01,"rtkStdHeightMeters":0.02}]}""");
 
     await DroneDashProjectSession.RegisterFileAsync(
         sessionPlan,
@@ -370,6 +400,46 @@ try
     {
         throw new InvalidDataException(
             "Integrated project workflow did not cover all four stages.");
+    }
+
+    var dashboard =
+        ProjectDashboardAnalyzer.Analyze(
+            sessionProjectPath,
+            active);
+
+    if (dashboard.Rtk.State != ProjectQaState.Good ||
+        dashboard.Dataset.State != ProjectQaState.Good ||
+        dashboard.Processing.State != ProjectQaState.Warning ||
+        dashboard.Results.State != ProjectQaState.Good)
+    {
+        throw new InvalidDataException(
+            $"Unexpected dashboard states: RTK={dashboard.Rtk.State}, " +
+            $"Dataset={dashboard.Dataset.State}, Processing={dashboard.Processing.State}, " +
+            $"Results={dashboard.Results.State}");
+    }
+
+    ProjectNavigationRequest? navigation = null;
+
+    DroneDashProjectSession.NavigationRequested +=
+        (_, request) =>
+            navigation = request;
+
+    DroneDashProjectSession.RequestNavigation(
+        ProjectNavigationTarget.Photogrammetry,
+        reason: "smoke handoff");
+
+    if (navigation is null ||
+        navigation.Target !=
+            ProjectNavigationTarget.Photogrammetry ||
+        !string.Equals(
+            Path.GetFullPath(
+                navigation.FlightPlanPath ?? ""),
+            Path.GetFullPath(
+                sessionPlan),
+            StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidDataException(
+            "Project workflow navigation did not carry the latest flight plan.");
     }
 
     File.AppendAllText(
@@ -423,7 +493,8 @@ try
             "Project session change notifications were not emitted.");
 
     Console.WriteLine(
-        $"PASS project session · workflow={workflow.SummaryText} · events={sessionChangeCount}");
+        $"PASS project session · workflow={workflow.SummaryText} · " +
+        $"dashboard={dashboard.SummaryText} · events={sessionChangeCount}");
 
     Console.WriteLine(
         $"PASS DroneDash project · id={loaded.ProjectId} · artifacts={loaded.Artifacts.Count} · discovered={discovered.Count}");

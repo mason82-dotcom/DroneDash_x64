@@ -7,6 +7,7 @@ using System.Windows.Media.Imaging;
 using DroneDash_x64.Desktop.SmartFarming.LocalProcessing;
 using DroneDash_x64.Desktop.SmartFarming.Odm;
 using DroneDash_x64.Desktop.Project;
+using DroneDash_x64.Desktop.Planning;
 using WinForms = System.Windows.Forms;
 
 namespace DroneDash_x64.Desktop.SmartFarming;
@@ -16,6 +17,7 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
     private readonly ObservableCollection<M3mCaptureGroup> _captures = [];
     private readonly ObservableCollection<LocalImageToolStatus> _toolStatuses = [];
     private string? _sourceFolder;
+    private string? _flightPlanProjectPath;
     private M3mDatasetResult? _dataset;
     private VegetationIndexResult? _currentIndex;
     private BitmapSource? _currentIndexBitmap;
@@ -41,13 +43,49 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
             NodeOdmTokenBox.Password = nodeOdmToken;
     }
 
+    public void AcceptFlightPlan(
+        string flightPlanPath)
+    {
+        try
+        {
+            var fullPath =
+                Path.GetFullPath(
+                    flightPlanPath);
+
+            var project =
+                FlightPlanProjectStore.Load(
+                    fullPath);
+
+            _flightPlanProjectPath =
+                fullPath;
+
+            FlightPlanText.Text =
+                $"{project.Settings.Name} · {project.Settings.Aircraft} · " +
+                $"{project.Settings.Mode} · {project.Geometry.Count} Geometriepunkte\n" +
+                _flightPlanProjectPath;
+
+            InvalidateDataset();
+
+            StatusText.Text =
+                "Flugplan aus dem DroneDash-Projekt übernommen.";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text =
+                $"Flugplan konnte nicht übernommen werden: {ex.Message}";
+        }
+    }
+
     private void SelectFolder_Click(object sender, RoutedEventArgs e)
     {
         using var dialog = new WinForms.FolderBrowserDialog
         {
             Description = "DJI Mavic 3M Datensatz auswählen",
             ShowNewFolderButton = false,
-            SelectedPath = Directory.Exists(_sourceFolder) ? _sourceFolder : ""
+            SelectedPath = Directory.Exists(_sourceFolder)
+                ? _sourceFolder
+                : ProjectWorkspaceLayout.TryGetActiveFolder(
+                      ProjectWorkspaceFolder.SmartFarmingDataset) ?? ""
         };
 
         if (dialog.ShowDialog() != WinForms.DialogResult.OK)
@@ -201,7 +239,12 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         using var dialog = new WinForms.FolderBrowserDialog
         {
             Description = "Zielordner für Smart-Farming-Datensatz-QA auswählen",
-            ShowNewFolderButton = true
+            ShowNewFolderButton = true,
+            SelectedPath =
+                ProjectWorkspaceLayout.TryGetActiveFolder(
+                    ProjectWorkspaceFolder.SmartFarmingDataset) ??
+                _sourceFolder ??
+                ""
         };
 
         if (dialog.ShowDialog() != WinForms.DialogResult.OK)
@@ -211,7 +254,8 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         {
             var output = SmartFarmingExporter.ExportDataset(
                 dialog.SelectedPath,
-                _dataset);
+                _dataset,
+                _flightPlanProjectPath);
 
             var registered = false;
             string? registrationError = null;
@@ -260,7 +304,12 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         using var dialog = new WinForms.FolderBrowserDialog
         {
             Description = "Zielordner für Vegetationsindex-Quicklook auswählen",
-            ShowNewFolderButton = true
+            ShowNewFolderButton = true,
+            SelectedPath =
+                ProjectWorkspaceLayout.TryGetActiveFolder(
+                    ProjectWorkspaceFolder.SmartFarmingResults) ??
+                _sourceFolder ??
+                ""
         };
 
         if (dialog.ShowDialog() != WinForms.DialogResult.OK)
@@ -348,7 +397,12 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         using var dialog = new WinForms.FolderBrowserDialog
         {
             Description = "Zielordner für lokalen Smart-Farming-Processing-Workspace auswählen",
-            ShowNewFolderButton = true
+            ShowNewFolderButton = true,
+            SelectedPath =
+                ProjectWorkspaceLayout.TryGetActiveFolder(
+                    ProjectWorkspaceFolder.SmartFarmingProcessing) ??
+                _sourceFolder ??
+                ""
         };
 
         if (dialog.ShowDialog() != WinForms.DialogResult.OK)
@@ -719,7 +773,12 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
         using var dialog = new WinForms.FolderBrowserDialog
         {
             Description = "Zielordner für NodeODM all.zip auswählen",
-            ShowNewFolderButton = true
+            ShowNewFolderButton = true,
+            SelectedPath =
+                ProjectWorkspaceLayout.TryGetActiveFolder(
+                    ProjectWorkspaceFolder.SmartFarmingProcessing) ??
+                _sourceFolder ??
+                ""
         };
 
         if (dialog.ShowDialog() != WinForms.DialogResult.OK)
@@ -816,7 +875,10 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
             Description = "Zielordner zum sicheren Extrahieren des NodeODM-Ergebnisses auswählen",
             ShowNewFolderButton = true,
             SelectedPath =
-                Path.GetDirectoryName(fileDialog.FileName) ?? ""
+                ProjectWorkspaceLayout.TryGetActiveFolder(
+                    ProjectWorkspaceFolder.SmartFarmingProcessing) ??
+                Path.GetDirectoryName(fileDialog.FileName) ??
+                ""
         };
 
         if (folderDialog.ShowDialog() != WinForms.DialogResult.OK)
@@ -977,6 +1039,8 @@ public partial class SmartFarmingView : System.Windows.Controls.UserControl
                 Description = "Zielordner für georeferenzierte Smart-Farming-Feldprodukte auswählen",
                 ShowNewFolderButton = true,
                 SelectedPath =
+                    ProjectWorkspaceLayout.TryGetActiveFolder(
+                        ProjectWorkspaceFolder.SmartFarmingResults) ??
                     _odmImported.ExtractedRoot
             };
 
