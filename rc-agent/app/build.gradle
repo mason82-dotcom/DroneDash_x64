@@ -3,17 +3,30 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
-def sdkVersion = project.findProperty("SDK_VERSION") ?: "5.18.0"
-def djiApiKey = project.findProperty("DJI_API_KEY") ?: ""
-def bridgeToken = project.findProperty("BRIDGE_TOKEN") ?: "change-me-now"
-def bridgeBindAddress = project.findProperty("BRIDGE_BIND_ADDRESS") ?: "127.0.0.1"
+def configValue = { String name, String fallback ->
+    def projectValue = project.findProperty(name)?.toString()?.trim()
+    if (projectValue) {
+        return projectValue
+    }
+
+    def environmentValue = System.getenv(name)?.trim()
+    return environmentValue ? environmentValue : fallback
+}
+
+def sdkVersion = configValue("SDK_VERSION", "5.18.0")
+def djiApiKey = configValue("DJI_API_KEY", "")
+def bridgeToken = configValue("BRIDGE_TOKEN", "change-me-now")
+def bridgeBindAddress = configValue("BRIDGE_BIND_ADDRESS", "127.0.0.1")
+def djiApiKeyConfigured =
+        djiApiKey.length() > 0 &&
+        !djiApiKey.equalsIgnoreCase("ci-placeholder")
 
 android {
-    namespace 'com.example.m3ebridge'
+    namespace 'com.mason82.dronedash.rcbridge'
     compileSdk 35
 
     defaultConfig {
-        applicationId "com.example.m3ebridge"
+        applicationId "com.mason82.dronedash.rcbridge"
         minSdk 24
         targetSdk 35
         versionCode 2
@@ -21,6 +34,8 @@ android {
 
         manifestPlaceholders = [DJI_API_KEY: djiApiKey]
 
+        buildConfigField "boolean", "DJI_API_KEY_CONFIGURED",
+                djiApiKeyConfigured.toString()
         buildConfigField "String", "BRIDGE_TOKEN",
                 "\"" + bridgeToken.replace('\\', '\\\\').replace('"', '\\"') + "\""
         buildConfigField "String", "BRIDGE_BIND_ADDRESS",
@@ -75,6 +90,28 @@ android {
         resources {
             excludes += ['META-INF/rxjava.properties']
         }
+    }
+}
+
+tasks.register("verifyDjiReleaseCredentials") {
+    doLast {
+        if (!djiApiKeyConfigured) {
+            throw new GradleException(
+                    "Release build requires DJI_API_KEY. Register package com.mason82.dronedash.rcbridge in DJI Developer and provide its MSDK V5 App Key.")
+        }
+
+        if (bridgeToken == "change-me-now" || bridgeToken.length() < 24) {
+            throw new GradleException(
+                    "Release build requires BRIDGE_TOKEN with at least 24 characters.")
+        }
+    }
+}
+
+afterEvaluate {
+    tasks.matching { task ->
+        task.name == "preReleaseBuild"
+    }.configureEach {
+        dependsOn tasks.named("verifyDjiReleaseCredentials")
     }
 }
 
