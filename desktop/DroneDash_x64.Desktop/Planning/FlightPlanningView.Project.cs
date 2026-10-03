@@ -267,4 +267,3 @@ public partial class FlightPlanningView
             : value;
     }
 }
-}
