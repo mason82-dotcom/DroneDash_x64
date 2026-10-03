@@ -11,6 +11,7 @@ public sealed class RcApiClient : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(30) };
+    private readonly HttpClient _mediaHttp = new() { Timeout = TimeSpan.FromMinutes(2) };
     private readonly object _configurationLock = new();
 
     private Uri _baseUri = new("http://127.0.0.1:49152/");
@@ -76,7 +77,7 @@ public sealed class RcApiClient : IDisposable
 
     public async Task<IReadOnlyList<MediaItemDto>> GetMediaAsync(CancellationToken cancellationToken = default)
     {
-        using var response = await SendAsync(HttpMethod.Get, "api/v1/media", null, cancellationToken);
+        using var response = await SendAsync(_mediaHttp, HttpMethod.Get, "api/v1/media", null, cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
         return (await response.Content.ReadFromJsonAsync<List<MediaItemDto>>(JsonOptions, cancellationToken))
             ?? [];
@@ -89,7 +90,7 @@ public sealed class RcApiClient : IDisposable
         CancellationToken cancellationToken = default)
     {
         using var request = CreateRequest(HttpMethod.Get, $"api/v1/media/{index}/download");
-        using var response = await _http.SendAsync(
+        using var response = await _mediaHttp.SendAsync(
             request,
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken);
@@ -156,7 +157,15 @@ public sealed class RcApiClient : IDisposable
         }
     }
 
+    private Task<HttpResponseMessage> SendAsync(
+        HttpMethod method,
+        string relativePath,
+        HttpContent? content,
+        CancellationToken cancellationToken) =>
+        SendAsync(_http, method, relativePath, content, cancellationToken);
+
     private async Task<HttpResponseMessage> SendAsync(
+        HttpClient client,
         HttpMethod method,
         string relativePath,
         HttpContent? content,
@@ -164,7 +173,7 @@ public sealed class RcApiClient : IDisposable
     {
         using var request = CreateRequest(method, relativePath);
         request.Content = content;
-        return await _http.SendAsync(request, cancellationToken);
+        return await client.SendAsync(request, cancellationToken);
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string relativePath)
@@ -214,5 +223,9 @@ public sealed class RcApiClient : IDisposable
         }
     }
 
-    public void Dispose() => _http.Dispose();
+    public void Dispose()
+    {
+        _http.Dispose();
+        _mediaHttp.Dispose();
+    }
 }
