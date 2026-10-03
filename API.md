@@ -40,7 +40,7 @@ Relevant HTTP responses:
 - `400 Bad Request`: malformed JSON, invalid parameter type, or value outside the supported range.
 - `401 Unauthorized`: missing or invalid bridge token.
 - `404 Not Found`: unknown route/media index.
-- `409 Conflict`: operation requires an aircraft connection, or a configuration write was requested while the aircraft is flying.
+- `409 Conflict`: operation requires an aircraft connection, a configuration write was requested while the aircraft is flying, or DJI media management is already occupied by another media operation.
 - `500 Internal Server Error`: DJI SDK failure, timeout, or unexpected bridge error.
 
 ## Flight-state write interlock
@@ -48,6 +48,12 @@ Relevant HTTP responses:
 `PUT /api/v1/config` is rejected with `409 Conflict` while DJI reports
 `KeyIsFlying=true`. Reading status/configuration and downloading media remain separate operations.
 This interlock is enforced in the RC agent, so it cannot be bypassed by a desktop UI mistake.
+
+When both altitude values are changed in one request, the RC agent first reads both current values.
+If either current value is unavailable, the multi-setting write is refused. If a DJI write then
+fails after the first setting was accepted, DroneDash performs a best-effort rollback of both
+values and reports any rollback failure explicitly. This reduces the risk of silently leaving a
+partially applied configuration.
 
 ## Extended live telemetry
 
@@ -79,3 +85,11 @@ Thermal analysis is implemented only in the Windows desktop client and does not 
 endpoint. When DJI Thermal SDK v1.8 is staged locally, the media viewer can pass a downloaded DJI
 radiometric JPEG to DIRP for temperature measurement and pseudo-color rendering. The integration
 does not change aircraft or camera parameters.
+
+
+## Media-operation concurrency
+
+DJI MediaManager is a single shared camera resource. DroneDash therefore permits only one media
+list/download operation at a time. A second concurrent media request fails immediately with
+`409 Conflict` instead of blocking another bridge worker while waiting for the active download.
+Status, health and configuration reads remain serviceable during a long media transfer.
