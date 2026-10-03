@@ -296,7 +296,7 @@ public partial class FlightPlanningView : System.Windows.Controls.UserControl
         object sender,
         RoutedEventArgs e)
     {
-        if (sender is not Button button ||
+        if (sender is not System.Windows.Controls.Button button ||
             !Enum.TryParse<ProjectNavigationTarget>(
                 button.Tag?.ToString(),
                 ignoreCase: true,
