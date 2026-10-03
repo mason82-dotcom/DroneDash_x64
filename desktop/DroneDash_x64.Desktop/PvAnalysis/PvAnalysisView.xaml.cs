@@ -209,6 +209,11 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
         SetBusy(true);
         StatusText.Text = "Radiometrische M3T-Bilder werden analysiert …";
 
+        ProjectProcessingCoordinator.BeginActive(
+            ProjectProcessingWorkerKind.PvThermalBatchAnalysis,
+            "Radiometrische M3T-Bilder werden analysiert.",
+            "thermal-batch");
+
         try
         {
             var folder = _sourceFolder;
@@ -230,9 +235,19 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
             ExportButton.IsEnabled =
                 _dataset.Summary.ThermalImageCount > 0;
             RenderMap();
+
+            ProjectProcessingCoordinator.AwaitOutputActive(
+                ProjectProcessingWorkerKind.PvThermalBatchAnalysis,
+                _dataset.Summary.ThermalImageCount == 0
+                    ? "Analyse abgeschlossen; kein PV-Ergebnis exportierbar."
+                    : "Thermal-Batchanalyse abgeschlossen; PV-Ergebnis exportieren.");
         }
         catch (Exception ex)
         {
+            ProjectProcessingCoordinator.FailActive(
+                ProjectProcessingWorkerKind.PvThermalBatchAnalysis,
+                ex.Message);
+
             StatusText.Text = $"PV-Analyse fehlgeschlagen: {ex.Message}";
             System.Windows.MessageBox.Show(
                 ex.Message,
@@ -379,6 +394,15 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
                     await DroneDashProjectSession.RegisterDirectoryAsync(
                         _dataset.SourceFolder,
                         ProjectArtifactKind.SourceDataFolder);
+
+                    ProjectProcessingCoordinator.RecordOutputActive(
+                        ProjectProcessingWorkerKind.PvThermalBatchAnalysis,
+                        output.JsonPath,
+                        ProjectArtifactKind.PvAnalysis);
+
+                    ProjectProcessingCoordinator.CompleteActive(
+                        ProjectProcessingWorkerKind.PvThermalBatchAnalysis,
+                        "PV-Analyse exportiert und im Projekt registriert.");
                 }
                 catch (Exception ex)
                 {
