@@ -2,29 +2,219 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Environment: doctor",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoLogo",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/doctor.ps1"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Desktop: restore",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "restore",
+        "${workspaceFolder}/DroneDash_x64.slnx"
+      ],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "Desktop: build Debug",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoLogo",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/build-desktop.ps1",
+        "-Configuration",
+        "Debug"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "Desktop: build Release",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoLogo",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/build-desktop.ps1",
+        "-Configuration",
+        "Release"
+      ],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "Desktop: test",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoLogo",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/build-desktop.ps1",
+        "-Configuration",
+        "Debug",
+        "-Test"
+      ],
+      "group": "test",
+      "problemMatcher": "$msCompile"
+    },
+    {
       "label": "Desktop: run",
       "type": "process",
       "command": "dotnet",
-      "args": ["run", "--project", "desktop/DroneDash_x64.Desktop/DroneDash_x64.Desktop.csproj"],
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}/desktop/DroneDash_x64.Desktop/DroneDash_x64.Desktop.csproj",
+        "--configuration",
+        "Debug",
+        "--no-build"
+      ],
+      "dependsOn": "Desktop: build Debug",
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "Desktop: publish x64",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoLogo",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/publish-windows-x64.ps1",
+        "-Configuration",
+        "Release",
+        "-Clean"
+      ],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "Desktop: publish x64 self-contained",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoLogo",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/publish-windows-x64.ps1",
+        "-Configuration",
+        "Release",
+        "-SelfContained",
+        "-Clean"
+      ],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "Mock RC: build Debug",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "${workspaceFolder}/desktop/DroneDash_x64.MockRc/DroneDash_x64.MockRc.csproj",
+        "--configuration",
+        "Debug"
+      ],
       "problemMatcher": "$msCompile"
     },
     {
       "label": "Mock RC: run",
       "type": "process",
       "command": "dotnet",
-      "args": ["run", "--project", "desktop/DroneDash_x64.MockRc/DroneDash_x64.MockRc.csproj"],
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}/desktop/DroneDash_x64.MockRc/DroneDash_x64.MockRc.csproj",
+        "--configuration",
+        "Debug",
+        "--no-build"
+      ],
+      "dependsOn": "Mock RC: build Debug",
       "isBackground": true,
-      "problemMatcher": "$msCompile"
+      "problemMatcher": []
+    },
+    {
+      "label": "Python: worker tests",
+      "type": "process",
+      "command": "python",
+      "args": [
+        "-m",
+        "pytest",
+        "${workspaceFolder}/tests/python",
+        "-q"
+      ],
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Python: worker verification",
+      "type": "process",
+      "command": "python",
+      "args": [
+        "${workspaceFolder}/tests/python/verify_opencv_m3m_worker.py"
+      ],
+      "group": "test",
+      "problemMatcher": []
     },
     {
       "label": "RC Agent: build debug",
-      "type": "shell",
-      "windows": {
-        "command": ".\\scripts\\build-rc-agent.ps1"
-      },
-      "linux": {
-        "command": "cd rc-agent && if [ -x ./gradlew ]; then ./gradlew :app:assembleDebug; else gradle :app:assembleDebug; fi"
-      },
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoLogo",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/build-rc-agent.ps1"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "RC Agent: USB forward",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoLogo",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/connect-usb.ps1"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Build: Windows + RC Agent",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Desktop: build Release",
+        "RC Agent: build debug"
+      ],
       "problemMatcher": []
     }
   ]
