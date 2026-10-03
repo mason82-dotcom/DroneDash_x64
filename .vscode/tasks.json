@@ -23,7 +23,7 @@
         "command": ".\\scripts\\build-rc-agent.ps1"
       },
       "linux": {
-        "command": "cd rc-agent && ./gradlew :app:assembleDebug"
+        "command": "cd rc-agent && if [ -x ./gradlew ]; then ./gradlew :app:assembleDebug; else gradle :app:assembleDebug; fi"
       },
       "problemMatcher": []
     }
