@@ -442,6 +442,179 @@ try
             "Project workflow navigation did not carry the latest flight plan.");
     }
 
+    var photoProbeFolder =
+        Path.Combine(
+            sessionRoot,
+            "pipeline-photo");
+
+    var pvProbeFolder =
+        Path.Combine(
+            sessionRoot,
+            "pipeline-pv");
+
+    var smartProbeFolder =
+        Path.Combine(
+            sessionRoot,
+            "pipeline-smart");
+
+    var mixedProbeFolder =
+        Path.Combine(
+            sessionRoot,
+            "pipeline-mixed");
+
+    Directory.CreateDirectory(photoProbeFolder);
+    Directory.CreateDirectory(pvProbeFolder);
+    Directory.CreateDirectory(smartProbeFolder);
+    Directory.CreateDirectory(mixedProbeFolder);
+
+    File.WriteAllBytes(
+        Path.Combine(
+            photoProbeFolder,
+            "DJI_0001.JPG"),
+        [1]);
+
+    File.WriteAllBytes(
+        Path.Combine(
+            pvProbeFolder,
+            "DJI_20261003000000_0001_T.JPG"),
+        [1]);
+
+    foreach (var suffix in
+             new[]
+             {
+                 "MS_G.TIF",
+                 "MS_R.TIF",
+                 "MS_RE.TIF",
+                 "MS_NIR.TIF"
+             })
+    {
+        File.WriteAllBytes(
+            Path.Combine(
+                smartProbeFolder,
+                $"DJI_20261003000000_0001_{suffix}"),
+            [1]);
+
+        File.WriteAllBytes(
+            Path.Combine(
+                mixedProbeFolder,
+                $"DJI_20261003000000_0001_{suffix}"),
+            [1]);
+    }
+
+    File.WriteAllBytes(
+        Path.Combine(
+            mixedProbeFolder,
+            "DJI_20261003000000_0002_T.JPG"),
+        [1]);
+
+    var photoProbe =
+        ProjectPipelineStore.ProbeDataset(
+            photoProbeFolder);
+
+    var pvProbe =
+        ProjectPipelineStore.ProbeDataset(
+            pvProbeFolder);
+
+    var smartProbe =
+        ProjectPipelineStore.ProbeDataset(
+            smartProbeFolder);
+
+    var mixedProbe =
+        ProjectPipelineStore.ProbeDataset(
+            mixedProbeFolder);
+
+    if (photoProbe.Module !=
+            ProjectPipelineModule.Photogrammetry ||
+        pvProbe.Module !=
+            ProjectPipelineModule.PvAnalysis ||
+        smartProbe.Module !=
+            ProjectPipelineModule.SmartFarming ||
+        mixedProbe.Module !=
+            ProjectPipelineModule.Unknown ||
+        !mixedProbe.Ambiguous)
+    {
+        throw new InvalidDataException(
+            $"Pipeline dataset detection failed: photo={photoProbe.Module}, " +
+            $"pv={pvProbe.Module}, smart={smartProbe.Module}, mixed={mixedProbe.Module}/{mixedProbe.Ambiguous}");
+    }
+
+    var pipeline =
+        ProjectPipelineStore.Start(
+            sessionProjectPath,
+            photoProbeFolder,
+            sessionPlan);
+
+    var loadedPipeline =
+        ProjectPipelineStore.Load(
+            sessionProjectPath)
+        ?? throw new InvalidDataException(
+            "Pipeline state was not persisted.");
+
+    if (loadedPipeline.JobId !=
+            pipeline.JobId ||
+        loadedPipeline.Module !=
+            ProjectPipelineModule.Photogrammetry)
+    {
+        throw new InvalidDataException(
+            "Persisted pipeline state mismatch.");
+    }
+
+    var pipelineGates =
+        ProjectPipelineGateEvaluator.Evaluate(
+            sessionProjectPath,
+            active,
+            loadedPipeline);
+
+    if (pipelineGates.FlightPlan.State !=
+            ProjectPipelineGateState.Pass ||
+        pipelineGates.Dataset.State !=
+            ProjectPipelineGateState.Pass ||
+        pipelineGates.Rtk.State !=
+            ProjectPipelineGateState.Pass ||
+        pipelineGates.Processing.State !=
+            ProjectPipelineGateState.Warning ||
+        pipelineGates.Results.State !=
+            ProjectPipelineGateState.Open)
+    {
+        throw new InvalidDataException(
+            $"Unexpected pipeline gates: plan={pipelineGates.FlightPlan.State}, " +
+            $"dataset={pipelineGates.Dataset.State}, rtk={pipelineGates.Rtk.State}, " +
+            $"processing={pipelineGates.Processing.State}, results={pipelineGates.Results.State}");
+    }
+
+    loadedPipeline =
+        ProjectPipelineStore.RefreshStage(
+            sessionProjectPath,
+            active,
+            loadedPipeline);
+
+    if (loadedPipeline.Stage !=
+        ProjectPipelineStage.Processing)
+    {
+        throw new InvalidDataException(
+            $"Pipeline stage should be Processing, got {loadedPipeline.Stage}.");
+    }
+
+    navigation = null;
+
+    DroneDashProjectSession.RequestNavigation(
+        ProjectNavigationTarget.Photogrammetry,
+        sessionPlan,
+        "pipeline dataset handoff",
+        photoProbeFolder);
+
+    if (navigation is null ||
+        !string.Equals(
+            Path.GetFullPath(
+                navigation.DatasetFolder ?? ""),
+            Path.GetFullPath(
+                photoProbeFolder),
+            StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidDataException(
+            "Pipeline navigation did not carry the dataset folder.");
+    }
+
     File.AppendAllText(
         sessionAnalysis,
         Environment.NewLine + """{"refresh":true}""");
@@ -492,9 +665,50 @@ try
         throw new InvalidDataException(
             "Project session change notifications were not emitted.");
 
+    var pipelineSaveAsRoot =
+        Path.Combine(
+            root,
+            "pipeline-save-as");
+
+    Directory.CreateDirectory(
+        pipelineSaveAsRoot);
+
+    var pipelineSaveAsPath =
+        Path.Combine(
+            pipelineSaveAsRoot,
+            "integrated-copy.ddproj");
+
+    await DroneDashProjectSession.SaveAsAsync(
+        pipelineSaveAsPath,
+        "Integrated Workflow Copy",
+        "pipeline save-as smoke");
+
+    var rebasedPipeline =
+        ProjectPipelineStore.Load(
+            pipelineSaveAsPath)
+        ?? throw new InvalidDataException(
+            "Pipeline state was not copied by project Save As.");
+
+    var rebasedPipelineSource =
+        ProjectPipelineStore.ResolveSourceFolder(
+            pipelineSaveAsPath,
+            rebasedPipeline);
+
+    if (!Path.GetFullPath(
+            rebasedPipelineSource)
+        .Equals(
+            Path.GetFullPath(
+                photoProbeFolder),
+            StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidDataException(
+            "Pipeline Save As changed the dataset target.");
+    }
+
     Console.WriteLine(
         $"PASS project session · workflow={workflow.SummaryText} · " +
-        $"dashboard={dashboard.SummaryText} · events={sessionChangeCount}");
+        $"dashboard={dashboard.SummaryText} · pipeline={pipelineGates.SummaryText} · " +
+        $"events={sessionChangeCount}");
 
     Console.WriteLine(
         $"PASS DroneDash project · id={loaded.ProjectId} · artifacts={loaded.Artifacts.Count} · discovered={discovered.Count}");

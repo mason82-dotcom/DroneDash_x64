@@ -113,6 +113,13 @@ public partial class MainWindow : Window
 
                 case ProjectNavigationTarget.Photogrammetry:
                     if (!string.IsNullOrWhiteSpace(
+                            request.DatasetFolder))
+                    {
+                        PhotogrammetryWorkspace.AcceptDatasetFolder(
+                            request.DatasetFolder);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(
                             request.FlightPlanPath))
                     {
                         PhotogrammetryWorkspace.AcceptFlightPlan(
@@ -125,6 +132,13 @@ public partial class MainWindow : Window
 
                 case ProjectNavigationTarget.PvAnalysis:
                     if (!string.IsNullOrWhiteSpace(
+                            request.DatasetFolder))
+                    {
+                        PvAnalysisWorkspace.AcceptDatasetFolder(
+                            request.DatasetFolder);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(
                             request.FlightPlanPath))
                     {
                         PvAnalysisWorkspace.AcceptFlightPlan(
@@ -136,6 +150,13 @@ public partial class MainWindow : Window
                     break;
 
                 case ProjectNavigationTarget.SmartFarming:
+                    if (!string.IsNullOrWhiteSpace(
+                            request.DatasetFolder))
+                    {
+                        SmartFarmingWorkspace.AcceptDatasetFolder(
+                            request.DatasetFolder);
+                    }
+
                     if (!string.IsNullOrWhiteSpace(
                             request.FlightPlanPath))
                     {

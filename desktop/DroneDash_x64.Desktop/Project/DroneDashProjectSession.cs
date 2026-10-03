@@ -342,9 +342,23 @@ public static class DroneDashProjectSession
                     target,
                     metadata);
 
+            var pipeline =
+                ProjectPipelineStore.Load(
+                    oldProjectPath);
+
             DroneDashProjectStore.Save(
                 target,
                 rebased);
+
+            if (pipeline is not null)
+            {
+                ProjectPipelineStore.Save(
+                    target,
+                    ProjectPipelineStore.Rebase(
+                        oldProjectPath,
+                        target,
+                        pipeline));
+            }
 
             CurrentProjectPath =
                 target;
@@ -489,7 +503,8 @@ public static class DroneDashProjectSession
     public static void RequestNavigation(
         ProjectNavigationTarget target,
         string? flightPlanPath = null,
-        string reason = "Workflow-Navigation")
+        string reason = "Workflow-Navigation",
+        string? datasetFolder = null)
     {
         var resolvedFlightPlan =
             string.IsNullOrWhiteSpace(flightPlanPath)
@@ -497,12 +512,18 @@ public static class DroneDashProjectSession
                     ProjectArtifactKind.FlightPlan)
                 : Path.GetFullPath(flightPlanPath);
 
+        var resolvedDataset =
+            string.IsNullOrWhiteSpace(datasetFolder)
+                ? null
+                : Path.GetFullPath(datasetFolder);
+
         NavigationRequested?.Invoke(
             null,
             new ProjectNavigationRequest(
                 target,
                 resolvedFlightPlan,
-                reason));
+                reason,
+                resolvedDataset));
     }
 
     private static bool TryGetCurrent(

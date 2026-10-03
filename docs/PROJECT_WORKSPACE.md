@@ -106,3 +106,37 @@ In addition, four QA cards summarize project evidence:
 
 These cards summarize recorded project evidence; they do not turn RTK presence, vegetation indices
 or thermal candidates into an automatic scientific or engineering acceptance decision.
+
+
+## Persistent project pipeline
+
+The Project tab can now start a persistent dataset pipeline from a source folder. The structural
+probe is deliberately conservative and does not modify source data:
+
+- M3M capture names with multispectral bands select Smart Farming;
+- DJI thermal `*_T.JPG` / `*_T.JPEG` files select PV Analysis;
+- other supported JPG/JPEG/DNG/TIF/TIFF datasets select Photogrammetry;
+- folders that simultaneously contain M3M multispectral bands and thermal files are marked
+  ambiguous and are not auto-routed.
+
+The active job is stored next to the `.ddproj` as `project-pipeline.json`. Paths below the project
+folder are stored relatively, while external source folders remain absolute. Project `Save As`
+copies and rebases the pipeline state so it continues to resolve the same source dataset and flight
+plan.
+
+A pipeline handoff carries both the selected source folder and the latest linked flight plan into
+the chosen module. Photogrammetry, PV and Smart Farming therefore open with the same project context
+without requiring the operator to pick the dataset again.
+
+### Pipeline gates
+
+Five project gates are evaluated from persisted project evidence:
+
+1. **Flight plan** — linked plan exists; absence is a warning rather than an automatic blocker.
+2. **Dataset** — the module-specific QA/result manifest has been registered.
+3. **RTK** — uses the project RTK-QA evidence from registered manifests.
+4. **Processing** — module-specific processing evidence is present.
+5. **Results** — module-specific result artifacts are registered and their project QA is readable.
+
+Gate values are `PASS`, `PRÜFEN`, `OFFEN` or `BLOCKIERT`. They are workflow controls, not a
+substitute for domain-specific engineering, agronomic or thermographic acceptance criteria.

@@ -19,6 +19,33 @@ public partial class PhotogrammetryWorkspaceView : System.Windows.Controls.UserC
         DatasetGrid.ItemsSource = _images;
     }
 
+    public void AcceptDatasetFolder(
+        string sourceFolder)
+    {
+        var fullPath =
+            Path.GetFullPath(
+                sourceFolder);
+
+        if (!Directory.Exists(fullPath))
+        {
+            DatasetStatusText.Text =
+                $"Datensatzordner fehlt: {fullPath}";
+            return;
+        }
+
+        _sourceFolder =
+            fullPath;
+
+        ImageFolderText.Text =
+            _sourceFolder;
+
+        InvalidateDataset();
+
+        DatasetStatusText.Text =
+            "Datensatz aus dem Projekt-Pipeline-Job übernommen.";
+    }
+
+
     public void AcceptFlightPlan(
         string flightPlanPath)
     {
