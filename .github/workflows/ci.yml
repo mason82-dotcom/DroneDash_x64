@@ -41,6 +41,7 @@ jobs:
               $Help -notmatch "--geo-zones" -or
               $Help -notmatch "--tile-size" -or
               $Help -notmatch "--pipeline-depth" -or
+              $Help -notmatch "--cuda-min-pixels" -or
               $Help -notmatch "--serve-jsonl" -or
               $Help -notmatch "--backend") {
             throw "Smart Farming worker CLI is missing CUDA/GDAL pipeline options."
@@ -302,6 +303,25 @@ jobs:
           )["tileSize"] != 1024:
               raise RuntimeError(
                   "failed large candidate incorrectly forced global fallback"
+              )
+
+          if worker._select_compute_backend(
+              "cuda", "auto", 999, 1000
+          ) != "cpu":
+              raise RuntimeError(
+                  "small auto workload did not stay on CPU"
+              )
+          if worker._select_compute_backend(
+              "cuda", "auto", 1000, 1000
+          ) != "cuda":
+              raise RuntimeError(
+                  "auto workload did not select CUDA at threshold"
+              )
+          if worker._select_compute_backend(
+              "cuda", "cuda", 1, 1000
+          ) != "cuda":
+              raise RuntimeError(
+                  "explicit CUDA must bypass the auto threshold"
               )
           '@
           $PipelineTest | python -
