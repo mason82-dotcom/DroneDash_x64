@@ -167,7 +167,7 @@ DroneDash-generated processing plans select GPU backends independently per stage
 - Python GDAL bindings optionally provide a pipelined tile-based geospatial engine for large ODM orthomosaics;
 - a dedicated GDAL read-ahead thread prefetches future tiles while the main thread computes the current tile;
 - a dedicated GDAL writer thread writes the previous tile concurrently, giving a bounded read → compute → write pipeline;
-- tile size and pipeline depth are auto-tuned from raster size, available RAM/VRAM and a short real-data Read+Compute benchmark;
+- tile size and pipeline depth are auto-tuned from raster size, available RAM/VRAM and real-data Read+Compute+DEFLATE-Write measurements;
 - GDAL preserves raster windows, CRS/geotransform and GeoTIFF output while CuPy/NumPy computes each tile;
 - OpenCV ECC transform estimation remains CPU-based;
 - a persistent Python worker is reused across compatible local-processing steps to reduce interpreter/import/CUDA-context startup;

@@ -151,21 +151,33 @@ jobs:
           )
 
           timings = {
-              512: (0.02, 0.02),
-              1024: (0.02, 0.02),
-              2048: (0.08, 0.08),
-              4096: (0.80, 0.80),
+              128: (0.02, 0.02, 0.01),
+              256: (0.02, 0.02, 0.01),
+              512: (0.02, 0.02, 0.01),
+              1024: (0.02, 0.02, 0.02),
+              2048: (0.08, 0.08, 0.20),
+              4096: (0.80, 0.80, 0.80),
           }
 
           def benchmark(tile_size, sample_index):
               if tile_size == 4096:
                   raise RuntimeError("synthetic CUDA OOM")
 
-              read_seconds, compute_seconds = timings[tile_size]
+              (
+                  read_seconds,
+                  compute_seconds,
+                  write_seconds,
+              ) = timings[tile_size]
+
               return {
                   "pixels": tile_size * tile_size,
                   "readSeconds": read_seconds,
                   "computeSeconds": compute_seconds,
+                  "writeSeconds": (
+                      write_seconds
+                      if sample_index == 1
+                      else None
+                  ),
               }
 
           tuning = worker._auto_tune_geospatial(
@@ -188,6 +200,35 @@ jobs:
               )
           if tuning["mode"] != "auto":
               raise RuntimeError("auto tuner did not report auto mode")
+          if abs(
+              tuning["selectedBenchmark"]["writeSeconds"] -
+              0.02
+          ) > 1e-9:
+              raise RuntimeError(
+                  f"write I/O was not included in tuning: {tuning}"
+              )
+          if tuning["selectedBenchmark"]["pixelsPerSecond"] <= 0:
+              raise RuntimeError(
+                  "pipeline throughput score is missing"
+              )
+
+          write_bound_depth = worker._choose_pipeline_depth(
+              "auto",
+              16000,
+              16000,
+              1024,
+              "index",
+              16 * 1024 ** 3,
+              {
+                  "readSeconds": 0.01,
+                  "computeSeconds": 0.01,
+                  "writeSeconds": 0.05,
+              },
+          )
+          if write_bound_depth != 4:
+              raise RuntimeError(
+                  "write-bound tuning did not increase pipeline depth"
+              )
 
           manual = worker._auto_tune_geospatial(
               "2048",
