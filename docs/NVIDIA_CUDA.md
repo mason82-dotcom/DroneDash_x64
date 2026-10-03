@@ -25,12 +25,13 @@ The worker accepts:
 
 DroneDash-generated processing plans use `--backend auto`.
 
-`auto` selects the available CUDA implementation independently per operation. Registration uses OpenCV-CUDA when `cv2.cuda.getCudaEnabledDeviceCount()` reports a device. Vegetation-index raster arithmetic uses CuPy when CuPy exposes a CUDA device. Each path falls back to CPU independently. Explicit `--backend cuda` fails instead of silently falling back.
+`auto` selects the available CUDA implementation independently per operation. Registration uses OpenCV-CUDA when `cv2.cuda.getCudaEnabledDeviceCount()` reports a device. Vegetation-index raster arithmetic uses CuPy when CuPy exposes a CUDA device. To avoid PCIe transfer and kernel-launch overhead on small workloads, auto mode keeps operations below `--cuda-min-pixels` on CPU (default 1,048,576 pixels); explicit `--backend cuda` bypasses this threshold. Each path still falls back to CPU independently in auto mode, while explicit CUDA remains strict.
 
 The generated registration and vegetation-index JSON sidecars record:
 
 - `backendRequested`
 - `backendUsed`
+- `cudaMinPixels` and, for tiled products, CUDA/CPU tile counts
 - CUDA device count
 - CUDA device name when available
 - the CUDA line reported by the OpenCV build for registration

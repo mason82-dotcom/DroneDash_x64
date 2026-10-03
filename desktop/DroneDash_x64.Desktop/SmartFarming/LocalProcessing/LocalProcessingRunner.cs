@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -253,6 +254,7 @@ public static class LocalProcessingRunner
             TaskCreationOptions.RunContinuationsAsynchronously);
         var errorClosed = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        var pendingLogs = new ConcurrentBag<Task>();
 
         process.OutputDataReceived += (_, e) =>
         {
@@ -262,8 +264,9 @@ public static class LocalProcessingRunner
                 return;
             }
 
-            _ = writeLogAsync(
-                $"{step.Id} stdout: {e.Data}");
+            pendingLogs.Add(
+                writeLogAsync(
+                    $"{step.Id} stdout: {e.Data}"));
         };
 
         process.ErrorDataReceived += (_, e) =>
@@ -274,8 +277,9 @@ public static class LocalProcessingRunner
                 return;
             }
 
-            _ = writeLogAsync(
-                $"{step.Id} stderr: {e.Data}");
+            pendingLogs.Add(
+                writeLogAsync(
+                    $"{step.Id} stderr: {e.Data}"));
         };
 
         var started = false;
@@ -316,6 +320,9 @@ public static class LocalProcessingRunner
             await Task.WhenAll(
                 outputClosed.Task,
                 errorClosed.Task);
+
+            await Task.WhenAll(
+                pendingLogs.ToArray());
         }
         catch (Exception ex) when (
             ex is not OperationCanceledException)
