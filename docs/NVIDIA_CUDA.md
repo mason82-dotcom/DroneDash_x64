@@ -106,7 +106,9 @@ If either CUDA backend is unavailable, DroneDash falls back only for that proces
 DroneDash does not require or assume a native CUDA backend inside GDAL itself. Instead it uses a cvTile-style split of responsibilities:
 
 ```text
-GDAL windowed raster I/O
+GDAL read-ahead thread
+        ↓
+bounded queue (depth 2)
         ↓
 2048 × 2048 tiles
         ↓
@@ -124,9 +126,13 @@ The worker modes are:
 
 For `--geo-index`, GDAL reads only the requested source-band windows. NDVI, NDRE and GNDVI are calculated tile-by-tile and immediately written to a tiled DEFLATE-compressed GeoTIFF. The source geotransform and projection are copied to the result. This prevents large ODM orthomosaics from being loaded completely into CPU or GPU memory.
 
+The source raster is opened a second time by a dedicated read-ahead worker. That worker is the only thread that accesses its GDAL dataset instance. The main thread owns the output dataset and performs CUDA/NumPy calculation plus writes. By default, up to two future tiles are prefetched, so source I/O for tile N+1 can overlap compute/write work for tile N without sharing a GDAL dataset across threads.
+
 `--geo-zones` classifies the NDVI result into the configured five scouting zones using the same tile pipeline. Zone 0 is reserved for NoData.
 
-Both operations use unique temporary GeoTIFFs and publish the final output only after the GDAL dataset has been flushed and closed. JSON sidecars record tile size, tile count, backend, GDAL version, CUDA/CuPy device data and raster statistics.
+Both operations use unique temporary GeoTIFFs and publish the final output only after the GDAL dataset has been flushed and closed. JSON sidecars record tile size, tile count, pipeline depth/read-ahead status, backend, GDAL version, CUDA/CuPy device data and raster statistics.
+
+The worker exposes `--pipeline-depth` with a bounded range of 1–4. DroneDash plans currently use depth 2 to limit memory while still overlapping source reads with processing.
 
 Requirements for this optional path:
 
@@ -140,4 +146,4 @@ The standard OTB field-product path remains available as fallback when Python GD
 
 GDAL and Orfeo ToolBox remain separate external processing stages. Radiometric correction still uses OTB and the corrected four-band VRT is retained through GDAL. Local NDVI/NDRE/GNDVI quicklooks now use the DroneDash Python worker so their raster arithmetic can run through CuPy on CUDA.
 
-The NodeODM/OTB field-product path remains unchanged because it carries geospatial/orthorectified semantics that the local pixel-space quicklook worker must not silently replace. This keeps CUDA acceleration optional and preserves compatibility with non-NVIDIA workstations and CI.
+For georeferenced NodeODM field products, DroneDash now prefers the GDAL tile engine when Python GDAL bindings are available and retains OTB as the fallback. The local pixel-space quicklook path remains separate from these orthorectified products. This keeps CUDA acceleration optional and preserves compatibility with non-NVIDIA workstations and CI.
