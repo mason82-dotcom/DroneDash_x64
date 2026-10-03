@@ -118,7 +118,7 @@ jobs:
             exit 1
           fi
 
-          yes | "$SDKMANAGER" "platforms;android-36" "build-tools;35.0.0" >/dev/null
+          "$SDKMANAGER" "platforms;android-36" "build-tools;35.0.0" >/dev/null
 
       - name: Assemble debug APK
         working-directory: rc-agent
