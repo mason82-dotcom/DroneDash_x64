@@ -27,12 +27,16 @@
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <TextBlock Grid.Row="0" Text="Bildordner" FontWeight="SemiBold"/>
         <TextBlock x:Name="FolderText" Grid.Row="0" Grid.Column="1"
                    Text="Noch nicht gewählt." TextWrapping="Wrap"/>
-        <TextBlock Grid.Row="1" Text="Status" FontWeight="SemiBold"/>
-        <TextBlock x:Name="StatusText" Grid.Row="1" Grid.Column="1"
+        <TextBlock Grid.Row="1" Text="Flugplan" FontWeight="SemiBold"/>
+        <TextBlock x:Name="FlightPlanText" Grid.Row="1" Grid.Column="1"
+                   Text="Optional · nicht verknüpft." TextWrapping="Wrap"/>
+        <TextBlock Grid.Row="2" Text="Status" FontWeight="SemiBold"/>
+        <TextBlock x:Name="StatusText" Grid.Row="2" Grid.Column="1"
                    Text="Bereit." TextWrapping="Wrap"/>
       </Grid>
 
