@@ -94,6 +94,7 @@ var fakeToolchain = new LocalImageToolchainStatus(
     new(LocalImageToolKind.Gdal, "GDAL", true, "3.x", @"C:\tools\gdalbuildvrt.exe", "test"),
     new(LocalImageToolKind.OrfeoToolBox, "Orfeo ToolBox", true, "10.0", @"C:\tools\otbcli_BandMath.exe", "test"),
     new(LocalImageToolKind.PythonOpenCv, "Python + OpenCV", true, "4.x", @"C:\Python\python.exe", "test"),
+    new(LocalImageToolKind.NvidiaCuda, "NVIDIA CUDA", true, "13.4", @"C:\CUDA\bin\nvcc.exe", "test"),
     @"C:\tools\gdalbuildvrt.exe",
     @"C:\tools\otbcli_BandMath.exe",
     @"C:\tools\otbcli_BandMathX.exe",
@@ -121,6 +122,29 @@ if (!localPlan.Steps.Any(step =>
         step.Arguments.Contains("(im1b4-im1b2)/(im1b4+im1b2+1e-12)")))
 {
     throw new InvalidDataException("NDVI local-processing expression missing.");
+}
+
+var registrationSteps =
+    localPlan.Steps
+        .Where(step =>
+            step.Tool == "Python/OpenCV")
+        .ToArray();
+
+if (registrationSteps.Length != 3 ||
+    registrationSteps.Any(step =>
+        !step.Arguments.Contains("--backend") ||
+        !step.Arguments.Contains("auto")))
+{
+    throw new InvalidDataException(
+        "M3M registration steps must use the automatic CUDA/CPU backend.");
+}
+
+if (!fakeToolchain.CudaAvailable ||
+    fakeToolchain.OpenCvBackend !=
+        "CUDA (Auto-Fallback auf CPU)")
+{
+    throw new InvalidDataException(
+        "CUDA capability model is inconsistent.");
 }
 
 Console.WriteLine(
