@@ -1071,8 +1071,12 @@ def _prefetched_tiles(windows, reader, pipeline_depth):
 
 
 def geospatial_index(args):
+    import time
+
     import numpy as np
     from osgeo import gdal
+
+    started_at = time.perf_counter()
 
     source_path = os.path.abspath(
         args.source
@@ -1273,6 +1277,11 @@ def geospatial_index(args):
                 final_stats
             )
 
+        elapsed_seconds = max(
+            time.perf_counter() - started_at,
+            1e-9,
+        )
+
         metadata = {
             "schemaVersion": 1,
             "operation": "geospatial-index",
@@ -1294,6 +1303,8 @@ def geospatial_index(args):
             "readAheadEnabled": True,
             "asyncWriteEnabled": True,
             "tilesProcessed": tiles,
+            "elapsedSeconds": elapsed_seconds,
+            "tilesPerSecond": tiles / elapsed_seconds,
             "backendRequested": args.backend,
             "backendUsed": backend,
             "gdalVersion": gdal.VersionInfo(
@@ -1401,8 +1412,12 @@ def _zones_cuda(values, thresholds):
 
 
 def geospatial_zones(args):
+    import time
+
     import numpy as np
     from osgeo import gdal
+
+    started_at = time.perf_counter()
 
     thresholds = [
         float(args.threshold1),
@@ -1569,6 +1584,11 @@ def geospatial_zones(args):
         absolute_output =
             writer.finish()
 
+        elapsed_seconds = max(
+            time.perf_counter() - started_at,
+            1e-9,
+        )
+
         metadata = {
             "schemaVersion": 1,
             "operation": "geospatial-zones",
@@ -1587,6 +1607,8 @@ def geospatial_zones(args):
             "readAheadEnabled": True,
             "asyncWriteEnabled": True,
             "tilesProcessed": tiles,
+            "elapsedSeconds": elapsed_seconds,
+            "tilesPerSecond": tiles / elapsed_seconds,
             "thresholds": thresholds,
             "zonePixelCounts": counts,
             "backendRequested": args.backend,
