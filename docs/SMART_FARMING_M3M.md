@@ -157,9 +157,10 @@ GeoTIFFs through a separate GDAL writer thread. OTB remains the compatible fallb
 
 Tile size and read/write pipeline depth default to auto. Before production processing, the worker
 uses available RAM/VRAM as safety bounds and benchmarks real source windows at candidate tile sizes.
-It selects the smallest candidate within 90% of the best measured Read+Compute pixel throughput,
-then derives a bounded pipeline depth from raster size and the measured I/O/compute ratio.
-Resolved parameters and all benchmark measurements are stored in each JSON sidecar.
+It measures distributed Read+Compute samples plus one real tiled DEFLATE GeoTIFF write per candidate
+on the target filesystem. The smallest candidate within 90% of the best predicted pipeline pixel
+throughput is selected, and pipeline depth is derived from raster size plus Read/Compute/Write stage
+ratios. Resolved parameters and all benchmark measurements are stored in each JSON sidecar.
 
 The default scouting thresholds are 0.20, 0.40, 0.60 and 0.80. They are operator-editable and
 are intentionally described as scouting classes, not crop diagnosis, fertilizer rates,
