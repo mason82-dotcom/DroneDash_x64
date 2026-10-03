@@ -73,6 +73,18 @@ jobs:
       - name: Run unit tests
         run: dotnet test desktop/DroneDash_x64.Tests/DroneDash_x64.Tests.csproj --configuration Release --no-build
 
+      - name: Publish and validate Windows x64 desktop
+        shell: powershell
+        run: ./scripts/publish-windows-x64.ps1 -Configuration Release -OutputPath "$env:RUNNER_TEMP\DroneDash_x64-win-x64" -Clean
+
+      - name: Upload Windows x64 desktop
+        uses: actions/upload-artifact@v4
+        with:
+          name: DroneDash_x64-win-x64
+          path: ${{ runner.temp }}\DroneDash_x64-win-x64
+          if-no-files-found: error
+          retention-days: 14
+
   rc-agent:
     name: Android RC agent
     runs-on: ubuntu-latest

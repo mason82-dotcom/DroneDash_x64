@@ -17,3 +17,6 @@ desktop/DroneDash_x64.Desktop/third_party/dji-tsdk/runtime/
 # Python bytecode and test caches
 __pycache__/
 .pytest_cache/
+
+# Local Windows publish output
+artifacts/

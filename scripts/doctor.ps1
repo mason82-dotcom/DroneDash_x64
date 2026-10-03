@@ -28,6 +28,20 @@ Write-Host "DroneDash_x64 environment check"
 Write-Host "Root: $Root"
 Write-Host ""
 
+if ([Environment]::Is64BitOperatingSystem) {
+    Write-Check OK "Windows x64" "64-bit operating system detected."
+}
+else {
+    Write-Check FAIL "Windows x64" "A 64-bit Windows operating system is required."
+}
+
+if ([Environment]::Is64BitProcess) {
+    Write-Check OK "PowerShell process" "64-bit process."
+}
+else {
+    Write-Check WARN "PowerShell process" "32-bit PowerShell detected. Use 64-bit PowerShell for x64 native toolchains."
+}
+
 if (Get-Command git -ErrorAction SilentlyContinue) {
     if (Test-Path (Join-Path $Root ".git")) {
         $Branch = (& git -C $Root branch --show-current).Trim()
@@ -58,6 +72,15 @@ if (Get-Command dotnet -ErrorAction SilentlyContinue) {
     }
     else {
         Write-Check FAIL "NuGet" "nuget.org source is not visible."
+    }
+
+    $RuntimeList = (& dotnet --list-runtimes 2>&1 | Out-String)
+    if ($RuntimeList -match '(?m)^Microsoft\.WindowsDesktop\.App\s+10\.') {
+        $DesktopRuntime = (($RuntimeList -split "\r?\n") | Where-Object { $_ -match '^Microsoft\.WindowsDesktop\.App\s+10\.' } | Select-Object -Last 1).Trim()
+        Write-Check OK ".NET Windows Desktop Runtime" $DesktopRuntime
+    }
+    else {
+        Write-Check WARN ".NET Windows Desktop Runtime" "Microsoft.WindowsDesktop.App 10.x not detected. Framework-dependent win-x64 publish requires it on the target PC."
     }
 }
 else {
@@ -220,6 +243,17 @@ elseif (Get-Command python3 -ErrorAction SilentlyContinue) {
 
 if ($PythonCommand -and (Test-Path $CudaWorker)) {
     try {
+        $PythonBits = (& $PythonCommand -c "import struct; print(struct.calcsize('P') * 8)" 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -eq 0 -and $PythonBits -eq "64") {
+            Write-Check OK "Python architecture" "64-bit Python: $PythonCommand"
+        }
+        elseif ($LASTEXITCODE -eq 0) {
+            Write-Check WARN "Python architecture" "$PythonBits-bit Python detected. Use 64-bit Python for GDAL/OpenCV/CuPy native packages."
+        }
+        else {
+            Write-Check WARN "Python architecture" "Could not determine Python architecture."
+        }
+
         $ProbeText = (& $PythonCommand $CudaWorker --probe 2>&1 | Out-String).Trim()
         if ($LASTEXITCODE -eq 0) {
             $Probe = $ProbeText | ConvertFrom-Json

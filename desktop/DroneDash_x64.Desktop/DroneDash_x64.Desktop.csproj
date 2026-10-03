@@ -2,6 +2,9 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -18,34 +21,41 @@
   <ItemGroup>
     <Content Include="Planning\route-editor.html"
              CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
              Link="planning\route-editor.html" />
   </ItemGroup>
 
   <ItemGroup>
     <Content Include="PvAnalysis\pv-map.html"
              CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
              Link="pv\pv-map.html" />
   </ItemGroup>
 
   <ItemGroup>
     <Content Include="SmartFarming\Workers\opencv_m3m.py"
              CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
              Link="smart-farming\opencv_m3m.py" />
     <Content Include="SmartFarming\Workers\dronedash_worker\*.py"
              CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
              Link="smart-farming\dronedash_worker\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup Condition="Exists('third_party\dji-tsdk\runtime\libdirp.dll')">
     <Content Include="third_party\dji-tsdk\runtime\*.dll"
              CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
              Link="thermal-sdk\%(Filename)%(Extension)" />
     <Content Include="third_party\dji-tsdk\runtime\libv_list.ini"
              CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
              Link="thermal-sdk\libv_list.ini"
              Condition="Exists('third_party\dji-tsdk\runtime\libv_list.ini')" />
     <Content Include="third_party\dji-tsdk\runtime\VERSION.txt"
              CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
              Link="thermal-sdk\VERSION.txt"
              Condition="Exists('third_party\dji-tsdk\runtime\VERSION.txt')" />
   </ItemGroup>
