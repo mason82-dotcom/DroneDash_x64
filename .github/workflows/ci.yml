@@ -105,8 +105,20 @@ jobs:
 
       - name: Assemble debug APK
         working-directory: rc-agent
-        run: >
-          gradle --no-daemon --stacktrace :app:assembleDebug
-          -PDJI_API_KEY=ci-placeholder
-          -PBRIDGE_TOKEN=ci-only-token
-          -PBRIDGE_BIND_ADDRESS=127.0.0.1
+        env:
+          DJI_API_KEY_SECRET: ${{ secrets.DJI_API_KEY }}
+          BRIDGE_TOKEN_SECRET: ${{ secrets.BRIDGE_TOKEN }}
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            DJI_KEY="ci-placeholder"
+            BRIDGE_TOKEN_VALUE="ci-only-token"
+          else
+            DJI_KEY="${DJI_API_KEY_SECRET:-ci-placeholder}"
+            BRIDGE_TOKEN_VALUE="${BRIDGE_TOKEN_SECRET:-ci-only-token}"
+          fi
+
+          gradle --no-daemon --stacktrace :app:assembleDebug \
+            -PDJI_API_KEY="$DJI_KEY" \
+            -PBRIDGE_TOKEN="$BRIDGE_TOKEN_VALUE" \
+            -PBRIDGE_BIND_ADDRESS=127.0.0.1
