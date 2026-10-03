@@ -13,6 +13,7 @@ from .pointcloud import pointcloud_preview
 from .probes import probe
 from .ortho import ortho_tiles
 from .registration import register
+from .surface import dem_difference, dtm_from_dsm
 from .terrain import terrain_check
 
 
@@ -117,6 +118,13 @@ def main(argv=None):
     parser.add_argument("--dtm")
     parser.add_argument("--max-samples", type=int, default=2000)
     parser.add_argument("--ortho-tiles", action="store_true")
+    parser.add_argument("--dtm-from-dsm", action="store_true")
+    parser.add_argument("--dem-diff", action="store_true")
+    parser.add_argument("--cell", type=float, default=0.5)
+    parser.add_argument("--max-object", type=float, default=20.0)
+    parser.add_argument("--slope", type=float, default=0.15)
+    parser.add_argument("--threshold", type=float, default=0.1)
+    parser.add_argument("--palette", choices=["terrain", "diverging"], default="terrain")
     parser.add_argument("--terrain-check", action="store_true")
     parser.add_argument("--dem")
     parser.add_argument("--route")
@@ -199,12 +207,14 @@ def main(argv=None):
             bool(args.colmap_products),
             bool(args.terrain_check),
             bool(args.ortho_tiles),
+            bool(args.dtm_from_dsm),
+            bool(args.dem_diff),
         ]
     )
 
     if selected_modes != 1:
         parser.error(
-            "choose exactly one of --serve-jsonl, --probe, --register, --index, --geo-index, --geo-zones, --dem-preview, --pointcloud-preview, --dem-profile, --dem-volume, --chm, --colmap-georef, --colmap-products, --terrain-check or --ortho-tiles"
+            "choose exactly one of --serve-jsonl, --probe, --register, --index, --geo-index, --geo-zones, --dem-preview, --pointcloud-preview, --dem-profile, --dem-volume, --chm, --colmap-georef, --colmap-products, --terrain-check, --ortho-tiles, --dtm-from-dsm or --dem-diff"
         )
 
     if args.serve_jsonl:
@@ -254,6 +264,18 @@ def main(argv=None):
         if not args.source or not args.polygon:
             parser.error("--dem-volume requires --source and --polygon")
         dem_volume(args)
+        return
+
+    if args.dtm_from_dsm:
+        if not args.source or not args.output:
+            parser.error("--dtm-from-dsm requires --source and --output")
+        dtm_from_dsm(args)
+        return
+
+    if args.dem_diff:
+        if not args.source or not args.reference or not args.output:
+            parser.error("--dem-diff requires --source, --reference and --output")
+        dem_difference(args)
         return
 
     if args.ortho_tiles:

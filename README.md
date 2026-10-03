@@ -442,6 +442,22 @@ configured Python has GDAL:
   opens it on the map, where the polygon tool with a fixed base of 0 gives e.g. the mean crop
   height of a field.
 
+### Ground model from a DSM and change between surveys
+
+Two more actions work on any DSM in the photogrammetry workspace, including the COLMAP result:
+
+- **DTM aus DSM ableiten** — `--dtm-from-dsm` resamples the DSM with the cell minimum (0.5 m by
+  default) and runs a progressive morphological filter (Zhang et al. 2003): openings with windows
+  growing up to the largest object (20 m) remove trees, vehicles and buildings, a slope-dependent
+  threshold (15 %) keeps hills and banks as ground, and the object cells are interpolated from
+  the ground around them. The result `<dsm>-ground.tif` enables *Bestandshöhe (DSM − DTM)*;
+  objects larger than the window (large halls) stay in the model.
+- **DSM-Vergleich …** — `--dem-diff` subtracts an older model (warped onto the current grid) from
+  the current one and reports raised and lowered volume and area above a 10 cm threshold, the
+  mean and P05/P95 of the change, and warns when the whole model is shifted (different height
+  references). The difference raster opens on the map with a blue–white–red scale symmetric
+  around zero and an *Änderung* readout.
+
 ### Terrain and obstacle check in flight planning
 
 *Gelände & Hindernisse (DSM)* in **Flugplanung** checks a computed route against a surface model

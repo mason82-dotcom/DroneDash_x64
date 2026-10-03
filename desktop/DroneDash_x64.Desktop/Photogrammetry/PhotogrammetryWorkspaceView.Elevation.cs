@@ -183,6 +183,136 @@ public partial class PhotogrammetryWorkspaceView
             await ShowElevationModelAsync(chmPath, "Bestandshöhe (CHM)");
     }
 
+    /// <summary>Enables the elevation actions for the current products (NodeODM or COLMAP).</summary>
+    private void UpdateElevationButtons()
+    {
+        var products = _odmProducts;
+        ShowDsmButton.IsEnabled = products?.DsmPath is not null;
+        ShowDtmButton.IsEnabled = products?.DtmPath is not null;
+        ShowPointCloudButton.IsEnabled = products?.PointCloudPath is not null;
+        ChmButton.IsEnabled = products is { DsmPath: not null, DtmPath: not null };
+        DeriveDtmButton.IsEnabled = products is { DsmPath: not null, DtmPath: null };
+        CompareDsmButton.IsEnabled = products?.DsmPath is not null;
+    }
+
+    private async void DeriveDtm_Click(object sender, RoutedEventArgs e)
+    {
+        if (_odmProducts is not { DsmPath: { } dsm, DtmPath: null } products || _elevationBusy)
+            return;
+
+        _elevationBusy = true;
+        OdmProgress.IsIndeterminate = true;
+        string? dtmPath = null;
+
+        try
+        {
+            var toolchain = await RequireToolchainAsync(requireGdal: true);
+            OdmStatusText.Text = "Geländemodell wird aus dem DSM abgeleitet (Bodenfilter) …";
+            var dtm = await ElevationAnalysisService.DtmFromDsmAsync(
+                toolchain.PythonExecutable!, toolchain.OpenCvWorkerPath, dsm);
+            dtmPath = dtm.Output;
+
+            _odmProducts = products with { DtmPath = dtm.Output };
+            UpdateElevationButtons();
+            OdmStatusText.Text =
+                $"DTM abgeleitet: {dtm.Output} · Raster {dtm.CellMeters:0.##} m · {dtm.GroundFraction:P0} Bodenzellen · " +
+                $"Objekte bis {dtm.MaxObjectMeters:F0} m Größe entfernt; größere (z. B. Hallen) bleiben im Modell.";
+
+            if (DroneDashProjectSession.IsOpen)
+            {
+                try
+                {
+                    await DroneDashProjectSession.RegisterFileAsync(dtm.Output, ProjectArtifactKind.ElevationModel);
+                }
+                catch (Exception ex)
+                {
+                    OdmStatusText.Text += $" · Projektregistrierung fehlgeschlagen: {ex.Message}";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            OdmStatusText.Text = $"DTM-Ableitung fehlgeschlagen: {ex.Message}";
+        }
+        finally
+        {
+            OdmProgress.IsIndeterminate = false;
+            _elevationBusy = false;
+        }
+
+        if (dtmPath is not null)
+            await ShowElevationModelAsync(dtmPath, "Geländemodell (DTM, abgeleitet)");
+    }
+
+    private async void CompareDsm_Click(object sender, RoutedEventArgs e)
+    {
+        if (_odmProducts?.DsmPath is not { } newer || _elevationBusy)
+            return;
+
+        using var dialog = new WinForms.OpenFileDialog
+        {
+            Title = "Älteres Höhenmodell (DSM) zum Vergleich wählen",
+            Filter = "GeoTIFF (*.tif;*.tiff)|*.tif;*.tiff|Alle Dateien (*.*)|*.*",
+            CheckFileExists = true,
+            InitialDirectory =
+                ProjectWorkspaceLayout.TryGetActiveFolder(ProjectWorkspaceFolder.PhotogrammetryResults) ??
+                ProjectWorkspaceLayout.TryGetActiveFolder(ProjectWorkspaceFolder.PhotogrammetryProcessing) ??
+                ""
+        };
+
+        if (dialog.ShowDialog() != WinForms.DialogResult.OK)
+            return;
+
+        _elevationBusy = true;
+        OdmProgress.IsIndeterminate = true;
+        string? differencePath = null;
+
+        try
+        {
+            var toolchain = await RequireToolchainAsync(requireGdal: true);
+            OdmStatusText.Text = "Höhenmodelle werden verglichen …";
+            var diff = await ElevationAnalysisService.DifferenceAsync(
+                toolchain.PythonExecutable!, toolchain.OpenCvWorkerPath, newer, dialog.FileName);
+            differencePath = diff.Output;
+
+            OdmStatusText.Text = diff.RaisedCubicMeters is { } raised && diff.LoweredCubicMeters is { } lowered
+                ? $"Änderung (aktuell − {Path.GetFileName(dialog.FileName)}): Auftrag {raised:N1} m³ auf {diff.RaisedAreaSquareMeters:N0} m² · " +
+                  $"Abtrag {lowered:N1} m³ auf {diff.LoweredAreaSquareMeters:N0} m² · Netto {raised - lowered:N1} m³ · " +
+                  $"P05/P95 {diff.P05:F2}/{diff.P95:F2} m (Änderungen unter {diff.Threshold:F2} m zählen nicht)"
+                : $"Änderung: Mittel {diff.Mean:F2} m, Min {diff.Minimum:F2} m, Max {diff.Maximum:F2} m (ohne Volumen: Modell nicht metrisch projiziert)";
+
+            if (Math.Abs(diff.Mean) > 0.5 && diff.P05 is { } p05 && diff.P95 is { } p95 && p05 * p95 > 0)
+            {
+                OdmStatusText.Text +=
+                    " · ⚠ Das ganze Modell ist verschoben; liegen beide Befliegungen im selben Höhenbezug (RTK, Passpunkte)?";
+            }
+
+            if (DroneDashProjectSession.IsOpen)
+            {
+                try
+                {
+                    await DroneDashProjectSession.RegisterFileAsync(diff.Output, ProjectArtifactKind.ElevationModel);
+                }
+                catch (Exception ex)
+                {
+                    OdmStatusText.Text += $" · Projektregistrierung fehlgeschlagen: {ex.Message}";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            OdmStatusText.Text = $"DSM-Vergleich fehlgeschlagen: {ex.Message}";
+        }
+        finally
+        {
+            OdmProgress.IsIndeterminate = false;
+            _elevationBusy = false;
+        }
+
+        if (differencePath is not null)
+            await ShowElevationModelAsync(differencePath, "Höhenänderung", palette: DemPreview.DivergingPalette);
+    }
+
     /// <summary>
     /// The orthomosaic of the same result (NodeODM) as a tile layer for the elevation map, or
     /// null. Tiling needs GDAL and runs once per image; a failure only drops the layer.
@@ -214,7 +344,11 @@ public partial class PhotogrammetryWorkspaceView
         }
     }
 
-    private async Task ShowElevationModelAsync(string demPath, string title, string? baseModelPath = null)
+    private async Task ShowElevationModelAsync(
+        string demPath,
+        string title,
+        string? baseModelPath = null,
+        string palette = DemPreview.TerrainPalette)
     {
         if (_elevationBusy)
             return;
@@ -224,7 +358,7 @@ public partial class PhotogrammetryWorkspaceView
 
         try
         {
-            var preview = DemPreviewService.TryLoadCached(demPath);
+            var preview = DemPreviewService.TryLoadCached(demPath, palette);
 
             if (preview is null)
             {
@@ -234,7 +368,8 @@ public partial class PhotogrammetryWorkspaceView
                 preview = await DemPreviewService.RenderAsync(
                     toolchain.PythonExecutable!,
                     toolchain.OpenCvWorkerPath,
-                    demPath);
+                    demPath,
+                    palette: palette);
             }
 
             OdmStatusText.Text =

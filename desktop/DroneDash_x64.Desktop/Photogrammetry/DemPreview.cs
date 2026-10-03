@@ -27,8 +27,15 @@ public sealed record DemPreview(
     long ValidPixels,
     string Image,
     string Grid,
-    string GridType)
+    string GridType,
+    string? Palette = null)
 {
+    public const string TerrainPalette = "terrain";
+    public const string DivergingPalette = "diverging";
+
+    /// <summary>Colour scheme of the image; older metadata without the field used the terrain relief.</summary>
+    public string EffectivePalette => Palette ?? TerrainPalette;
+
     public const int SupportedSchemaVersion = 1;
 }
 
@@ -59,7 +66,8 @@ public static class DemPreviewService
         if (preview.Width <= 0 || preview.Height <= 0 ||
             preview.GridType != "float32-le" ||
             !WorkerJsonRunner.IsPlainFileName(preview.Image) ||
-            !WorkerJsonRunner.IsPlainFileName(preview.Grid))
+            !WorkerJsonRunner.IsPlainFileName(preview.Grid) ||
+            preview.EffectivePalette is not (DemPreview.TerrainPalette or DemPreview.DivergingPalette))
         {
             throw new InvalidDataException("DSM-Vorschau-Metadaten sind ungültig.");
         }
@@ -71,7 +79,7 @@ public static class DemPreviewService
     /// Returns a cached preview when it was rendered from this model after the model's
     /// last change and its files are complete; otherwise null.
     /// </summary>
-    public static DemPreview? TryLoadCached(string demPath)
+    public static DemPreview? TryLoadCached(string demPath, string palette = DemPreview.TerrainPalette)
     {
         var folder = PreviewFolderFor(demPath);
         var metadata = Path.Combine(folder, MetadataFileName);
@@ -90,6 +98,7 @@ public static class DemPreviewService
 
             var complete =
                 WorkerJsonRunner.SameFile(preview.Source, demPath) &&
+                preview.EffectivePalette == palette &&
                 File.Exists(Path.Combine(folder, preview.Image)) &&
                 File.Exists(grid) &&
                 new FileInfo(grid).Length == gridBytes;
@@ -107,7 +116,8 @@ public static class DemPreviewService
         string workerPath,
         string demPath,
         int maxSize = DefaultMaxSize,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string palette = DemPreview.TerrainPalette)
     {
         if (!File.Exists(demPath))
             throw new FileNotFoundException("Höhenmodell nicht gefunden.", demPath);
@@ -119,7 +129,8 @@ public static class DemPreviewService
                 "--dem-preview",
                 "--source", Path.GetFullPath(demPath),
                 "--output-dir", PreviewFolderFor(demPath),
-                "--max-size", maxSize.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                "--max-size", maxSize.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                "--palette", palette
             ],
             "DSM-Vorschau fehlgeschlagen",
             cancellationToken);
