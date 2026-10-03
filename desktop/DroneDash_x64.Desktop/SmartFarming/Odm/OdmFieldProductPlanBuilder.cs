@@ -134,8 +134,8 @@ public static class OdmFieldProductPlanBuilder
                         products,
                         "ndvi_scouting_zones.json"),
                     "--backend", "auto",
-                    "--tile-size", "2048",
-                    "--pipeline-depth", "2"
+                    "--tile-size", "auto",
+                    "--pipeline-depth", "auto"
                 ],
                 zones,
                 $"NDVI tileweise in fünf Scouting-Zonen klassifizieren · Backend: {toolchain.GeoRasterBackend}."));
@@ -195,7 +195,7 @@ public static class OdmFieldProductPlanBuilder
             steps,
             [
                 "Die Index-Raster übernehmen Georeferenzierung und Rastergeometrie des ODM-Multiband-Orthomosaiks.",
-                $"Raster-Backend: {toolchain.GeoRasterBackend}. GDAL-Tile-Engine verarbeitet große Orthomosaike mit 2048-Pixel-Tiles und Read-Ahead-Pipeline (Tiefe 2); CUDA/CuPy übernimmt nur die Pixelarithmetik.",
+                $"Raster-Backend: {toolchain.GeoRasterBackend}. GDAL-Tile-Engine wählt Tilegröße und Pipeline-Tiefe automatisch anhand von Rastergröße, RAM/VRAM und einem kurzen Read+Compute-Benchmark; manuelle Overrides bleiben möglich.",
                 "Scouting-Zonen basieren ausschließlich auf den eingestellten NDVI-Schwellen und sind keine agronomische Diagnose oder Dosierempfehlung.",
                 $"Bandzuordnung: {orthophoto.BandMap.ToDisplayText()}"
             ]);
@@ -244,11 +244,11 @@ public static class OdmFieldProductPlanBuilder
                 "--output", output,
                 "--metadata", metadata,
                 "--backend", "auto",
-                "--tile-size", "2048",
-                "--pipeline-depth", "2"
+                "--tile-size", "auto",
+                "--pipeline-depth", "auto"
             ],
             output,
-            $"{indexType.ToUpperInvariant()} tileweise als georeferenziertes GeoTIFF erzeugen · Backend: {toolchain.GeoRasterBackend}."));
+            $"{indexType.ToUpperInvariant()} tileweise als georeferenziertes GeoTIFF erzeugen · Backend: {toolchain.GeoRasterBackend} · Auto-Tuning aktiv."));
     }
 
     private static void AddOtbIndex(
