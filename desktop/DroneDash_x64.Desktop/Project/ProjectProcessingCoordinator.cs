@@ -726,9 +726,21 @@ public static class ProjectProcessingCoordinator
                     ledger.Jobs.Count - 1;
             }
 
+            var previousCurrent =
+                ResolveCurrent(
+                    ledger);
+
             var updated =
                 update(
                     ledger.Jobs[index]);
+
+            var keepNewerCurrent =
+                previousCurrent is not null &&
+                previousCurrent.Id !=
+                    updated.Id &&
+                previousCurrent.PipelineJobId ==
+                    pipeline.JobId &&
+                !previousCurrent.IsTerminal;
 
             ledger =
                 ReplaceJob(
@@ -737,7 +749,9 @@ public static class ProjectProcessingCoordinator
                     updated) with
                 {
                     CurrentJobId =
-                        updated.Id
+                        keepNewerCurrent
+                            ? previousCurrent!.Id
+                            : updated.Id
                 };
 
             Save(
