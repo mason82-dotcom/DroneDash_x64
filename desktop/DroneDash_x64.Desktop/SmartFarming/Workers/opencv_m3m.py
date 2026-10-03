@@ -721,15 +721,6 @@ def _create_geotiff(source, output, data_type, nodata, description):
     return absolute_output, temp, target, band
 
 
-def _finish_geotiff(absolute_output, temp, target):
-    target.FlushCache()
-    target = None
-    os.replace(
-        temp,
-        absolute_output,
-    )
-
-
 def _cleanup_temp(path):
     try:
         if path and os.path.exists(path):
@@ -976,12 +967,15 @@ def geospatial_index(args):
             final_stats["standardDeviation"],
         )
 
-        _finish_geotiff(
-            absolute_output,
-            temp,
-            target,
-        )
+        output_band.FlushCache()
+        output_band = None
+        target.FlushCache()
         target = None
+
+        os.replace(
+            temp,
+            absolute_output,
+        )
         temp = None
 
         metadata = {
@@ -1255,12 +1249,15 @@ def geospatial_zones(args):
 
                 tiles += 1
 
-        _finish_geotiff(
-            absolute_output,
-            temp,
-            target,
-        )
+        output_band.FlushCache()
+        output_band = None
+        target.FlushCache()
         target = None
+
+        os.replace(
+            temp,
+            absolute_output,
+        )
         temp = None
 
         metadata = {
