@@ -73,7 +73,7 @@ Run the read-only preflight before building:
 ```
 
 It checks the Git clone, .NET 10, NuGet, Java 17, Android SDK/API 36, Build Tools 35.0.0,
-Gradle, ADB, optional NVIDIA/CUDA/OpenCV-CUDA availability and whether DJI credentials are configured without printing their values.
+Gradle, ADB, optional NVIDIA/CUDA/OpenCV-CUDA/CuPy availability and whether DJI credentials are configured without printing their values.
 Use `-Strict` when warnings should also fail the check.
 
 ## Run the Windows UI without DJI hardware
@@ -159,16 +159,20 @@ This makes SDK/dependency or compiler regressions visible immediately after a pu
 
 ## NVIDIA CUDA acceleration
 
-The local DJI Mavic 3M OpenCV registration worker supports optional NVIDIA CUDA acceleration.
-DroneDash-generated processing plans use an automatic backend: CUDA is selected when the active
-OpenCV build exposes a CUDA-enabled NVIDIA device; otherwise processing falls back to CPU without
-disabling the rest of the Smart Farming toolchain.
+The local DJI Mavic 3M processing worker supports optional NVIDIA CUDA acceleration.
+DroneDash-generated processing plans select GPU backends independently per stage:
 
-CUDA currently accelerates resize and final affine/perspective warping. OpenCV ECC transform
-estimation remains CPU-based. No CUDA runtime is bundled in the repository.
+- OpenCV-CUDA accelerates registration resize and final affine/perspective warping;
+- CuPy-CUDA accelerates local NDVI, NDRE and GNDVI raster arithmetic;
+- OpenCV ECC transform estimation remains CPU-based;
+- each CUDA stage falls back independently to CPU when unavailable.
+
+Radiometric correction remains on OTB and the corrected four-band GDAL VRT is retained.
+The georeferenced NodeODM/OTB field-product workflow is deliberately unchanged. No CUDA runtime
+or CuPy package is bundled in the repository.
 
 See `docs/NVIDIA_CUDA.md` for Windows setup, `DRONEDASH_CUDA_BIN`, OpenCV `WITH_CUDA=ON`,
-runtime probing and backend behavior.
+CuPy setup, runtime probing and backend behavior.
 
 
 ## DJI Thermal SDK v1.8
