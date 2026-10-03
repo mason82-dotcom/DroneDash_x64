@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 
+from .dem import dem_preview
 from .geospatial import geospatial_index, geospatial_zones
 from .indices import vegetation_index
 from .probes import probe
@@ -94,6 +95,9 @@ def main(argv=None):
     parser.add_argument("--index", action="store_true")
     parser.add_argument("--geo-index", action="store_true")
     parser.add_argument("--geo-zones", action="store_true")
+    parser.add_argument("--dem-preview", action="store_true")
+    parser.add_argument("--output-dir")
+    parser.add_argument("--max-size", type=int, default=2048)
     parser.add_argument("--reference")
     parser.add_argument("--moving")
     parser.add_argument("--positive-band")
@@ -156,12 +160,13 @@ def main(argv=None):
             bool(args.index),
             bool(args.geo_index),
             bool(args.geo_zones),
+            bool(args.dem_preview),
         ]
     )
 
     if selected_modes != 1:
         parser.error(
-            "choose exactly one of --serve-jsonl, --probe, --register, --index, --geo-index or --geo-zones"
+            "choose exactly one of --serve-jsonl, --probe, --register, --index, --geo-index, --geo-zones or --dem-preview"
         )
 
     if args.serve_jsonl:
@@ -199,6 +204,12 @@ def main(argv=None):
                 "--geo-index requires --source, --positive-band-index, --comparison-band-index, --index-type and --output"
             )
         geospatial_index(args)
+        return
+
+    if args.dem_preview:
+        if not args.source or not args.output_dir:
+            parser.error("--dem-preview requires --source and --output-dir")
+        dem_preview(args)
         return
 
     if args.geo_zones:

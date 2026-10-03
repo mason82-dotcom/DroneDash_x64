@@ -22,6 +22,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="Maps\dem-map.html"
+             CopyToOutputDirectory="PreserveNewest"
+             Link="maps\dem-map.html" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Content Include="PvAnalysis\pv-map.html"
              CopyToOutputDirectory="PreserveNewest"
              Link="pv\pv-map.html" />

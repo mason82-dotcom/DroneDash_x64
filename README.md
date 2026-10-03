@@ -357,8 +357,20 @@ An analyzed photogrammetry dataset can be processed on a NodeODM server directly
   LAZ/LAS/PLY) are located and registered in the open project as *Oberflächenmodell (DSM)*,
   *Geländemodell (DTM)*, *Orthomosaik* and *Punktwolke*.
 
-Map display, a 3D point-cloud viewer, profile/volume/canopy-height analysis and terrain checks
-for flight planning build on these products in later steps.
+**DSM auf Karte** / **DTM auf Karte** (or *Höhenmodell (GeoTIFF) öffnen …* for any elevation
+GeoTIFF) opens the model on a Leaflet map over OpenStreetMap or Esri satellite imagery:
+
+- the Python worker's `--dem-preview` mode warps the model with GDAL to Web Mercator (max. 2048 px),
+  renders a colour relief with hillshade (ground pixel size corrected for Mercator scale) and
+  transparent nodata, and writes `dem-preview.png`, a float32 elevation grid and
+  `dem-preview.json` into `<model>.preview/` next to the model;
+- the map shows a legend (2–98 % display range, min/max/mean, resolution), an opacity slider and
+  the elevation under the mouse cursor;
+- previews are reused until the model changes; rendering needs Python with GDAL bindings and NumPy
+  (set `DRONEDASH_PYTHON`, e.g. OSGeo4W or conda).
+
+A 3D point-cloud viewer, profile/volume/canopy-height analysis and terrain checks for flight
+planning build on these products in later steps.
 
 ## PV analysis
 
