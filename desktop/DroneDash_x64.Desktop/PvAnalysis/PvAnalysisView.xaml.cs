@@ -31,6 +31,38 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
         AnalyzeButton.IsEnabled = sdk.IsAvailable;
     }
 
+    public void AcceptFlightPlan(
+        string flightPlanPath)
+    {
+        try
+        {
+            var fullPath =
+                Path.GetFullPath(
+                    flightPlanPath);
+
+            var project =
+                FlightPlanProjectStore.Load(
+                    fullPath);
+
+            _flightPlanProjectPath =
+                fullPath;
+
+            FlightPlanText.Text =
+                $"{project.Settings.Name} · {project.Settings.Aircraft} · " +
+                $"{project.Settings.Mode}\n{_flightPlanProjectPath}";
+
+            InvalidateDataset();
+
+            StatusText.Text =
+                "Flugplan aus dem DroneDash-Projekt übernommen.";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text =
+                $"Flugplan konnte nicht übernommen werden: {ex.Message}";
+        }
+    }
+
     private async Task InitializeMapAsync()
     {
         if (_mapReady)
@@ -86,7 +118,8 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
             ShowNewFolderButton = false,
             SelectedPath = Directory.Exists(_sourceFolder)
                 ? _sourceFolder
-                : ""
+                : ProjectWorkspaceLayout.TryGetActiveFolder(
+                      ProjectWorkspaceFolder.PvDataset) ?? ""
         };
 
         if (dialog.ShowDialog() != WinForms.DialogResult.OK)
@@ -104,29 +137,17 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
             Title = "DroneDash-Flugplan verknüpfen",
             Filter = "DroneDash Flugplan (*.ddplan;*.json)|*.ddplan;*.json|Alle Dateien (*.*)|*.*",
             CheckFileExists = true,
-            Multiselect = false
+            Multiselect = false,
+            InitialDirectory =
+                ProjectWorkspaceLayout.TryGetActiveFolder(
+                    ProjectWorkspaceFolder.Planning)
         };
 
         if (dialog.ShowDialog() != WinForms.DialogResult.OK)
             return;
 
-        try
-        {
-            var project = FlightPlanProjectStore.Load(dialog.FileName);
-            _flightPlanProjectPath = dialog.FileName;
-            FlightPlanText.Text =
-                $"{project.Settings.Name} · {project.Settings.Aircraft} · " +
-                $"{project.Settings.Mode}\n{_flightPlanProjectPath}";
-            InvalidateDataset();
-        }
-        catch (Exception ex)
-        {
-            System.Windows.MessageBox.Show(
-                ex.Message,
-                "Flugplan verknüpfen",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
-        }
+        AcceptFlightPlan(
+            dialog.FileName);
     }
 
     private async void Analyze_Click(object sender, RoutedEventArgs e)
@@ -297,7 +318,12 @@ public partial class PvAnalysisView : System.Windows.Controls.UserControl
         using var dialog = new WinForms.FolderBrowserDialog
         {
             Description = "Zielordner für PV-Analyse auswählen",
-            ShowNewFolderButton = true
+            ShowNewFolderButton = true,
+            SelectedPath =
+                ProjectWorkspaceLayout.TryGetActiveFolder(
+                    ProjectWorkspaceFolder.PvResults) ??
+                _sourceFolder ??
+                ""
         };
 
         if (dialog.ShowDialog() != WinForms.DialogResult.OK)
