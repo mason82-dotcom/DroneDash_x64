@@ -453,25 +453,54 @@ try
             "Non-empty ODM extraction target must be rejected without deleting existing data.");
     }
 
+    var multiEntryZip =
+        Path.Combine(
+            zipSmokeRoot,
+            "many.zip");
+
+    using (var archive =
+           ZipFile.Open(
+               multiEntryZip,
+               ZipArchiveMode.Create))
+    {
+        using (var writer =
+               new StreamWriter(
+                   archive.CreateEntry(
+                           "one.txt")
+                       .Open()))
+        {
+            writer.Write("one");
+        }
+
+        using (var writer =
+               new StreamWriter(
+                   archive.CreateEntry(
+                           "two.txt")
+                       .Open()))
+        {
+            writer.Write("two");
+        }
+    }
+
     var entryLimitRejected = false;
 
     try
     {
         OdmResultImporter.ExtractSafely(
-            safeZip,
+            multiEntryZip,
             Path.Combine(
                 zipSmokeRoot,
                 "entry-limit"),
-            maxEntries: 0);
+            maxEntries: 1);
     }
-    catch (ArgumentOutOfRangeException)
+    catch (InvalidDataException)
     {
         entryLimitRejected = true;
     }
 
     if (!entryLimitRejected)
         throw new InvalidDataException(
-            "Invalid ODM ZIP entry limit was not rejected.");
+            "ODM ZIP entry-count limit was not enforced.");
 
     var sizeLimitRoot =
         Path.Combine(
