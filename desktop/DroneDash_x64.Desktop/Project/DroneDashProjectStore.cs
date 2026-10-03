@@ -153,9 +153,22 @@ public static class DroneDashProjectStore
                 ex);
         }
 
-        Validate(
-            project,
-            fullPath);
+        try
+        {
+            Validate(
+                project,
+                fullPath);
+        }
+        catch (InvalidDataException)
+        {
+            throw;
+        }
+        catch (ArgumentException ex)
+        {
+            throw new InvalidDataException(
+                "DroneDash-Projekt enthält ungültige Projektdaten.",
+                ex);
+        }
 
         return project;
     }
@@ -177,6 +190,9 @@ public static class DroneDashProjectStore
         string projectPath,
         string targetPath)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(
+            projectPath);
+
         var projectDirectory =
             Path.GetDirectoryName(
                 Path.GetFullPath(projectPath))
@@ -219,6 +235,18 @@ public static class DroneDashProjectStore
         string newProjectPath,
         DroneDashProject project)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(
+            oldProjectPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(
+            newProjectPath);
+        ArgumentNullException.ThrowIfNull(
+            project);
+
+        Validate(
+            project,
+            Path.GetFullPath(
+                oldProjectPath));
+
         var artifacts =
             project.Artifacts
                 .Select(artifact =>
@@ -241,10 +269,19 @@ public static class DroneDashProjectStore
                 })
                 .ToArray();
 
-        return project with
-        {
-            Artifacts = artifacts
-        };
+        var rebased =
+            project with
+            {
+                Artifacts =
+                    artifacts
+            };
+
+        Validate(
+            rebased,
+            Path.GetFullPath(
+                newProjectPath));
+
+        return rebased;
     }
 
     public static DroneDashProject WithMetadata(
