@@ -100,14 +100,37 @@ def _gdal_python_probe():
 
 
 def probe():
-    import cv2
-    import numpy as np
-
     result = {
-        "opencv": cv2.__version__,
-        "numpy": np.__version__,
+        "opencvAvailable": False,
+        "opencv": None,
+        "numpyAvailable": False,
+        "numpy": None,
     }
-    result.update(_cuda_probe(cv2))
+
+    try:
+        import numpy as np
+
+        result["numpyAvailable"] = True
+        result["numpy"] = np.__version__
+    except Exception:
+        pass
+
+    try:
+        import cv2
+
+        result["opencvAvailable"] = True
+        result["opencv"] = cv2.__version__
+        result.update(_cuda_probe(cv2))
+    except Exception:
+        result.update(
+            {
+                "cudaAvailable": False,
+                "cudaDeviceCount": 0,
+                "cudaDeviceName": None,
+                "cudaBuild": None,
+            }
+        )
+
     result.update(_cupy_probe())
     result.update(_gdal_python_probe())
     print(json.dumps(result))
