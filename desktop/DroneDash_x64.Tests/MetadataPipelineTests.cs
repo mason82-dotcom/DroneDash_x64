@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text;
 using DroneDash_x64.Desktop.Imaging;
 using DroneDash_x64.Desktop.SmartFarming;
