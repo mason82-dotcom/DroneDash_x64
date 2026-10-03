@@ -19,13 +19,14 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 class MediaGateway {
-    private val lock = Any()
+    private val mediaOperationActive = AtomicBoolean(false)
     private val manager get() = MediaDataCenter.getInstance().mediaManager
 
-    fun listMedia(): JSONArray = synchronized(lock) {
+    fun listMedia(): JSONArray =
         withMediaMode {
             val files = refreshList()
             JSONArray().apply {
@@ -41,9 +42,8 @@ class MediaGateway {
                 }
             }
         }
-    }
 
-    fun downloadToTemp(context: Context, index: Int): DownloadedFile = synchronized(lock) {
+    fun downloadToTemp(context: Context, index: Int): DownloadedFile =
         withMediaMode {
             val mediaFile = refreshList().firstOrNull { it.fileIndex == index }
                 ?: throw IllegalArgumentException("Media index $index not found")
@@ -53,7 +53,6 @@ class MediaGateway {
             download(mediaFile, target)
             DownloadedFile(target, safeName, mediaFile.fileSize)
         }
-    }
 
     private fun refreshList(): List<MediaFile> {
         val upToDate = CountDownLatch(1)
@@ -132,17 +131,26 @@ class MediaGateway {
     }
 
     private fun <T> withMediaMode(block: () -> T): T {
-        configureMediaSource()
-        awaitCompletion("enable media manager", 30) { manager.enable(it) }
+        if (!mediaOperationActive.compareAndSet(false, true)) {
+            throw MediaBusyException()
+        }
+
+        var enabled = false
         try {
+            configureMediaSource()
+            awaitCompletion("enable media manager", 30) { manager.enable(it) }
+            enabled = true
             return block()
         } finally {
-            runCatching {
-                manager.stopPullMediaFileListFromCamera()
+            if (enabled) {
+                runCatching {
+                    manager.stopPullMediaFileListFromCamera()
+                }
+                runCatching {
+                    awaitCompletion("disable media manager", 15) { manager.disable(it) }
+                }
             }
-            runCatching {
-                awaitCompletion("disable media manager", 15) { manager.disable(it) }
-            }
+            mediaOperationActive.set(false)
         }
     }
 
@@ -189,3 +197,7 @@ class MediaGateway {
         val expectedSize: Long
     )
 }
+
+
+class MediaBusyException :
+    IllegalStateException("DJI media manager is busy with another media operation")
