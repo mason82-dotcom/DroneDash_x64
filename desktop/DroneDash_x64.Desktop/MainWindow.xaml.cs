@@ -31,6 +31,7 @@ public partial class MainWindow : Window
     private string? _currentPreviewPath;
     private System.Windows.Media.Imaging.BitmapSource? _originalPreview;
     private ThermalAnalysisResult? _currentThermalResult;
+    private ThermalPalette _currentThermalPalette = ThermalPalette.IronRed;
 
     public MainWindow()
     {
@@ -571,7 +572,12 @@ public partial class MainWindow : Window
         _currentPreviewPath = path;
         _originalPreview = inspection.Preview;
         _currentThermalResult = null;
+        _currentThermalPalette = ThermalPalette.IronRed;
         ThermalCursorPanel.Visibility = Visibility.Collapsed;
+        ThermalHistogramImage.Source = null;
+        ThermalHistogramImage.Visibility = Visibility.Collapsed;
+        ThermalOverlayButton.IsEnabled = false;
+        ThermalExportButton.IsEnabled = false;
         ThermalSummaryText.Text = "Noch keine Thermal-Analyse.";
         MediaPreviewImage.Source = inspection.Preview;
         MediaPreviewTitle.Text = remoteItem?.Name ?? Path.GetFileName(path);
@@ -629,26 +635,38 @@ public partial class MainWindow : Window
 
             var result = _thermalSdk.Analyze(_currentPreviewPath, palette);
             _currentThermalResult = result;
+            _currentThermalPalette = palette;
 
             RemoveMetadataGroup("Thermal");
             RemoveMetadataGroup("Thermal Parameter");
             foreach (var entry in result.ToMetadata())
                 _imageMetadata.Add(entry);
 
-            MediaPreviewImage.Source = result.PseudoColorImage;
+            MediaPreviewImage.Source =
+                ThermalVisualization.RenderOverlay(result);
             MediaPreviewPlaceholder.Visibility = Visibility.Collapsed;
+
+            ThermalHistogramImage.Source =
+                ThermalVisualization.RenderHistogram(result);
+            ThermalHistogramImage.Visibility = Visibility.Visible;
+            ThermalOverlayButton.IsEnabled = true;
+            ThermalExportButton.IsEnabled = true;
+
             ThermalSummaryText.Text =
                 $"Min {result.MinimumC:F2} °C @ {result.MinimumX},{result.MinimumY} · " +
-                $"Ø {result.AverageC:F2} °C · Mitte {result.CenterC:F2} °C · " +
-                $"Max {result.MaximumC:F2} °C @ {result.MaximumX},{result.MaximumY} · " +
+                $"P05 {result.P05C:F2} °C · Median {result.MedianC:F2} °C · " +
+                $"Ø {result.AverageC:F2} °C · σ {result.StandardDeviationC:F2} °C · " +
+                $"P95 {result.P95C:F2} °C · Max {result.MaximumC:F2} °C @ {result.MaximumX},{result.MaximumY} · " +
                 $"ε {result.Emissivity:F3} · Distanz {result.DistanceM:F2} m";
             MediaPreviewSummary.Text =
-                $"Thermal {result.Width} × {result.Height} px · Palette {palette} · DJI TSDK v{DjiThermalSdk.SupportedSdkVersion}";
+                $"Thermal {result.Width} × {result.Height} px · {result.ValidPixelCount:N0} gültige Pixel · " +
+                $"Palette {palette} · DJI TSDK v{DjiThermalSdk.SupportedSdkVersion}";
             FitPreview();
 
             FooterText.Text = "Thermal-Analyse abgeschlossen.";
             AddEvent("INFO", "Thermal",
-                $"R-JPEG analysiert · Min {result.MinimumC:F2} °C · Max {result.MaximumC:F2} °C · Ø {result.AverageC:F2} °C.");
+                $"R-JPEG analysiert · Min {result.MinimumC:F2} °C · Max {result.MaximumC:F2} °C · " +
+                $"Ø {result.AverageC:F2} °C · P05/P50/P95 {result.P05C:F2}/{result.MedianC:F2}/{result.P95C:F2} °C.");
         }
         catch (ThermalSdkException ex) when (ex.Code is -4 or -5 or -6 or -7 or -10)
         {
@@ -722,6 +740,100 @@ public partial class MainWindow : Window
     private void MediaPreviewImage_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
     {
         ThermalCursorPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void ThermalOverlay_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentThermalResult is null)
+            return;
+
+        MediaPreviewImage.Source =
+            ThermalVisualization.RenderOverlay(
+                _currentThermalResult);
+
+        MediaPreviewPlaceholder.Visibility =
+            Visibility.Collapsed;
+
+        FooterText.Text =
+            "Thermal-Minimum, Maximum und Bildmitte als Overlay angezeigt.";
+
+        FitPreview();
+    }
+
+    private async void ThermalExport_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentThermalResult is null ||
+            string.IsNullOrWhiteSpace(_currentPreviewPath) ||
+            !File.Exists(_currentPreviewPath))
+        {
+            System.Windows.MessageBox.Show(
+                this,
+                "Zuerst ein DJI R-JPEG analysieren.",
+                "Thermal-Export",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+
+            return;
+        }
+
+        using var dialog =
+            new WinForms.FolderBrowserDialog
+            {
+                Description =
+                    "Zielordner für Thermal-Analyseexport auswählen",
+                UseDescriptionForTitle = true
+            };
+
+        if (dialog.ShowDialog() !=
+            WinForms.DialogResult.OK)
+        {
+            return;
+        }
+
+        try
+        {
+            FooterText.Text =
+                "Thermal-Daten werden exportiert …";
+
+            var export =
+                ThermalAnalysisExporter.Export(
+                    _currentThermalResult,
+                    _currentPreviewPath,
+                    dialog.SelectedPath,
+                    _currentThermalPalette);
+
+            await DroneDashProjectSession.RegisterFilesAsync(
+                export.Paths);
+
+            FooterText.Text =
+                $"Thermal-Export abgeschlossen: {dialog.SelectedPath}";
+
+            AddEvent(
+                "INFO",
+                "Thermal",
+                $"Thermal-Export erzeugt · {export.Paths.Count} Dateien · {dialog.SelectedPath}.");
+
+            System.Windows.MessageBox.Show(
+                this,
+                "Thermal-Export abgeschlossen.\n\n" +
+                string.Join(
+                    Environment.NewLine,
+                    export.Paths.Select(Path.GetFileName)),
+                "Thermal-Export",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            AddEvent(
+                "ERROR",
+                "Thermal",
+                $"Export fehlgeschlagen: {ex.Message}");
+
+            ShowError(
+                "Thermal-Export fehlgeschlagen",
+                ex);
+        }
     }
 
     private void RestoreOriginalPreview_Click(object sender, RoutedEventArgs e)
