@@ -1,5 +1,17 @@
 using System.IO;
+using System.Text.Json;
 using DroneDash_x64.Desktop.PvAnalysis;
+using DroneDash_x64.Desktop.Thermal;
+
+if (args.Length > 0 &&
+    string.Equals(
+        args[0],
+        "--fixture",
+        StringComparison.OrdinalIgnoreCase))
+{
+    return RunRealFixture(args);
+}
+
 
 const int width = 96;
 const int height = 64;
@@ -263,4 +275,197 @@ finally
     {
         // Best-effort CI temp cleanup.
     }
+}
+
+
+static int RunRealFixture(
+    string[] arguments)
+{
+    if (arguments.Length < 2)
+    {
+        Console.Error.WriteLine(
+            "Usage: DroneDash_x64.PvSmoke --fixture <DJI_RJPEG>");
+        return 64;
+    }
+
+    var fixture =
+        Path.GetFullPath(
+            arguments[1]);
+
+    if (!File.Exists(fixture))
+    {
+        Console.Error.WriteLine(
+            $"M3T fixture not found: {fixture}");
+        return 3;
+    }
+
+    using var sdk =
+        new DjiThermalSdk();
+
+    if (!sdk.IsAvailable)
+    {
+        Console.Error.WriteLine(
+            sdk.Status);
+        return 2;
+    }
+
+    var thermal =
+        sdk.Analyze(
+            fixture,
+            ThermalPalette.IronRed);
+
+    var settings =
+        PvAnalysisSettings.Default;
+
+    var candidates =
+        PvThermalAnomalyDetector.Detect(
+            thermal.Temperatures,
+            thermal.Width,
+            thermal.Height,
+            settings);
+
+    foreach (var candidate in candidates)
+    {
+        if (candidate.PixelCount <= 0 ||
+            candidate.PeakX < 0 ||
+            candidate.PeakY < 0 ||
+            candidate.PeakX >= thermal.Width ||
+            candidate.PeakY >= thermal.Height ||
+            candidate.MinX < 0 ||
+            candidate.MinY < 0 ||
+            candidate.MaxX >= thermal.Width ||
+            candidate.MaxY >= thermal.Height ||
+            candidate.MinX > candidate.MaxX ||
+            candidate.MinY > candidate.MaxY ||
+            !double.IsFinite(candidate.PeakTemperatureC) ||
+            !double.IsFinite(candidate.LocalBaselineC) ||
+            !double.IsFinite(candidate.LocalUpperQuartileC) ||
+            !double.IsFinite(candidate.AdaptiveSeedThresholdC) ||
+            !double.IsFinite(candidate.DeltaC) ||
+            candidate.LocalUpperQuartileC <
+                candidate.LocalBaselineC ||
+            candidate.AdaptiveSeedThresholdC <
+                settings.WarningDeltaC ||
+            candidate.DeltaC <
+                settings.WarningDeltaC ||
+            candidate.FillRatio <= 0d ||
+            candidate.FillRatio > 1d)
+        {
+            Console.Error.WriteLine(
+                $"Invalid PV candidate #{candidate.Index}.");
+            return 5;
+        }
+    }
+
+    var output = new
+    {
+        file =
+            Path.GetFileName(
+                fixture),
+        sdk =
+            DjiThermalSdk.SupportedSdkVersion,
+        api =
+            thermal.ApiVersion,
+        rjpeg =
+            thermal.RjpegVersion,
+        width =
+            thermal.Width,
+        height =
+            thermal.Height,
+        pixels =
+            thermal.Temperatures.Length,
+        minimumC =
+            thermal.MinimumC,
+        maximumC =
+            thermal.MaximumC,
+        averageC =
+            thermal.AverageC,
+        distribution = new
+        {
+            standardDeviationC =
+                thermal.StandardDeviationC,
+            p05C =
+                thermal.P05C,
+            medianC =
+                thermal.MedianC,
+            p95C =
+                thermal.P95C
+        },
+        settings = new
+        {
+            warningDeltaC =
+                settings.WarningDeltaC,
+            criticalDeltaC =
+                settings.CriticalDeltaC,
+            localWindowRadiusPixels =
+                settings.LocalWindowRadiusPixels,
+            minimumClusterPixels =
+                settings.MinimumClusterPixels
+        },
+        candidateCount =
+            candidates.Count,
+        candidates =
+            candidates.Select(candidate => new
+            {
+                candidate.Index,
+                severity =
+                    candidate.Severity.ToString(),
+                areaPixels =
+                    candidate.AreaPixels,
+                boundingBoxAreaPixels =
+                    candidate.BoundingBoxAreaPixels,
+                fillRatio =
+                    candidate.FillRatio,
+                equivalentDiameterPixels =
+                    candidate.EquivalentDiameterPixels,
+                peak = new
+                {
+                    x =
+                        candidate.PeakX,
+                    y =
+                        candidate.PeakY,
+                    temperatureC =
+                        candidate.PeakTemperatureC
+                },
+                localMedianC =
+                    candidate.LocalBaselineC,
+                localP75C =
+                    candidate.LocalUpperQuartileC,
+                adaptiveSeedThresholdC =
+                    candidate.AdaptiveSeedThresholdC,
+                deltaC =
+                    candidate.DeltaC,
+                centroid = new
+                {
+                    x =
+                        candidate.CentroidX,
+                    y =
+                        candidate.CentroidY
+                },
+                boundingBox = new
+                {
+                    minX =
+                        candidate.MinX,
+                    minY =
+                        candidate.MinY,
+                    maxX =
+                        candidate.MaxX,
+                    maxY =
+                        candidate.MaxY
+                }
+            })
+    };
+
+    Console.WriteLine(
+        "PASS real M3T PV detector");
+
+    Console.WriteLine(
+        JsonSerializer.Serialize(
+            output,
+            new JsonSerializerOptions
+            {
+                WriteIndented = true
+            }));
+
+    return 0;
 }
