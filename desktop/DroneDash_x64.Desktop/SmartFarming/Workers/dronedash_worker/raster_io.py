@@ -4,25 +4,6 @@ import json
 import os
 
 
-def _copy_gdal_georeference(source, target):
-    try:
-        transform = source.GetGeoTransform(
-            can_return_null=True
-        )
-    except TypeError:
-        try:
-            transform = source.GetGeoTransform()
-        except Exception:
-            transform = None
-
-    if transform is not None:
-        target.SetGeoTransform(transform)
-
-    projection = source.GetProjection()
-    if projection:
-        target.SetProjection(projection)
-
-
 def _prepare_source_tile(array, nodata, np):
     values = array.astype(np.float32, copy=False)
 
