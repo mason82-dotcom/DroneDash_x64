@@ -12,6 +12,7 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
     private readonly ObservableCollection<ProjectArtifactRow> _rows = [];
     private DroneDashProject? _project;
     private string? _projectPath;
+    private ProjectPipelineState? _pipelineState;
 
     public ProjectWorkspaceView()
     {
@@ -357,6 +358,162 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         }
     }
 
+    private async void IngestDataset_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!EnsureProjectLoaded())
+            return;
+
+        using var dialog =
+            new WinForms.FolderBrowserDialog
+            {
+                Description = "DJI-Datensatz für den Projekt-Pipeline-Ingest auswählen",
+                ShowNewFolderButton = false,
+                SelectedPath =
+                    ProjectWorkspaceLayout.GetProjectDirectory(
+                        _projectPath!)
+            };
+
+        if (dialog.ShowDialog() !=
+            WinForms.DialogResult.OK)
+        {
+            return;
+        }
+
+        IngestDatasetButton.IsEnabled = false;
+        ContinuePipelineButton.IsEnabled = false;
+        ProjectProgress.IsIndeterminate = true;
+        PipelineStateText.Text =
+            "Datensatz wird strukturell erkannt …";
+
+        try
+        {
+            var flightPlan =
+                DroneDashProjectSession.TryResolveLatestArtifactPath(
+                    ProjectArtifactKind.FlightPlan);
+
+            var state =
+                await Task.Run(() =>
+                    ProjectPipelineStore.Start(
+                        _projectPath!,
+                        dialog.SelectedPath,
+                        flightPlan));
+
+            _pipelineState =
+                state;
+
+            await DroneDashProjectSession.RegisterDirectoryAsync(
+                dialog.SelectedPath,
+                ProjectArtifactKind.SourceDataFolder);
+
+            _project =
+                DroneDashProjectSession.CurrentProject ??
+                _project;
+
+            RefreshPipelineUi(
+                refreshStage: true);
+
+            var target =
+                ProjectPipelineStore.ToNavigationTarget(
+                    state.Module);
+
+            if (target.HasValue)
+            {
+                DroneDashProjectSession.RequestNavigation(
+                    target.Value,
+                    ProjectPipelineStore.ResolveFlightPlan(
+                        _projectPath!,
+                        _pipelineState!),
+                    $"Dataset-Ingest · {state.Module}",
+                    ProjectPipelineStore.ResolveSourceFolder(
+                        _projectPath!,
+                        _pipelineState!));
+            }
+            else
+            {
+                System.Windows.MessageBox.Show(
+                    state.Probe.Detail,
+                    "Dataset-Ingest",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError(
+                "Dataset-Ingest",
+                ex);
+        }
+        finally
+        {
+            ProjectProgress.IsIndeterminate = false;
+            IngestDatasetButton.IsEnabled =
+                _project is not null;
+            ContinuePipelineButton.IsEnabled =
+                _pipelineState is not null;
+        }
+    }
+
+    private void ContinuePipeline_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!EnsureProjectLoaded() ||
+            _pipelineState is null)
+        {
+            return;
+        }
+
+        var target =
+            ProjectPipelineStore.ToNavigationTarget(
+                _pipelineState.Module);
+
+        if (!target.HasValue)
+        {
+            System.Windows.MessageBox.Show(
+                _pipelineState.Probe.Detail,
+                "Projekt-Pipeline",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        try
+        {
+            DroneDashProjectSession.RequestNavigation(
+                target.Value,
+                ProjectPipelineStore.ResolveFlightPlan(
+                    _projectPath!,
+                    _pipelineState),
+                $"Pipeline fortsetzen · {_pipelineState.Stage} · {_pipelineState.Module}",
+                ProjectPipelineStore.ResolveSourceFolder(
+                    _projectPath!,
+                    _pipelineState));
+        }
+        catch (Exception ex)
+        {
+            ShowError(
+                "Pipeline fortsetzen",
+                ex);
+        }
+    }
+
+    private void RefreshPipeline_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!EnsureProjectLoaded())
+            return;
+
+        RefreshPipelineUi(
+            refreshStage: true);
+
+        ProjectSummaryText.Text =
+            BuildSummary(
+                "Pipeline-Gates aktualisiert.");
+    }
+
     private async void RemoveArtifact_Click(
         object sender,
         RoutedEventArgs e)
@@ -557,9 +714,13 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         AddFolderButton.IsEnabled = true;
         DiscoverButton.IsEnabled = true;
         VerifyButton.IsEnabled = true;
+        IngestDatasetButton.IsEnabled = true;
+        RefreshPipelineButton.IsEnabled = true;
 
         RefreshRows();
         RefreshWorkflow();
+        RefreshPipelineUi(
+            refreshStage: true);
 
         ProjectSummaryText.Text =
             BuildSummary(
@@ -587,7 +748,11 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         DiscoverButton.IsEnabled = false;
         RemoveArtifactButton.IsEnabled = false;
         VerifyButton.IsEnabled = false;
+        IngestDatasetButton.IsEnabled = false;
+        ContinuePipelineButton.IsEnabled = false;
+        RefreshPipelineButton.IsEnabled = false;
 
+        ResetPipelineUi();
         RefreshWorkflow();
 
         ProjectSummaryText.Text =
@@ -809,6 +974,164 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
         return ProjectNavigationTarget.Photogrammetry;
     }
 
+    private void RefreshPipelineUi(
+        bool refreshStage)
+    {
+        if (_project is null ||
+            string.IsNullOrWhiteSpace(
+                _projectPath))
+        {
+            ResetPipelineUi();
+            return;
+        }
+
+        try
+        {
+            var state =
+                ProjectPipelineStore.Load(
+                    _projectPath);
+
+            if (state is null)
+            {
+                ResetPipelineUi();
+                IngestDatasetButton.IsEnabled = true;
+                RefreshPipelineButton.IsEnabled = true;
+                return;
+            }
+
+            if (refreshStage)
+            {
+                state =
+                    ProjectPipelineStore.RefreshStage(
+                        _projectPath,
+                        _project,
+                        state);
+            }
+
+            _pipelineState =
+                state;
+
+            var source =
+                ProjectPipelineStore.ResolveSourceFolder(
+                    _projectPath,
+                    state);
+
+            PipelineStateText.Text =
+                $"Job {state.JobId} · Ziel {state.Module} · Stufe {state.Stage} · " +
+                $"aktualisiert {state.UpdatedAtUtc.LocalDateTime:G}";
+
+            PipelineSourceText.Text =
+                $"Datensatz: {source}";
+
+            PipelineProbeText.Text =
+                $"Erkennung: {state.Probe.Detail} · Bilder {state.Probe.SupportedImageFiles:N0}/{state.Probe.TotalFiles:N0} Dateien";
+
+            var gates =
+                ProjectPipelineGateEvaluator.Evaluate(
+                    _projectPath,
+                    _project,
+                    state);
+
+            RenderPipelineGate(
+                gates.FlightPlan,
+                PipelinePlanGateStateText,
+                PipelinePlanGateDetailText);
+
+            RenderPipelineGate(
+                gates.Dataset,
+                PipelineDatasetGateStateText,
+                PipelineDatasetGateDetailText);
+
+            RenderPipelineGate(
+                gates.Rtk,
+                PipelineRtkGateStateText,
+                PipelineRtkGateDetailText);
+
+            RenderPipelineGate(
+                gates.Processing,
+                PipelineProcessingGateStateText,
+                PipelineProcessingGateDetailText);
+
+            RenderPipelineGate(
+                gates.Results,
+                PipelineResultGateStateText,
+                PipelineResultGateDetailText);
+
+            ContinuePipelineButton.IsEnabled =
+                ProjectPipelineStore.ToNavigationTarget(
+                    state.Module)
+                .HasValue;
+
+            IngestDatasetButton.IsEnabled = true;
+            RefreshPipelineButton.IsEnabled = true;
+        }
+        catch (Exception ex)
+        {
+            _pipelineState = null;
+
+            PipelineStateText.Text =
+                $"Pipeline-Status konnte nicht gelesen werden: {ex.Message}";
+
+            PipelineSourceText.Text =
+                "Datensatz: —";
+
+            PipelineProbeText.Text =
+                "Erkennung: —";
+
+            ContinuePipelineButton.IsEnabled =
+                false;
+
+            IngestDatasetButton.IsEnabled =
+                true;
+
+            RefreshPipelineButton.IsEnabled =
+                true;
+        }
+    }
+
+    private static void RenderPipelineGate(
+        ProjectPipelineGate gate,
+        TextBlock stateText,
+        TextBlock detailText)
+    {
+        stateText.Text =
+            gate.StateText;
+
+        detailText.Text =
+            gate.Detail;
+    }
+
+    private void ResetPipelineUi()
+    {
+        _pipelineState = null;
+
+        PipelineStateText.Text =
+            "Kein aktiver Pipeline-Job.";
+
+        PipelineSourceText.Text =
+            "Datensatz: —";
+
+        PipelineProbeText.Text =
+            "Erkennung: —";
+
+        foreach (var pair in
+                 new[]
+                 {
+                     (PipelinePlanGateStateText, PipelinePlanGateDetailText),
+                     (PipelineDatasetGateStateText, PipelineDatasetGateDetailText),
+                     (PipelineRtkGateStateText, PipelineRtkGateDetailText),
+                     (PipelineProcessingGateStateText, PipelineProcessingGateDetailText),
+                     (PipelineResultGateStateText, PipelineResultGateDetailText)
+                 })
+        {
+            pair.Item1.Text =
+                "OFFEN";
+
+            pair.Item2.Text =
+                "—";
+        }
+    }
+
     private void ApplyVerification(
         IReadOnlyList<ProjectArtifactVerification> verifications)
     {
@@ -911,6 +1234,21 @@ public partial class ProjectWorkspaceView : System.Windows.Controls.UserControl
             _project is not null;
 
         VerifyButton.IsEnabled =
+            !busy &&
+            _project is not null;
+
+        IngestDatasetButton.IsEnabled =
+            !busy &&
+            _project is not null;
+
+        ContinuePipelineButton.IsEnabled =
+            !busy &&
+            _pipelineState is not null &&
+            ProjectPipelineStore.ToNavigationTarget(
+                _pipelineState.Module)
+            .HasValue;
+
+        RefreshPipelineButton.IsEnabled =
             !busy &&
             _project is not null;
 
