@@ -425,43 +425,74 @@ public sealed class NodeOdmClient : IDisposable
         var path = Path.Combine(
             destinationFolder,
             $"nodeodm_{uuid}_all.zip");
+        var partialPath =
+            path + ".part";
 
-        await using var source =
-            await response.Content.ReadAsStreamAsync(
-                cancellationToken);
+        TryDelete(partialPath);
 
-        await using var target = new FileStream(
-            path,
-            FileMode.Create,
-            FileAccess.Write,
-            FileShare.None,
-            1024 * 1024,
-            useAsync: true);
-
-        var buffer = new byte[1024 * 1024];
-        long written = 0;
-
-        while (true)
+        try
         {
-            var read = await source.ReadAsync(
-                buffer,
-                cancellationToken);
+            await using var source =
+                await response.Content.ReadAsStreamAsync(
+                    cancellationToken);
 
-            if (read == 0)
-                break;
+            await using (var target = new FileStream(
+                partialPath,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None,
+                1024 * 1024,
+                FileOptions.Asynchronous |
+                FileOptions.SequentialScan))
+            {
+                var buffer = new byte[1024 * 1024];
+                long written = 0;
 
-            await target.WriteAsync(
-                buffer.AsMemory(0, read),
-                cancellationToken);
+                while (true)
+                {
+                    var read = await source.ReadAsync(
+                        buffer,
+                        cancellationToken);
 
-            written += read;
+                    if (read == 0)
+                        break;
 
-            if (total is > 0)
-                progress?.Report(
-                    written * 100d / total.Value);
+                    await target.WriteAsync(
+                        buffer.AsMemory(0, read),
+                        cancellationToken);
+
+                    written += read;
+
+                    if (total is > 0)
+                        progress?.Report(
+                            written * 100d / total.Value);
+                }
+
+                await target.FlushAsync(
+                    cancellationToken);
+
+                if (total is > 0 &&
+                    written != total.Value)
+                {
+                    throw new IOException(
+                        $"Unvollständiger NodeODM-Download: {written} von {total.Value} Bytes empfangen.");
+                }
+            }
+
+            File.Move(
+                partialPath,
+                path,
+                overwrite: true);
+
+            progress?.Report(100d);
+
+            return path;
         }
-
-        return path;
+        catch
+        {
+            TryDelete(partialPath);
+            throw;
+        }
     }
 
     private Uri BuildUri(
@@ -554,6 +585,20 @@ public sealed class NodeOdmClient : IDisposable
                value.TryGetInt64(out var result)
             ? result
             : null;
+    }
+
+    private static void TryDelete(
+        string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+            // Cleanup failure must not hide the original transfer result.
+        }
     }
 
     public void Dispose()
