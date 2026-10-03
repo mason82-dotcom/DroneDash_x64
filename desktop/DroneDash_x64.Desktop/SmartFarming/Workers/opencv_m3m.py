@@ -1588,15 +1588,137 @@ def geospatial_index(args):
         source
     )
 
+    positive_band = source.GetRasterBand(
+        positive_index
+    )
+    comparison_band = source.GetRasterBand(
+        comparison_index
+    )
+    positive_nodata = positive_band.GetNoDataValue()
+    comparison_nodata = (
+        comparison_band.GetNoDataValue()
+    )
+
+    def benchmark_index(tile_size):
+        width = min(
+            int(tile_size),
+            source.RasterXSize,
+        )
+        height = min(
+            int(tile_size),
+            source.RasterYSize,
+        )
+
+        read_started = time.perf_counter()
+
+        positive = positive_band.ReadAsArray(
+            0,
+            0,
+            width,
+            height,
+        )
+        comparison = comparison_band.ReadAsArray(
+            0,
+            0,
+            width,
+            height,
+        )
+
+        if positive is None or comparison is None:
+            raise RuntimeError(
+                "GDAL auto-tuning failed to read sample tile"
+            )
+
+        positive = _prepare_source_tile(
+            positive,
+            positive_nodata,
+            np,
+        )
+        comparison = _prepare_source_tile(
+            comparison,
+            comparison_nodata,
+            np,
+        )
+
+        read_seconds = (
+            time.perf_counter() - read_started
+        )
+        compute_started = time.perf_counter()
+
+        if backend == "cuda":
+            _index_cuda(
+                positive,
+                comparison,
+                args.index_epsilon,
+            )
+        else:
+            _index_cpu(
+                positive,
+                comparison,
+                args.index_epsilon,
+                np,
+            )
+
+        return {
+            "pixels": width * height,
+            "readSeconds": read_seconds,
+            "computeSeconds": (
+                time.perf_counter() -
+                compute_started
+            ),
+        }
+
+    backend_fallback_reason = None
+
+    try:
+        tuning = _auto_tune_geospatial(
+            args.tile_size,
+            args.pipeline_depth,
+            source.RasterXSize,
+            source.RasterYSize,
+            "index",
+            backend,
+            benchmark_index,
+        )
+    except Exception as exc:
+        if (
+            backend == "cuda"
+            and args.backend == "auto"
+        ):
+            backend = "cpu"
+            backend_fallback_reason = (
+                "CUDA auto-tuning failed; "
+                f"CPU fallback selected: {exc}"
+            )
+            tuning = _auto_tune_geospatial(
+                args.tile_size,
+                args.pipeline_depth,
+                source.RasterXSize,
+                source.RasterYSize,
+                "index",
+                backend,
+                benchmark_index,
+            )
+        else:
+            raise
+
+    tile_size = int(
+        tuning["tileSize"]
+    )
+    pipeline_depth = int(
+        tuning["pipelineDepth"]
+    )
+
     writer = _AsyncGeoTiffWriter(
         profile,
         args.output,
         gdal.GDT_Float32,
         float("nan"),
         args.index_type.upper(),
-        args.pipeline_depth,
+        pipeline_depth,
     )
 
+    processing_started_at = time.perf_counter()
     absolute_output = None
 
     stats = {
@@ -1608,13 +1730,6 @@ def geospatial_index(args):
     }
 
     tiles = 0
-    tile_size = max(
-        128,
-        min(
-            int(args.tile_size),
-            8192,
-        ),
-    )
 
     try:
         reader_state = {}
@@ -1702,7 +1817,7 @@ def geospatial_index(args):
         ) in _prefetched_tiles(
             windows,
             read_index_tile,
-            args.pipeline_depth,
+            pipeline_depth,
         ):
             if backend == "cuda":
                 try:
@@ -1755,6 +1870,11 @@ def geospatial_index(args):
             time.perf_counter() - started_at,
             1e-9,
         )
+        processing_elapsed_seconds = max(
+            time.perf_counter() -
+            processing_started_at,
+            1e-9,
+        )
 
         metadata = {
             "schemaVersion": 1,
@@ -1767,20 +1887,20 @@ def geospatial_index(args):
             "width": int(source.RasterXSize),
             "height": int(source.RasterYSize),
             "tileSize": tile_size,
-            "pipelineDepth": max(
-                1,
-                min(
-                    int(args.pipeline_depth),
-                    4,
-                ),
-            ),
+            "pipelineDepth": pipeline_depth,
+            "tuning": tuning,
             "readAheadEnabled": True,
             "asyncWriteEnabled": True,
             "tilesProcessed": tiles,
             "elapsedSeconds": elapsed_seconds,
-            "tilesPerSecond": tiles / elapsed_seconds,
+            "processingElapsedSeconds":
+                processing_elapsed_seconds,
+            "tilesPerSecond":
+                tiles / processing_elapsed_seconds,
             "backendRequested": args.backend,
             "backendUsed": backend,
+            "backendFallbackReason":
+                backend_fallback_reason,
             "gdalVersion": gdal.VersionInfo(
                 "RELEASE_NAME"
             ),
