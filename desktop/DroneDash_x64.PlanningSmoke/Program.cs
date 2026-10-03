@@ -80,6 +80,44 @@ if (!rejectedNonFiniteGeometry)
     throw new InvalidDataException(
         "Planner accepted non-finite WGS84 geometry.");
 
+var guardedProjectPath =
+    Path.Combine(
+        Path.GetTempPath(),
+        "DroneDash_InvalidPlanningSave_Smoke.ddplan");
+
+File.WriteAllText(
+    guardedProjectPath,
+    "preserve-existing-project");
+
+var rejectedInvalidProjectSave = false;
+
+try
+{
+    FlightPlanProjectStore.Save(
+        guardedProjectPath,
+        mapping2D,
+        [
+            polygon[0],
+            polygon[1],
+            new GeoPoint(
+                999d,
+                polygon[2].Longitude)
+        ]);
+}
+catch (ArgumentOutOfRangeException)
+{
+    rejectedInvalidProjectSave = true;
+}
+
+if (!rejectedInvalidProjectSave ||
+    File.ReadAllText(
+        guardedProjectPath) !=
+        "preserve-existing-project")
+{
+    throw new InvalidDataException(
+        "Invalid flight-plan save replaced an existing project file.");
+}
+
 var plan2D = PhotogrammetryPlanner.Generate(
     loadedProject.Geometry,
     loadedProject.Settings);
