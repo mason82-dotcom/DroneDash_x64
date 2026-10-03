@@ -1,4 +1,6 @@
 using System.IO;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using DroneDash_x64.Desktop.Project;
 
 var root =
@@ -118,6 +120,178 @@ try
     {
         throw new InvalidDataException(
             "Artifacts inside project root must use relative paths.");
+    }
+
+    var projectBytesBeforeRejectedSave =
+        File.ReadAllBytes(
+            projectPath);
+
+    var escapingArtifact =
+        loaded.Artifacts[0] with
+        {
+            StoredPath =
+                Path.Combine(
+                    "..",
+                    "outside-project.dat"),
+            IsRelative =
+                true
+        };
+
+    var rejectedEscapingProjectSave =
+        false;
+
+    try
+    {
+        DroneDashProjectStore.Save(
+            projectPath,
+            loaded with
+            {
+                Artifacts =
+                    loaded.Artifacts
+                        .Select(artifact =>
+                            artifact.Id ==
+                                escapingArtifact.Id
+                                ? escapingArtifact
+                                : artifact)
+                        .ToArray()
+            });
+    }
+    catch (InvalidDataException)
+    {
+        rejectedEscapingProjectSave =
+            true;
+    }
+
+    if (!rejectedEscapingProjectSave ||
+        !File.ReadAllBytes(
+                projectPath)
+            .SequenceEqual(
+                projectBytesBeforeRejectedSave))
+    {
+        throw new InvalidDataException(
+            "Invalid relative artifact path was accepted or modified the existing project file.");
+    }
+
+    var rejectedEscapingResolution =
+        false;
+
+    try
+    {
+        _ =
+            DroneDashProjectStore.ResolveArtifactPath(
+                projectPath,
+                escapingArtifact);
+    }
+    catch (InvalidDataException)
+    {
+        rejectedEscapingResolution =
+            true;
+    }
+
+    if (!rejectedEscapingResolution)
+    {
+        throw new InvalidDataException(
+            "Artifact path resolution allowed a relative path to escape the project directory.");
+    }
+
+    var invalidProjectPath =
+        Path.Combine(
+            root,
+            "invalid-artifact-path.ddproj");
+
+    var jsonOptions =
+        new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy =
+                JsonNamingPolicy.CamelCase,
+            Converters =
+            {
+                new JsonStringEnumConverter()
+            }
+        };
+
+    File.WriteAllText(
+        invalidProjectPath,
+        JsonSerializer.Serialize(
+            loaded with
+            {
+                Artifacts =
+                [escapingArtifact]
+            },
+            jsonOptions));
+
+    var rejectedEscapingProjectLoad =
+        false;
+
+    try
+    {
+        _ =
+            DroneDashProjectStore.Load(
+                invalidProjectPath);
+    }
+    catch (InvalidDataException)
+    {
+        rejectedEscapingProjectLoad =
+            true;
+    }
+
+    if (!rejectedEscapingProjectLoad)
+    {
+        throw new InvalidDataException(
+            "Project load accepted an escaping relative artifact path.");
+    }
+
+    var concurrentProjectPath =
+        Path.Combine(
+            root,
+            "concurrent-save.ddproj");
+
+    var concurrentA =
+        DroneDashProjectStore.Create(
+            "Concurrent A");
+
+    var concurrentB =
+        concurrentA with
+        {
+            Name =
+                "Concurrent B"
+        };
+
+    await Task.WhenAll(
+        Enumerable.Range(
+                0,
+                32)
+            .Select(index =>
+                Task.Run(() =>
+                    DroneDashProjectStore.Save(
+                        concurrentProjectPath,
+                        index % 2 == 0
+                            ? concurrentA
+                            : concurrentB))));
+
+    var concurrentLoaded =
+        DroneDashProjectStore.Load(
+            concurrentProjectPath);
+
+    if (concurrentLoaded.Name is not
+        ("Concurrent A" or "Concurrent B"))
+    {
+        throw new InvalidDataException(
+            "Concurrent project saves produced an invalid final project.");
+    }
+
+    var staleProjectTemps =
+        Directory.EnumerateFiles(
+                root,
+                "concurrent-save.ddproj.*.tmp",
+                SearchOption.TopDirectoryOnly)
+            .ToArray();
+
+    if (staleProjectTemps.Length != 0)
+    {
+        throw new InvalidDataException(
+            "Concurrent project saves left stale temporary files.");
     }
 
     var kinds =
