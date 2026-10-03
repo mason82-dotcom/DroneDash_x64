@@ -18,7 +18,11 @@ class MainActivity : AppCompatActivity() {
         scheduler.scheduleAtFixedRate({
             val app = application as BridgeApplication
             val status = buildString {
-                append("SDK: ")
+                append("App ID: ")
+                append(BuildConfig.APPLICATION_ID)
+                append("\nDJI App Key: ")
+                append(if (BuildConfig.DJI_API_KEY_CONFIGURED) "konfiguriert" else "FEHLT / CI-Platzhalter")
+                append("\nSDK: ")
                 append(app.djiRuntime.sdkVersion())
                 append("\nPhase: ")
                 append(app.djiRuntime.phase.get())
