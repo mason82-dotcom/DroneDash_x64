@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace DroneDash_x64.Desktop.Project;
 
 internal static class ProjectProcessingState
