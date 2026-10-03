@@ -255,15 +255,4 @@ public partial class FlightPlanningView
 
         return _currentProjectPath;
     }
-
-
-    private static string SafeFileName(string value)
-    {
-        foreach (var c in Path.GetInvalidFileNameChars())
-            value = value.Replace(c, '_');
-
-        return string.IsNullOrWhiteSpace(value)
-            ? "DroneDash_Mapping"
-            : value;
-    }
 }
