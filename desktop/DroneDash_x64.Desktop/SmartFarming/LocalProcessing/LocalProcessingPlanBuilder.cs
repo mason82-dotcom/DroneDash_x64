@@ -138,6 +138,9 @@ public static class LocalProcessingPlanBuilder
             steps,
             [
                 "Diese Pipeline erzeugt co-registrierte Einzelaufnahme-Quicklooks, keine orthorektifizierte Feldkarte.",
+                toolchain.CudaAvailable
+                    ? "NVIDIA CUDA ist verfügbar: OpenCV nutzt CUDA automatisch für Resize und finales Warping; ECC selbst bleibt CPU-basiert."
+                    : "NVIDIA CUDA ist optional. Ohne CUDA-fähigen OpenCV-Build läuft die Registrierung automatisch vollständig auf der CPU.",
                 "Der OpenCV-Worker schreibt registrierte TIFF-Pixel neu; Geo-/XMP-Metadaten dieser Zwischenprodukte sind nicht als Survey-Georeferenzierung zu verwenden.",
                 "Für quantitative Feldkarten folgen später ODM/Photogrammetrie, Orthorektifizierung und optional Reflektanzpanel-Kalibrierung."
             ]);
@@ -163,10 +166,11 @@ public static class LocalProcessingPlanBuilder
                 "--moving", moving.FilePath,
                 "--output", output,
                 "--transform", transform,
-                "--motion", "affine"
+                "--motion", "affine",
+                "--backend", "auto"
             ],
             output,
-            $"{moving.Band} per ECC affin auf NIR co-registrieren."));
+            $"{moving.Band} per ECC affin auf NIR co-registrieren · Backend: {toolchain.OpenCvBackend}."));
     }
 
     private static void AddCorrection(
