@@ -400,15 +400,15 @@ if (fieldPlan.Steps.Count != 4 ||
         step.Arguments.Contains("1")) ||
     !fieldPlan.Steps.All(step =>
         step.Arguments.Contains("--pipeline-depth") &&
-        step.Arguments.Contains("2")) ||
+        step.Arguments.Contains("--tile-size") &&
+        step.Arguments.Count(argument =>
+            argument == "auto") >= 2) ||
     !fieldPlan.Steps.Any(step =>
         step.Id == "odm-ndvi-scouting-zones" &&
-        step.Arguments.Contains("--geo-zones") &&
-        step.Arguments.Contains("--tile-size") &&
-        step.Arguments.Contains("2048")))
+        step.Arguments.Contains("--geo-zones")))
 {
     throw new InvalidDataException(
-        "ODM GDAL/CUDA tile plan does not use the mapped bands, pipeline depth, or zone settings.");
+        "ODM GDAL/CUDA tile plan does not use mapped bands, auto-tuning, or zone settings.");
 }
 
 if (!fakeToolchain.GdalTileEngineAvailable ||
