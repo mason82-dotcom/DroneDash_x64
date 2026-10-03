@@ -66,7 +66,11 @@ engines. None of their native binaries are committed to the repository.
   Green, Red and Red Edge to the NIR band, calculates local NDVI/NDRE/GNDVI through CuPy or NumPy,
   and can process large georeferenced ODM rasters through a windowed GDAL tile pipeline.
 
-The worker is copied into the Windows output as smart-farming/opencv_m3m.py. Local quicklooks
+The worker is copied into the Windows output as smart-farming/opencv_m3m.py together with the
+smart-farming/dronedash_worker package. opencv_m3m.py is only the entry point; the implementation
+is split into modules for probes, backend selection, registration, quicklook indices, GDAL raster
+I/O, tiling/statistics, RAM/VRAM auto-tuning, geospatial products and the CLI/JSONL protocol.
+Both must stay side by side. Local quicklooks
 require Python, OpenCV and NumPy. CUDA vegetation-index acceleration additionally uses CuPy, and
 the georeferenced tile engine uses Python GDAL bindings (osgeo.gdal). DroneDash does not download
 packages or modify the user's Python installation.

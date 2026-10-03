@@ -31,6 +31,9 @@
     <Content Include="SmartFarming\Workers\opencv_m3m.py"
              CopyToOutputDirectory="PreserveNewest"
              Link="smart-farming\opencv_m3m.py" />
+    <Content Include="SmartFarming\Workers\dronedash_worker\*.py"
+             CopyToOutputDirectory="PreserveNewest"
+             Link="smart-farming\dronedash_worker\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup Condition="Exists('third_party\dji-tsdk\runtime\libdirp.dll')">

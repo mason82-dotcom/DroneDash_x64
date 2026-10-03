@@ -5,7 +5,6 @@ Runs without OpenCV, GDAL or CUDA. Used by CI and runnable locally:
     python tests/python/verify_opencv_m3m_worker.py
 """
 
-import importlib.util
 import json
 import pathlib
 import subprocess
@@ -20,6 +19,8 @@ WORKER_PATH = (
     / "Workers"
     / "opencv_m3m.py"
 )
+PACKAGE_PATH = WORKER_PATH.parent / "dronedash_worker"
+sys.path.insert(0, str(WORKER_PATH.parent))
 
 
 def verify_cli_options():
@@ -48,7 +49,10 @@ def verify_cli_options():
 
 
 def verify_cuda_processor_source():
-    source = WORKER_PATH.read_text(encoding="utf-8")
+    source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted(PACKAGE_PATH.glob("*.py"))
+    )
     if ("_CudaIndexProcessor" not in source or
             "_CudaZoneProcessor" not in source or
             "get_current_stream().synchronize" in source):
@@ -73,17 +77,12 @@ def verify_jsonl_protocol():
         raise RuntimeError("Persistent Python worker JSONL protocol failed.")
 
 
-def load_worker():
-    spec = importlib.util.spec_from_file_location(
-        "dronedash_worker", WORKER_PATH
-    )
-    worker = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(worker)
-    return worker
+def verify_pipeline_helpers():
+    # Patches below replace attributes on the package modules for this
+    # process only; the CLI checks run the worker in fresh subprocesses.
+    from dronedash_worker import autotune, backends, raster_io, tiling
 
-
-def verify_pipeline_helpers(worker):
-    windows = list(worker._tile_windows(5, 3, 2))
+    windows = list(tiling._tile_windows(5, 3, 2))
     expected = [
         (0, 0, 2, 2),
         (2, 0, 2, 2),
@@ -96,7 +95,7 @@ def verify_pipeline_helpers(worker):
         raise RuntimeError(f"unexpected tile windows: {windows}")
 
     observed = list(
-        worker._prefetched_tiles(
+        tiling._prefetched_tiles(
             windows,
             lambda window: ("payload", window),
             2,
@@ -125,16 +124,16 @@ def verify_pipeline_helpers(worker):
     fake_band = FakeBand()
     fake_target = FakeTarget()
 
-    worker._create_geotiff_from_profile = (
+    raster_io._create_geotiff_from_profile = (
         lambda *args, **kwargs:
             ("output.tif", "temp.tif", fake_target, fake_band)
     )
-    worker.os.replace = (
+    raster_io.os.replace = (
         lambda source, target:
             replacements.append((source, target))
     )
 
-    writer = worker._AsyncGeoTiffWriter(
+    writer = raster_io._AsyncGeoTiffWriter(
         {"width": 4, "height": 2, "transform": None, "projection": None},
         "output.tif",
         6,
@@ -168,10 +167,10 @@ def verify_pipeline_helpers(worker):
     if replacements != [("temp.tif", "output.tif")]:
         raise RuntimeError("async writer did not atomically publish output")
 
-    worker._system_available_memory_bytes = (
+    autotune._system_available_memory_bytes = (
         lambda: 16 * 1024 ** 3
     )
-    worker._cuda_memory_snapshot = (
+    autotune._cuda_memory_snapshot = (
         lambda backend: {
             "freeBytes": 8 * 1024 ** 3,
             "totalBytes": 12 * 1024 ** 3,
@@ -208,7 +207,7 @@ def verify_pipeline_helpers(worker):
             ),
         }
 
-    tuning = worker._auto_tune_geospatial(
+    tuning = autotune._auto_tune_geospatial(
         "auto",
         "auto",
         12000,
@@ -240,7 +239,7 @@ def verify_pipeline_helpers(worker):
             "pipeline throughput score is missing"
         )
 
-    write_bound_depth = worker._choose_pipeline_depth(
+    write_bound_depth = autotune._choose_pipeline_depth(
         "auto",
         16000,
         16000,
@@ -258,7 +257,7 @@ def verify_pipeline_helpers(worker):
             "write-bound tuning did not increase pipeline depth"
         )
 
-    manual = worker._auto_tune_geospatial(
+    manual = autotune._auto_tune_geospatial(
         "2048",
         "3",
         12000,
@@ -280,7 +279,7 @@ def verify_pipeline_helpers(worker):
             f"manual GDAL tuning override is inconsistent: {manual}"
         )
 
-    safe = worker._safe_tile_candidates(
+    safe = autotune._safe_tile_candidates(
         20000,
         20000,
         "index",
@@ -295,7 +294,7 @@ def verify_pipeline_helpers(worker):
             f"memory guard returned unexpected candidates: {safe}"
         )
 
-    constrained = worker._safe_tile_candidates(
+    constrained = autotune._safe_tile_candidates(
         20000,
         20000,
         "index",
@@ -311,7 +310,7 @@ def verify_pipeline_helpers(worker):
         )
 
     try:
-        worker._safe_tile_candidates(
+        autotune._safe_tile_candidates(
             20000,
             20000,
             "index",
@@ -327,10 +326,10 @@ def verify_pipeline_helpers(worker):
             "memory guard must reject processing when no tile is safe"
         )
 
-    worker._system_available_memory_bytes = (
+    autotune._system_available_memory_bytes = (
         lambda: 1 * 1024 ** 3
     )
-    worker._cuda_memory_snapshot = (
+    autotune._cuda_memory_snapshot = (
         lambda backend: {
             "freeBytes": 512 * 1024 ** 2,
             "totalBytes": 4 * 1024 ** 3,
@@ -338,7 +337,7 @@ def verify_pipeline_helpers(worker):
     )
 
     try:
-        worker._auto_tune_geospatial(
+        autotune._auto_tune_geospatial(
             "4096",
             "2",
             20000,
@@ -354,7 +353,7 @@ def verify_pipeline_helpers(worker):
             "unsafe manual tile override must be rejected"
         )
 
-    benchmark_results = worker._benchmark_tiles(
+    benchmark_results = autotune._benchmark_tiles(
         [512, 1024, 4096],
         benchmark,
     )
@@ -367,26 +366,26 @@ def verify_pipeline_helpers(worker):
         raise RuntimeError(
             "failed CUDA benchmark candidate was not isolated"
         )
-    if worker._choose_benchmark_tile(
+    if autotune._choose_benchmark_tile(
         benchmark_results
     )["tileSize"] != 1024:
         raise RuntimeError(
             "failed large candidate incorrectly forced global fallback"
         )
 
-    if worker._select_compute_backend(
+    if backends._select_compute_backend(
         "cuda", "auto", 999, 1000
     ) != "cpu":
         raise RuntimeError(
             "small auto workload did not stay on CPU"
         )
-    if worker._select_compute_backend(
+    if backends._select_compute_backend(
         "cuda", "auto", 1000, 1000
     ) != "cuda":
         raise RuntimeError(
             "auto workload did not select CUDA at threshold"
         )
-    if worker._select_compute_backend(
+    if backends._select_compute_backend(
         "cuda", "cuda", 1, 1000
     ) != "cuda":
         raise RuntimeError(
@@ -397,7 +396,7 @@ def verify_pipeline_helpers(worker):
 def main():
     verify_cli_options()
     verify_cuda_processor_source()
-    verify_pipeline_helpers(load_worker())
+    verify_pipeline_helpers()
     verify_jsonl_protocol()
     print("Smart Farming worker verification passed.")
 
