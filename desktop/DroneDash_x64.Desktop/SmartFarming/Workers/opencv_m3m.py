@@ -2057,23 +2057,117 @@ def geospatial_zones(args):
         source
     )
 
+    input_band = source.GetRasterBand(1)
+    input_nodata = input_band.GetNoDataValue()
+
+    def benchmark_zones(tile_size):
+        width = min(
+            int(tile_size),
+            source.RasterXSize,
+        )
+        height = min(
+            int(tile_size),
+            source.RasterYSize,
+        )
+
+        read_started = time.perf_counter()
+
+        values = input_band.ReadAsArray(
+            0,
+            0,
+            width,
+            height,
+        )
+
+        if values is None:
+            raise RuntimeError(
+                "GDAL auto-tuning failed to read NDVI sample tile"
+            )
+
+        values = _prepare_source_tile(
+            values,
+            input_nodata,
+            np,
+        )
+
+        read_seconds = (
+            time.perf_counter() - read_started
+        )
+        compute_started = time.perf_counter()
+
+        if backend == "cuda":
+            _zones_cuda(
+                values,
+                thresholds,
+            )
+        else:
+            _zones_cpu(
+                values,
+                thresholds,
+                np,
+            )
+
+        return {
+            "pixels": width * height,
+            "readSeconds": read_seconds,
+            "computeSeconds": (
+                time.perf_counter() -
+                compute_started
+            ),
+        }
+
+    backend_fallback_reason = None
+
+    try:
+        tuning = _auto_tune_geospatial(
+            args.tile_size,
+            args.pipeline_depth,
+            source.RasterXSize,
+            source.RasterYSize,
+            "zones",
+            backend,
+            benchmark_zones,
+        )
+    except Exception as exc:
+        if (
+            backend == "cuda"
+            and args.backend == "auto"
+        ):
+            backend = "cpu"
+            backend_fallback_reason = (
+                "CUDA auto-tuning failed; "
+                f"CPU fallback selected: {exc}"
+            )
+            tuning = _auto_tune_geospatial(
+                args.tile_size,
+                args.pipeline_depth,
+                source.RasterXSize,
+                source.RasterYSize,
+                "zones",
+                backend,
+                benchmark_zones,
+            )
+        else:
+            raise
+
+    tile_size = int(
+        tuning["tileSize"]
+    )
+    pipeline_depth = int(
+        tuning["pipelineDepth"]
+    )
+
     writer = _AsyncGeoTiffWriter(
         profile,
         args.output,
         gdal.GDT_Byte,
         0,
         "NDVI_SCOUTING_ZONES",
-        args.pipeline_depth,
+        pipeline_depth,
     )
 
+    processing_started_at = time.perf_counter()
     absolute_output = None
-    tile_size = max(
-        128,
-        min(
-            int(args.tile_size),
-            8192,
-        ),
-    )
     tiles = 0
     counts = [0, 0, 0, 0, 0]
 
@@ -2136,7 +2230,7 @@ def geospatial_zones(args):
         ) in _prefetched_tiles(
             windows,
             read_zone_tile,
-            args.pipeline_depth,
+            pipeline_depth,
         ):
             if backend == "cuda":
                 try:
@@ -2181,6 +2275,11 @@ def geospatial_zones(args):
             time.perf_counter() - started_at,
             1e-9,
         )
+        processing_elapsed_seconds = max(
+            time.perf_counter() -
+            processing_started_at,
+            1e-9,
+        )
 
         metadata = {
             "schemaVersion": 1,
@@ -2190,22 +2289,22 @@ def geospatial_zones(args):
             "width": int(source.RasterXSize),
             "height": int(source.RasterYSize),
             "tileSize": tile_size,
-            "pipelineDepth": max(
-                1,
-                min(
-                    int(args.pipeline_depth),
-                    4,
-                ),
-            ),
+            "pipelineDepth": pipeline_depth,
+            "tuning": tuning,
             "readAheadEnabled": True,
             "asyncWriteEnabled": True,
             "tilesProcessed": tiles,
             "elapsedSeconds": elapsed_seconds,
-            "tilesPerSecond": tiles / elapsed_seconds,
+            "processingElapsedSeconds":
+                processing_elapsed_seconds,
+            "tilesPerSecond":
+                tiles / processing_elapsed_seconds,
             "thresholds": thresholds,
             "zonePixelCounts": counts,
             "backendRequested": args.backend,
             "backendUsed": backend,
+            "backendFallbackReason":
+                backend_fallback_reason,
             "gdalVersion": gdal.VersionInfo(
                 "RELEASE_NAME"
             ),
