@@ -12,14 +12,71 @@ public static class DjiWpmlExporter
 
     public static void ExportKmz(string path, FlightPlanResult plan)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(plan);
 
-        using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
-        using var archive = new ZipArchive(stream, ZipArchiveMode.Create);
+        ValidatePlanForExport(plan);
 
-        WriteXml(archive, "wpmz/template.kml", BuildTemplate(plan));
-        WriteXml(archive, "wpmz/waylines.wpml", BuildWaylines(plan));
-        archive.CreateEntry("wpmz/res/");
+        var fullPath =
+            Path.GetFullPath(path);
+
+        Directory.CreateDirectory(
+            Path.GetDirectoryName(fullPath)!);
+
+        var tempPath =
+            fullPath +
+            "." +
+            Guid.NewGuid().ToString("N") +
+            ".tmp";
+
+        try
+        {
+            using (var stream = new FileStream(
+                tempPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None))
+            {
+                using (var archive = new ZipArchive(
+                    stream,
+                    ZipArchiveMode.Create,
+                    leaveOpen: true))
+                {
+                    WriteXml(
+                        archive,
+                        "wpmz/template.kml",
+                        BuildTemplate(plan));
+
+                    WriteXml(
+                        archive,
+                        "wpmz/waylines.wpml",
+                        BuildWaylines(plan));
+
+                    archive.CreateEntry(
+                        "wpmz/res/");
+                }
+
+                stream.Flush(
+                    flushToDisk: true);
+            }
+
+            File.Move(
+                tempPath,
+                fullPath,
+                overwrite: true);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(tempPath))
+                    File.Delete(tempPath);
+            }
+            catch
+            {
+                // Cleanup must not hide the export result.
+            }
+        }
     }
 
     public static XDocument BuildTemplate(FlightPlanResult plan)
@@ -66,6 +123,114 @@ public static class DjiWpmlExporter
                 new XAttribute(XNamespace.Xmlns + "wpml", Wpml),
                 document));
     }
+
+    private static void ValidatePlanForExport(
+        FlightPlanResult plan)
+    {
+        var minimumGeometryPoints =
+            plan.Settings.Mode ==
+                FlightPlanMode.MappingStrip
+                ? 2
+                : 3;
+
+        if (plan.Geometry.Count <
+            minimumGeometryPoints)
+        {
+            throw new InvalidDataException(
+                $"Flugplan enthält zu wenig Geometriepunkte für {plan.Settings.Mode}.");
+        }
+
+        if (plan.Geometry.Any(point =>
+                !ValidCoordinate(point)))
+        {
+            throw new InvalidDataException(
+                "Flugplan enthält ungültige oder nicht-endliche WGS84-Koordinaten.");
+        }
+
+        if (!double.IsFinite(
+                plan.PhotoSpacingMeters) ||
+            plan.PhotoSpacingMeters <= 0)
+        {
+            throw new InvalidDataException(
+                "Flugplan enthält keinen gültigen Fotoabstand.");
+        }
+
+        if (!double.IsFinite(
+                plan.Settings.AltitudeMeters) ||
+            plan.Settings.AltitudeMeters <= 0 ||
+            !double.IsFinite(
+                plan.Settings.SpeedMetersPerSecond) ||
+            plan.Settings.SpeedMetersPerSecond <= 0)
+        {
+            throw new InvalidDataException(
+                "Flugplan enthält keine gültige Höhe oder Geschwindigkeit.");
+        }
+
+        if (plan.Passes.Count == 0)
+        {
+            throw new InvalidDataException(
+                "Flugplan enthält keine ausführbaren Waylines.");
+        }
+
+        var waylineIds =
+            new HashSet<int>();
+
+        long waypointCount = 0;
+
+        foreach (var pass in plan.Passes)
+        {
+            if (pass.WaylineId < 0 ||
+                !waylineIds.Add(
+                    pass.WaylineId))
+            {
+                throw new InvalidDataException(
+                    $"Ungültige oder doppelte Wayline-ID {pass.WaylineId}.");
+            }
+
+            if (pass.Segments.Count == 0)
+            {
+                throw new InvalidDataException(
+                    $"Wayline {pass.WaylineId} enthält keine Segmente.");
+            }
+
+            foreach (var segment in pass.Segments)
+            {
+                if (!ValidCoordinate(
+                        segment.Start) ||
+                    !ValidCoordinate(
+                        segment.End) ||
+                    !double.IsFinite(
+                        segment.LengthMeters) ||
+                    segment.LengthMeters <= 0)
+                {
+                    throw new InvalidDataException(
+                        $"Wayline {pass.WaylineId} enthält ein ungültiges Segment.");
+                }
+            }
+
+            waypointCount +=
+                checked(
+                    (long)pass.Segments.Count *
+                    2L);
+        }
+
+        if (waypointCount > 65_535)
+        {
+            throw new InvalidDataException(
+                $"Flugplan enthält zu viele Waypoints für WPML: {waypointCount:N0}.");
+        }
+    }
+
+    private static bool ValidCoordinate(
+        GeoPoint point) =>
+        double.IsFinite(
+            point.Latitude) &&
+        double.IsFinite(
+            point.Longitude) &&
+        point.Latitude is
+            >= -90 and <= 90 &&
+        point.Longitude is
+            >= -180 and <= 180;
 
     private static XElement CoordinateSystem(FlightPlanSettings settings)
     {
