@@ -27,7 +27,7 @@ public static class PvInspectionReportExporter
         html.AppendLine("</style></head><body>");
         html.AppendLine("<h1>DroneDash PV-Analyse</h1>");
         html.AppendLine($"<p>Erstellt: {WebUtility.HtmlEncode(DateTimeOffset.Now.ToString("G"))}</p>");
-        html.AppendLine("<div class=\"note\">Thermische Anomalie-Kandidaten sind keine automatische elektrische Fehlerdiagnose. Ergebnisse müssen mit Anlagenzustand, Einstrahlung, Reflexion, Verschattung und Betriebsbedingungen fachlich verifiziert werden.</div>");
+        html.AppendLine("<div class=\"note\">Thermische Anomalie-Kandidaten sind keine automatische elektrische Fehlerdiagnose. Ergebnisse müssen mit Anlagenzustand, Einstrahlung, Reflexion, Verschattung und Betriebsbedingungen fachlich verifiziert werden. Flächenangaben sind Pixel²; eine physische Fläche in m² erfordert eine belastbare GSD/Geometrie.</div>");
 
         html.AppendLine("<h2>Zusammenfassung</h2><ul>");
         html.AppendLine($"<li>Quelle: {H(dataset.SourceFolder)}</li>");
