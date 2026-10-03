@@ -66,8 +66,30 @@ Version 0.2 hardens the bridge and build path:
 - Kotlin: **2.1.0**
 - Gradle: **8.12**
 - Java: **17**
-- Windows desktop: **.NET 10 / WPF**
+- Windows desktop: **.NET 10 / WPF / win-x64**
 - NVIDIA CUDA (optional Smart Farming acceleration): **13.4.x target**, CPU fallback retained
+
+## Windows x64 target
+
+The desktop application now targets Windows x64 explicitly: `RuntimeIdentifier=win-x64`,
+`PlatformTarget=x64` and `Prefer32Bit=false`. This keeps the WPF process aligned with optional
+native x64 dependencies such as DJI Thermal SDK, GDAL/OpenCV/CUDA and Orfeo ToolBox.
+
+Create and validate a framework-dependent x64 package with:
+
+```powershell
+.\scripts\publish-windows-x64.ps1 -Configuration Release -Clean
+```
+
+For a self-contained .NET 10 package:
+
+```powershell
+.\scripts\publish-windows-x64.ps1 -Configuration Release -SelfContained -Clean
+```
+
+The publish script verifies that the produced apphost is AMD64 (`PE Machine 0x8664`) and that the
+planning/PV HTML assets and Smart Farming Python worker are present. CI performs the same check and
+uploads a `DroneDash_x64-win-x64` workflow artifact. See `docs/WINDOWS_X64.md`.
 
 ## Local environment check
 
