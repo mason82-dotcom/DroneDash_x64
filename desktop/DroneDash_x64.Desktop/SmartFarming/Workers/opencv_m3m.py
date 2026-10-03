@@ -701,7 +701,34 @@ def _write_json(path, payload):
             pass
 
 
-def _create_geotiff(source, output, data_type, nodata, description):
+def _gdal_profile(source):
+    try:
+        transform = source.GetGeoTransform(
+            can_return_null=True
+        )
+    except TypeError:
+        try:
+            transform = source.GetGeoTransform()
+        except Exception:
+            transform = None
+
+    projection = source.GetProjection()
+
+    return {
+        "width": int(source.RasterXSize),
+        "height": int(source.RasterYSize),
+        "transform": transform,
+        "projection": projection or None,
+    }
+
+
+def _create_geotiff_from_profile(
+    profile,
+    output,
+    data_type,
+    nodata,
+    description,
+):
     from osgeo import gdal
 
     driver = gdal.GetDriverByName("GTiff")
@@ -723,8 +750,8 @@ def _create_geotiff(source, output, data_type, nodata, description):
 
     target = driver.Create(
         temp,
-        source.RasterXSize,
-        source.RasterYSize,
+        profile["width"],
+        profile["height"],
         1,
         data_type,
         options=[
@@ -741,10 +768,15 @@ def _create_geotiff(source, output, data_type, nodata, description):
             f"GDAL failed to create output: {temp}"
         )
 
-    _copy_gdal_georeference(
-        source,
-        target,
-    )
+    if profile["transform"] is not None:
+        target.SetGeoTransform(
+            profile["transform"]
+        )
+
+    if profile["projection"]:
+        target.SetProjection(
+            profile["projection"]
+        )
 
     band = target.GetRasterBand(1)
     band.SetNoDataValue(nodata)
@@ -752,6 +784,163 @@ def _create_geotiff(source, output, data_type, nodata, description):
 
     return absolute_output, temp, target, band
 
+
+class _AsyncGeoTiffWriter:
+    def __init__(
+        self,
+        profile,
+        output,
+        data_type,
+        nodata,
+        description,
+        pipeline_depth,
+    ):
+        from concurrent.futures import ThreadPoolExecutor
+
+        self._profile = profile
+        self._output = output
+        self._data_type = data_type
+        self._nodata = nodata
+        self._description = description
+        self._depth = max(
+            1,
+            min(
+                int(pipeline_depth),
+                4,
+            ),
+        )
+        self._executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="dronedash-gdal-write",
+        )
+        self._pending = []
+        self._state = {}
+        self._finished = False
+
+    def _ensure_open(self):
+        if "target" in self._state:
+            return
+
+        (
+            absolute_output,
+            temp,
+            target,
+            band,
+        ) = _create_geotiff_from_profile(
+            self._profile,
+            self._output,
+            self._data_type,
+            self._nodata,
+            self._description,
+        )
+
+        self._state.update(
+            {
+                "absoluteOutput": absolute_output,
+                "temp": temp,
+                "target": target,
+                "band": band,
+            }
+        )
+
+    def _write(self, window, values):
+        self._ensure_open()
+
+        x, y, _, _ = window
+        self._state["band"].WriteArray(
+            values,
+            x,
+            y,
+        )
+
+    def submit(self, window, values):
+        if self._finished:
+            raise RuntimeError(
+                "cannot submit a tile after writer finalization"
+            )
+
+        if len(self._pending) >= self._depth:
+            self._pending.pop(0).result()
+
+        self._pending.append(
+            self._executor.submit(
+                self._write,
+                window,
+                values,
+            )
+        )
+
+    def _finish_on_writer(self):
+        self._ensure_open()
+
+        self._state["band"] = None
+        self._state["target"].FlushCache()
+        self._state["target"] = None
+
+        os.replace(
+            self._state["temp"],
+            self._state["absoluteOutput"],
+        )
+
+        self._state["temp"] = None
+        return self._state["absoluteOutput"]
+
+    def finish(self):
+        if self._finished:
+            return self._state.get(
+                "absoluteOutput"
+            )
+
+        try:
+            for future in self._pending:
+                future.result()
+
+            self._pending.clear()
+
+            result = self._executor.submit(
+                self._finish_on_writer
+            ).result()
+
+            self._finished = True
+            return result
+        finally:
+            if self._finished:
+                self._executor.shutdown(
+                    wait=True,
+                    cancel_futures=True,
+                )
+
+    def _abort_on_writer(self):
+        self._state["band"] = None
+        self._state["target"] = None
+        _cleanup_temp(
+            self._state.get("temp")
+        )
+        self._state["temp"] = None
+
+    def abort(self):
+        if self._finished:
+            return
+
+        for future in self._pending:
+            future.cancel()
+
+        self._pending.clear()
+
+        try:
+            self._executor.submit(
+                self._abort_on_writer
+            ).result()
+        except Exception:
+            _cleanup_temp(
+                self._state.get("temp")
+            )
+        finally:
+            self._executor.shutdown(
+                wait=True,
+                cancel_futures=True,
+            )
+            self._finished = True
 
 def _cleanup_temp(path):
     try:
@@ -907,9 +1096,20 @@ def geospatial_index(args):
         args.backend
     )
 
+    profile = _gdal_profile(
+        source
+    )
+
+    writer = _AsyncGeoTiffWriter(
+        profile,
+        args.output,
+        gdal.GDT_Float32,
+        float("nan"),
+        args.index_type.upper(),
+        args.pipeline_depth,
+    )
+
     absolute_output = None
-    temp = None
-    target = None
 
     stats = {
         "count": 0,
@@ -929,19 +1129,6 @@ def geospatial_index(args):
     )
 
     try:
-        (
-            absolute_output,
-            temp,
-            target,
-            output_band,
-        ) = _create_geotiff(
-            source,
-            args.output,
-            gdal.GDT_Float32,
-            float("nan"),
-            args.index_type.upper(),
-        )
-
         reader_state = {}
 
         def read_index_tile(window):
@@ -1055,10 +1242,9 @@ def geospatial_index(args):
                     np,
                 )
 
-            output_band.WriteArray(
+            writer.submit(
+                (x, y, width, height),
                 values,
-                x,
-                y,
             )
 
             _update_stats(
@@ -1073,22 +1259,8 @@ def geospatial_index(args):
             stats
         )
 
-        output_band.SetStatistics(
-            final_stats["minimum"],
-            final_stats["maximum"],
-            final_stats["average"],
-            final_stats["standardDeviation"],
-        )
-
-        output_band = None
-        target.FlushCache()
-        target = None
-
-        os.replace(
-            temp,
-            absolute_output,
-        )
-        temp = None
+        absolute_output =
+            writer.finish()
 
         metadata = {
             "schemaVersion": 1,
@@ -1140,10 +1312,7 @@ def geospatial_index(args):
         )
     finally:
         source = None
-        target = None
-        _cleanup_temp(
-            temp
-        )
+        writer.abort()
 
 
 def _zones_cpu(values, thresholds, np):
@@ -1263,9 +1432,20 @@ def geospatial_zones(args):
         args.backend
     )
 
+    profile = _gdal_profile(
+        source
+    )
+
+    writer = _AsyncGeoTiffWriter(
+        profile,
+        args.output,
+        gdal.GDT_Byte,
+        0,
+        "NDVI_SCOUTING_ZONES",
+        args.pipeline_depth,
+    )
+
     absolute_output = None
-    temp = None
-    target = None
     tile_size = max(
         128,
         min(
@@ -1277,19 +1457,6 @@ def geospatial_zones(args):
     counts = [0, 0, 0, 0, 0]
 
     try:
-        (
-            absolute_output,
-            temp,
-            target,
-            output_band,
-        ) = _create_geotiff(
-            source,
-            args.output,
-            gdal.GDT_Byte,
-            0,
-            "NDVI_SCOUTING_ZONES",
-        )
-
         reader_state = {}
 
         def read_zone_tile(window):
@@ -1373,10 +1540,9 @@ def geospatial_zones(args):
                     np,
                 )
 
-            output_band.WriteArray(
+            writer.submit(
+                (x, y, width, height),
                 zones,
-                x,
-                y,
             )
 
             for zone in range(1, 6):
@@ -1388,15 +1554,8 @@ def geospatial_zones(args):
 
             tiles += 1
 
-        output_band = None
-        target.FlushCache()
-        target = None
-
-        os.replace(
-            temp,
-            absolute_output,
-        )
-        temp = None
+        absolute_output =
+            writer.finish()
 
         metadata = {
             "schemaVersion": 1,
@@ -1445,10 +1604,7 @@ def geospatial_zones(args):
         )
     finally:
         source = None
-        target = None
-        _cleanup_temp(
-            temp
-        )
+        writer.abort()
 
 
 def main():
