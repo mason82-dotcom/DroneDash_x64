@@ -391,8 +391,20 @@ GeoTIFF) opens the model on a Leaflet map over OpenStreetMap or Esri satellite i
 - previews are reused until the model changes; rendering needs Python with GDAL bindings and NumPy
   (set `DRONEDASH_PYTHON`, e.g. OSGeo4W or conda).
 
-A 3D point-cloud viewer, profile/volume/canopy-height analysis and terrain checks for flight
-planning build on these products in later steps.
+**Punktwolke 3D** (or *Punktwolke (LAS/LAZ) öffnen …*) shows the georeferenced point cloud in a
+three.js viewer inside the app:
+
+- the worker's `--pointcloud-preview` mode reads LAS/LAZ/COPC in chunks with `laspy` (LAZ via
+  `lazrs`), keeps every n-th point up to a budget of 3 million and writes centre-relative float32
+  positions (float64 → float32 after subtracting the centre, so UTM coordinates keep sub-millimetre
+  precision), 8-bit colours and ASPRS classes to `<cloud>.viewer/`;
+- the viewer is Z-up with orbit/pan/zoom, colours by photo RGB, height or classification (with
+  legend), adjustable point size, and shows the absolute X/Y/Z and class of a clicked point;
+- point colours are drawn verbatim (no sRGB→linear brightening); previews are reused until the
+  cloud changes. Requires `pip install "laspy[lazrs]"` in the configured Python.
+
+Profile/volume/canopy-height analysis and terrain checks for flight planning build on these
+products in later steps.
 
 ## PV analysis
 

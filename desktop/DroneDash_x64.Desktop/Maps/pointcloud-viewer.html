@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+html,body{height:100%;margin:0;overflow:hidden;background:#101318;font-family:Segoe UI,Arial,sans-serif;color:#fff}
+#view{position:absolute;inset:0}
+.panel{position:absolute;z-index:10;background:rgba(20,24,30,.9);padding:9px 12px;border-radius:5px;font-size:13px;line-height:1.5}
+#controls{top:10px;left:10px;min-width:230px}
+#controls label{display:block;margin-top:6px}
+#controls select,#controls input[type=range]{width:100%}
+#controls button{margin-top:8px;width:100%}
+#info{bottom:10px;left:10px;white-space:pre-line}
+#pick{top:10px;right:10px;display:none}
+#legend{bottom:10px;right:10px;display:none}
+#legend span{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+#status{top:50%;left:50%;transform:translate(-50%,-50%)}
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="view"></div>
+<div id="status" class="panel">Punktwolke wird geladen …</div>
+<div id="controls" class="panel" style="display:none">
+  <b id="title">Punktwolke</b>
+  <label>Einfärbung
+    <select id="colorMode"></select>
+  </label>
+  <label>Punktgröße <span id="sizeValue">2 px</span>
+    <input id="pointSize" type="range" min="1" max="8" step="0.5" value="2">
+  </label>
+  <button id="reset" type="button">Ansicht zurücksetzen</button>
+</div>
+<div id="info" class="panel" style="display:none"></div>
+<div id="pick" class="panel"></div>
+<div id="legend" class="panel"></div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const RAMP=[[0,[38,115,77]],[.2,[104,166,87]],[.4,[209,204,112]],[.6,[196,145,82]],[.8,[150,110,90]],[1,[245,245,245]]];
+// ASPRS LAS classes
+const CLASSES={0:['Nie klassifiziert',[160,160,160]],1:['Unklassifiziert',[170,170,170]],2:['Boden',[166,124,82]],
+  3:['Niedrige Vegetation',[134,196,96]],4:['Mittlere Vegetation',[76,160,60]],5:['Hohe Vegetation',[30,110,40]],
+  6:['Gebäude',[220,90,60]],7:['Rauschen',[255,0,255]],9:['Wasser',[60,120,220]],17:['Brücke',[240,200,80]]};
+
+const statusBox=document.getElementById('status');
+const fmt=(v,d)=>v.toLocaleString('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d});
+const post=m=>window.chrome.webview.postMessage(m);
+
+// Point colours are already sRGB photo colours: draw them verbatim instead of
+// treating them as linear and brightening them on output.
+THREE.ColorManagement.enabled=false;
+
+const container=document.getElementById('view');
+const renderer=new THREE.WebGLRenderer({antialias:false,preserveDrawingBuffer:true});
+renderer.outputColorSpace=THREE.LinearSRGBColorSpace;
+renderer.setPixelRatio(window.devicePixelRatio);
+container.appendChild(renderer.domElement);
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x101318);
+const camera=new THREE.PerspectiveCamera(55,1,0.1,100000);
+camera.up.set(0,0,1);   // survey convention: Z up
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.screenSpacePanning=true;
+
+let cloud=null, state=null;
+const render=()=>renderer.render(scene,camera);
+controls.addEventListener('change',render);
+
+function resize(){
+  const w=container.clientWidth, h=container.clientHeight;
+  renderer.setSize(w,h); camera.aspect=w/Math.max(h,1); camera.updateProjectionMatrix(); render();
+}
+window.addEventListener('resize',resize);
+
+async function fetchBytes(url, expected){
+  const response=await fetch(url);
+  if(!response.ok) throw new Error(`HTTP ${response.status} für ${url}`);
+  const buffer=await response.arrayBuffer();
+  if(buffer.byteLength!==expected) throw new Error(`Datei ${url} hat ${buffer.byteLength} statt ${expected} Bytes`);
+  return buffer;
+}
+
+function readFloats(buffer){
+  // Little-endian float32, read explicitly so byte order never depends on the host.
+  const view=new DataView(buffer), out=new Float32Array(buffer.byteLength/4);
+  for(let i=0;i<out.length;i++) out[i]=view.getFloat32(i*4,true);
+  return out;
+}
+
+function rampColor(t,target,offset){
+  t=Math.min(1,Math.max(0,t));
+  for(let i=1;i<RAMP.length;i++){
+    if(t<=RAMP[i][0]){
+      const [p0,c0]=RAMP[i-1],[p1,c1]=RAMP[i], f=(t-p0)/(p1-p0);
+      for(let k=0;k<3;k++) target[offset+k]=c0[k]+(c1[k]-c0[k])*f;
+      return;
+    }
+  }
+}
+
+function buildColors(mode){
+  const n=state.count, out=new Uint8Array(n*3);
+  if(mode==='rgb'){ out.set(state.rgb); return out; }
+  if(mode==='class'){
+    for(let i=0;i<n;i++){ const c=(CLASSES[state.cls[i]]||['',[255,255,255]])[1]; out[i*3]=c[0]; out[i*3+1]=c[1]; out[i*3+2]=c[2]; }
+    return out;
+  }
+  const lo=state.zLow, span=Math.max(state.zHigh-lo,1e-6), tmp=[0,0,0];
+  for(let i=0;i<n;i++){ rampColor((state.pos[i*3+2]-lo)/span,tmp,0); out[i*3]=tmp[0]; out[i*3+1]=tmp[1]; out[i*3+2]=tmp[2]; }
+  return out;
+}
+
+function percentileZ(pos,count,p){
+  const step=Math.max(1,Math.floor(count/200000)), zs=[];
+  for(let i=0;i<count;i+=step) zs.push(pos[i*3+2]);
+  zs.sort((a,b)=>a-b);
+  return zs[Math.min(zs.length-1,Math.floor(p*(zs.length-1)))];
+}
+
+function applyColors(){
+  const mode=document.getElementById('colorMode').value;
+  cloud.geometry.setAttribute('color',new THREE.BufferAttribute(buildColors(mode),3,true));
+  const legend=document.getElementById('legend');
+  if(mode==='class'){
+    legend.replaceChildren(...state.classes.map(c=>{
+      const row=document.createElement('div'), sw=document.createElement('span');
+      const [name,rgb]=CLASSES[c]||[`Klasse ${c}`,[255,255,255]];
+      sw.style.background=`rgb(${rgb.join(',')})`; row.append(sw,document.createTextNode(`${c} · ${name}`));
+      return row;
+    }));
+    legend.style.display='block';
+  } else if(mode==='height'){
+    legend.textContent=`Höhe ${fmt(state.center[2]+state.zLow,1)} – ${fmt(state.center[2]+state.zHigh,1)} m`;
+    legend.style.display='block';
+  } else legend.style.display='none';
+  render();
+}
+
+function resetView(){
+  const p=state.preview, ext=Math.max(p.max[0]-p.min[0],p.max[1]-p.min[1],1);
+  const cx=(p.min[0]+p.max[0])/2, cy=(p.min[1]+p.max[1])/2, cz=(p.min[2]+p.max[2])/2;
+  controls.target.set(cx,cy,cz);
+  camera.position.set(cx+ext*.6,cy-ext*.9,cz+ext*.7);
+  camera.near=ext/5000; camera.far=ext*50; camera.updateProjectionMatrix();
+  controls.update(); render();
+}
+
+async function load(m){
+  const p=m.preview;
+  try{
+    const n=p.points;
+    const pos=readFloats(await fetchBytes(m.urls.positions,n*12));
+    const rgb=m.urls.colors?new Uint8Array(await fetchBytes(m.urls.colors,n*3)):null;
+    const cls=m.urls.classification?new Uint8Array(await fetchBytes(m.urls.classification,n)):null;
+
+    if(cloud){ scene.remove(cloud); cloud.geometry.dispose(); cloud.material.dispose(); }
+    const geometry=new THREE.BufferGeometry();
+    geometry.setAttribute('position',new THREE.BufferAttribute(pos,3));
+    geometry.computeBoundingSphere();
+    const material=new THREE.PointsMaterial({size:2,sizeAttenuation:false,vertexColors:true});
+    cloud=new THREE.Points(geometry,material);
+    scene.add(cloud);
+
+    state={preview:p,count:n,pos,rgb,cls,center:p.center,classes:p.classes||[],
+      zLow:percentileZ(pos,n,.02),zHigh:percentileZ(pos,n,.98)};
+
+    const select=document.getElementById('colorMode');
+    select.replaceChildren();
+    const modes=[];
+    if(rgb) modes.push(['rgb','RGB (Foto)']);
+    modes.push(['height','Höhe']);
+    if(cls && state.classes.length) modes.push(['class','Klassifikation']);
+    for(const [value,label] of modes){ const o=document.createElement('option'); o.value=value; o.textContent=label; select.append(o); }
+
+    document.getElementById('title').textContent=m.title||'Punktwolke';
+    const size=[p.max[0]-p.min[0],p.max[1]-p.min[1],p.max[2]-p.min[2]];
+    document.getElementById('info').textContent=
+      `${fmt(n,0)} von ${fmt(p.totalPoints,0)} Punkten`+(p.stride>1?` (jeder ${p.stride}.)`:'')+
+      `\nAusdehnung ${fmt(size[0],1)} × ${fmt(size[1],1)} m, Höhe ${fmt(size[2],1)} m`+
+      `\nLAS ${p.lasVersion} · Punktformat ${p.pointFormat}`+(p.sourceCrs?` · ${p.sourceCrs}`:'');
+
+    for(const id of ['controls','info']) document.getElementById(id).style.display='block';
+    statusBox.style.display='none';
+    resize(); applyColors(); resetView();
+    post({type:'loaded'});
+  }catch(err){
+    statusBox.textContent='Punktwolke konnte nicht geladen werden: '+err.message;
+    statusBox.style.display='block';
+    post({type:'error',message:String(err.message)});
+  }
+}
+
+document.getElementById('colorMode').addEventListener('change',applyColors);
+document.getElementById('pointSize').addEventListener('input',e=>{
+  cloud.material.size=Number(e.target.value);
+  document.getElementById('sizeValue').textContent=`${e.target.value} px`;
+  render();
+});
+document.getElementById('reset').addEventListener('click',resetView);
+
+// Click a point to show its absolute coordinates.
+const raycaster=new THREE.Raycaster(), pointer=new THREE.Vector2();
+let downAt=null;
+renderer.domElement.addEventListener('pointerdown',e=>{ downAt=[e.clientX,e.clientY]; });
+renderer.domElement.addEventListener('pointerup',e=>{
+  if(!cloud || !downAt || Math.hypot(e.clientX-downAt[0],e.clientY-downAt[1])>4) return;
+  const rect=renderer.domElement.getBoundingClientRect();
+  pointer.set((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);
+  raycaster.setFromCamera(pointer,camera);
+  // Pick radius ~ 6 px at the target distance.
+  const distance=camera.position.distanceTo(controls.target);
+  raycaster.params.Points.threshold=distance*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*2/rect.height*6;
+  const hit=raycaster.intersectObject(cloud)[0];
+  const box=document.getElementById('pick');
+  if(!hit){ box.style.display='none'; return; }
+  const i=hit.index, c=state.center;
+  const x=c[0]+state.pos[i*3], y=c[1]+state.pos[i*3+1], z=c[2]+state.pos[i*3+2];
+  let text=`Punkt\nX ${fmt(x,3)}\nY ${fmt(y,3)}\nZ ${fmt(z,3)} m`;
+  if(state.cls){ const k=state.cls[i]; text+=`\nKlasse ${k} · ${(CLASSES[k]||['?'])[0]}`; }
+  box.style.whiteSpace='pre-line'; box.textContent=text; box.style.display='block';
+  post({type:'picked',x,y,z,index:i});
+});
+
+window.chrome.webview.addEventListener('message',e=>{ const m=e.data||{}; if(m.type==='load') load(m); });
+resize();
+post({type:'ready'});
+</script>
+</body>
+</html>

@@ -50,6 +50,92 @@ public partial class PhotogrammetryWorkspaceView
         await ShowElevationModelAsync(dialog.FileName, title);
     }
 
+    private async Task<LocalImageToolchainStatus> RequireToolchainAsync(bool requireGdal)
+    {
+        OdmStatusText.Text = "Python-Toolchain wird geprüft …";
+        _toolchain ??= await LocalImageToolchain.ProbeAsync();
+
+        if (_toolchain.PythonExecutable is null)
+        {
+            throw new InvalidOperationException(
+                "Kein Python gefunden. Python über DRONEDASH_PYTHON festlegen (z. B. OSGeo4W oder conda).");
+        }
+
+        if (requireGdal && !_toolchain.GdalPythonAvailable)
+        {
+            throw new InvalidOperationException(
+                "Für die Höhenmodell-Darstellung wird Python mit GDAL-Bindings (osgeo.gdal) und NumPy benötigt. " +
+                "Python über DRONEDASH_PYTHON festlegen und z. B. per OSGeo4W oder conda installieren.");
+        }
+
+        return _toolchain;
+    }
+
+    private async void ShowPointCloud_Click(object sender, RoutedEventArgs e)
+    {
+        if (_odmProducts?.PointCloudPath is { } path)
+            await ShowPointCloudAsync(path);
+    }
+
+    private async void OpenPointCloud_Click(object sender, RoutedEventArgs e)
+    {
+        using var dialog = new WinForms.OpenFileDialog
+        {
+            Title = "Punktwolke öffnen",
+            Filter = "Punktwolke (*.laz;*.las)|*.laz;*.las|Alle Dateien (*.*)|*.*",
+            CheckFileExists = true,
+            InitialDirectory =
+                ProjectWorkspaceLayout.TryGetActiveFolder(ProjectWorkspaceFolder.PhotogrammetryResults) ??
+                ProjectWorkspaceLayout.TryGetActiveFolder(ProjectWorkspaceFolder.PhotogrammetryProcessing) ??
+                ""
+        };
+
+        if (dialog.ShowDialog() == WinForms.DialogResult.OK)
+            await ShowPointCloudAsync(dialog.FileName);
+    }
+
+    private async Task ShowPointCloudAsync(string cloudPath)
+    {
+        if (_elevationBusy)
+            return;
+
+        _elevationBusy = true;
+        OdmProgress.IsIndeterminate = true;
+
+        try
+        {
+            var preview = PointCloudPreviewService.TryLoadCached(cloudPath);
+
+            if (preview is null)
+            {
+                var toolchain = await RequireToolchainAsync(requireGdal: false);
+                OdmStatusText.Text = $"Punktwolke wird für den 3D-Viewer aufbereitet: {cloudPath}";
+                preview = await PointCloudPreviewService.RenderAsync(
+                    toolchain.PythonExecutable!,
+                    toolchain.OpenCvWorkerPath,
+                    cloudPath);
+            }
+
+            OdmStatusText.Text =
+                $"Punktwolke: {preview.Points:N0} von {preview.TotalPoints:N0} Punkten" +
+                (preview.Stride > 1 ? $" (jeder {preview.Stride}.)" : "");
+
+            new PointCloudViewerWindow(preview, PointCloudPreviewService.PreviewFolderFor(cloudPath), Path.GetFileName(cloudPath))
+            {
+                Owner = Window.GetWindow(this)
+            }.Show();
+        }
+        catch (Exception ex)
+        {
+            OdmStatusText.Text = $"Punktwolke kann nicht angezeigt werden: {ex.Message}";
+        }
+        finally
+        {
+            OdmProgress.IsIndeterminate = false;
+            _elevationBusy = false;
+        }
+    }
+
     private async Task ShowElevationModelAsync(string demPath, string title)
     {
         if (_elevationBusy)
@@ -64,20 +150,12 @@ public partial class PhotogrammetryWorkspaceView
 
             if (preview is null)
             {
-                OdmStatusText.Text = "Python/GDAL-Toolchain wird geprüft …";
-                _toolchain ??= await LocalImageToolchain.ProbeAsync();
-
-                if (_toolchain.PythonExecutable is null || !_toolchain.GdalPythonAvailable)
-                {
-                    throw new InvalidOperationException(
-                        "Für die Höhenmodell-Darstellung wird Python mit GDAL-Bindings (osgeo.gdal) und NumPy benötigt. " +
-                        "Python über DRONEDASH_PYTHON festlegen und z. B. per OSGeo4W oder conda installieren.");
-                }
+                var toolchain = await RequireToolchainAsync(requireGdal: true);
 
                 OdmStatusText.Text = $"Höhenmodell wird für die Karte aufbereitet: {demPath}";
                 preview = await DemPreviewService.RenderAsync(
-                    _toolchain.PythonExecutable,
-                    _toolchain.OpenCvWorkerPath,
+                    toolchain.PythonExecutable!,
+                    toolchain.OpenCvWorkerPath,
                     demPath);
             }
 

@@ -135,9 +135,11 @@ $RequiredFiles = @(
     "planning\route-editor.html",
     "pv\pv-map.html",
     "maps\dem-map.html",
+    "maps\pointcloud-viewer.html",
     "smart-farming\opencv_m3m.py",
     "smart-farming\dronedash_worker\cli.py",
-    "smart-farming\dronedash_worker\dem.py"
+    "smart-farming\dronedash_worker\dem.py",
+    "smart-farming\dronedash_worker\pointcloud.py"
 )
 
 foreach ($RelativePath in $RequiredFiles) {

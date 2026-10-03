@@ -1,6 +1,5 @@
 using System.IO;
 using System.Text.Json;
-using DroneDash_x64.Desktop.SmartFarming.LocalProcessing;
 
 namespace DroneDash_x64.Desktop.Photogrammetry;
 
@@ -59,10 +58,8 @@ public static class DemPreviewService
 
         if (preview.Width <= 0 || preview.Height <= 0 ||
             preview.GridType != "float32-le" ||
-            string.IsNullOrWhiteSpace(preview.Image) ||
-            string.IsNullOrWhiteSpace(preview.Grid) ||
-            Path.GetFileName(preview.Image) != preview.Image ||
-            Path.GetFileName(preview.Grid) != preview.Grid)
+            !WorkerJsonRunner.IsPlainFileName(preview.Image) ||
+            !WorkerJsonRunner.IsPlainFileName(preview.Grid))
         {
             throw new InvalidDataException("DSM-Vorschau-Metadaten sind ungültig.");
         }
@@ -92,10 +89,7 @@ public static class DemPreviewService
             var grid = Path.Combine(folder, preview.Grid);
 
             var complete =
-                string.Equals(
-                    Path.GetFullPath(preview.Source),
-                    Path.GetFullPath(demPath),
-                    OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) &&
+                WorkerJsonRunner.SameFile(preview.Source, demPath) &&
                 File.Exists(Path.Combine(folder, preview.Image)) &&
                 File.Exists(grid) &&
                 new FileInfo(grid).Length == gridBytes;
@@ -118,60 +112,18 @@ public static class DemPreviewService
         if (!File.Exists(demPath))
             throw new FileNotFoundException("Höhenmodell nicht gefunden.", demPath);
 
-        var folder = PreviewFolderFor(demPath);
-
-        using var process = LocalImageToolchain.CreateProcess(
+        var json = await WorkerJsonRunner.RunAsync(
             pythonExecutable,
+            workerPath,
             [
-                workerPath,
                 "--dem-preview",
                 "--source", Path.GetFullPath(demPath),
-                "--output-dir", folder,
+                "--output-dir", PreviewFolderFor(demPath),
                 "--max-size", maxSize.ToString(System.Globalization.CultureInfo.InvariantCulture)
-            ]);
-
-        process.Start();
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-
-        try
-        {
-            await process.WaitForExitAsync(cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            try
-            {
-                process.Kill(entireProcessTree: true);
-            }
-            catch (InvalidOperationException)
-            {
-            }
-
-            throw;
-        }
-
-        var stdout = await stdoutTask;
-        var stderr = await stderrTask;
-
-        if (process.ExitCode != 0)
-        {
-            var detail = string.IsNullOrWhiteSpace(stderr) ? stdout : stderr;
-            throw new InvalidOperationException(
-                "DSM-Vorschau fehlgeschlagen: " + LastLines(detail, 6));
-        }
-
-        var json = stdout
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .LastOrDefault(line => line.StartsWith('{'))
-            ?? throw new InvalidDataException("Der Worker hat keine DSM-Vorschau-Metadaten geliefert.");
+            ],
+            "DSM-Vorschau fehlgeschlagen",
+            cancellationToken);
 
         return Parse(json);
     }
-
-    private static string LastLines(string text, int count) =>
-        string.Join(
-            " · ",
-            text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .TakeLast(count));
 }
