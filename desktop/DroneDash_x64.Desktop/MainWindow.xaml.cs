@@ -22,6 +22,7 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<MediaItemDto> _media = [];
     private readonly ObservableCollection<ImageMetadataEntryDto> _imageMetadata = [];
     private readonly ObservableCollection<DiagnosticEventDto> _events = [];
+    private static readonly TimeSpan StatusRequestTimeout = TimeSpan.FromSeconds(5);
     private readonly DispatcherTimer _pollTimer;
     private bool _statusRequestRunning;
     private StatusDto? _lastStatus;
@@ -198,7 +199,19 @@ public partial class MainWindow : Window
         try
         {
             ConfigureApi();
-            var s = await _api.GetStatusAsync();
+            // A 1 Hz poll must not wait for the client's 30 s default before reporting a lost bridge.
+            using var timeout = new CancellationTokenSource(StatusRequestTimeout);
+            StatusDto s;
+            try
+            {
+                s = await _api.GetStatusAsync(timeout.Token);
+            }
+            catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+            {
+                throw new TimeoutException(
+                    $"Bridge antwortet nicht (Status-Timeout {StatusRequestTimeout.TotalSeconds:0} s).");
+            }
+
             RenderStatus(s);
             LogStatusChanges(s);
             _lastPollError = null;
