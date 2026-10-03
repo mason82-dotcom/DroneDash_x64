@@ -36,62 +36,126 @@ public static class DroneDashProjectStore
         string projectPath,
         DroneDashProject project)
     {
-        Validate(project);
+        ArgumentException.ThrowIfNullOrWhiteSpace(
+            projectPath);
+        ArgumentNullException.ThrowIfNull(
+            project);
 
         var fullPath =
-            Path.GetFullPath(projectPath);
+            Path.GetFullPath(
+                projectPath);
+
+        Validate(
+            project,
+            fullPath);
 
         var directory =
             Path.GetDirectoryName(fullPath)
             ?? throw new InvalidOperationException(
                 "Projektpfad besitzt keinen gültigen Ordner.");
 
-        Directory.CreateDirectory(directory);
+        Directory.CreateDirectory(
+            directory);
 
         var saved =
             project with
             {
-                Name = project.Name.Trim(),
+                Name =
+                    project.Name.Trim(),
                 Description =
-                    NormalizeOptional(project.Description),
-                SavedAtUtc = DateTimeOffset.UtcNow,
-                Artifacts = project.Artifacts.ToArray()
+                    NormalizeOptional(
+                        project.Description),
+                SavedAtUtc =
+                    DateTimeOffset.UtcNow,
+                Artifacts =
+                    project.Artifacts.ToArray()
             };
 
         var tempPath =
-            fullPath + ".tmp";
+            fullPath +
+            "." +
+            Guid.NewGuid().ToString("N") +
+            ".tmp";
 
-        File.WriteAllText(
-            tempPath,
-            JsonSerializer.Serialize(
-                saved,
-                JsonOptions),
-            new UTF8Encoding(false));
+        try
+        {
+            using (var stream = new FileStream(
+                tempPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None))
+            using (var writer = new StreamWriter(
+                stream,
+                new UTF8Encoding(false)))
+            {
+                writer.Write(
+                    JsonSerializer.Serialize(
+                        saved,
+                        JsonOptions));
 
-        File.Move(
-            tempPath,
-            fullPath,
-            overwrite: true);
+                writer.Flush();
+                stream.Flush(
+                    flushToDisk: true);
+            }
+
+            File.Move(
+                tempPath,
+                fullPath,
+                overwrite: true);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(
+                        tempPath))
+                {
+                    File.Delete(
+                        tempPath);
+                }
+            }
+            catch
+            {
+                // Cleanup must not hide the project save result.
+            }
+        }
     }
 
     public static DroneDashProject Load(
         string projectPath)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(
+            projectPath);
+
         var fullPath =
-            Path.GetFullPath(projectPath);
+            Path.GetFullPath(
+                projectPath);
 
         var json =
             File.ReadAllText(
                 fullPath);
 
-        var project =
-            JsonSerializer.Deserialize<DroneDashProject>(
-                json,
-                JsonOptions)
-            ?? throw new InvalidDataException(
-                "DroneDash-Projekt konnte nicht gelesen werden.");
+        DroneDashProject project;
 
-        Validate(project);
+        try
+        {
+            project =
+                JsonSerializer.Deserialize<DroneDashProject>(
+                    json,
+                    JsonOptions)
+                ?? throw new InvalidDataException(
+                    "DroneDash-Projekt konnte nicht gelesen werden.");
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidDataException(
+                "DroneDash-Projekt enthält ungültiges JSON.",
+                ex);
+        }
+
+        Validate(
+            project,
+            fullPath);
 
         return project;
     }
@@ -100,20 +164,13 @@ public static class DroneDashProjectStore
         string projectPath,
         DroneDashProjectArtifact artifact)
     {
-        if (!artifact.IsRelative)
-            return Path.GetFullPath(
-                artifact.StoredPath);
+        ArgumentNullException.ThrowIfNull(
+            artifact);
 
-        var projectDirectory =
-            Path.GetDirectoryName(
-                Path.GetFullPath(projectPath))
-            ?? throw new InvalidOperationException(
-                "Projektpfad besitzt keinen gültigen Ordner.");
-
-        return Path.GetFullPath(
-            Path.Combine(
-                projectDirectory,
-                artifact.StoredPath));
+        return ResolveStoredPath(
+            projectPath,
+            artifact.StoredPath,
+            artifact.IsRelative);
     }
 
     public static (string StoredPath, bool IsRelative) ToStoredPath(
@@ -125,6 +182,9 @@ public static class DroneDashProjectStore
                 Path.GetFullPath(projectPath))
             ?? throw new InvalidOperationException(
                 "Projektpfad besitzt keinen gültigen Ordner.");
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(
+            targetPath);
 
         var fullTarget =
             Path.GetFullPath(
@@ -203,7 +263,8 @@ public static class DroneDashProjectStore
     }
 
     private static void Validate(
-        DroneDashProject project)
+        DroneDashProject project,
+        string? projectPath = null)
     {
         if (project.SchemaVersion !=
             DroneDashProject.CurrentSchemaVersion)
@@ -242,6 +303,15 @@ public static class DroneDashProjectStore
 
         foreach (var artifact in project.Artifacts)
         {
+            if (!Enum.IsDefined(
+                    artifact.Kind) ||
+                !Enum.IsDefined(
+                    artifact.ReferenceKind))
+            {
+                throw new InvalidDataException(
+                    "DroneDash-Projekt enthält einen unbekannten Artefakt- oder Referenztyp.");
+            }
+
             if (string.IsNullOrWhiteSpace(
                     artifact.StoredPath))
             {
@@ -255,7 +325,125 @@ public static class DroneDashProjectStore
                 throw new InvalidDataException(
                     "DroneDash-Projekt enthält ein Artefakt ohne Bezeichnung.");
             }
+
+            if (artifact.SizeBytes is < 0)
+            {
+                throw new InvalidDataException(
+                    "DroneDash-Projekt enthält eine negative Artefaktgröße.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(
+                    artifact.Sha256) &&
+                !IsSha256(
+                    artifact.Sha256))
+            {
+                throw new InvalidDataException(
+                    "DroneDash-Projekt enthält einen ungültigen SHA-256-Wert.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(
+                    projectPath))
+            {
+                _ =
+                    ResolveStoredPath(
+                        projectPath,
+                        artifact.StoredPath,
+                        artifact.IsRelative);
+            }
         }
+    }
+
+    private static string ResolveStoredPath(
+        string projectPath,
+        string storedPath,
+        bool isRelative)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(
+            projectPath);
+
+        if (string.IsNullOrWhiteSpace(
+                storedPath))
+        {
+            throw new InvalidDataException(
+                "Projektartefakt enthält einen leeren Pfad.");
+        }
+
+        if (!isRelative)
+        {
+            if (!Path.IsPathRooted(
+                    storedPath))
+            {
+                throw new InvalidDataException(
+                    "Als absolut markierter Artefaktpfad ist nicht absolut.");
+            }
+
+            return Path.GetFullPath(
+                storedPath);
+        }
+
+        if (Path.IsPathRooted(
+                storedPath))
+        {
+            throw new InvalidDataException(
+                "Als relativ markierter Artefaktpfad ist absolut.");
+        }
+
+        var projectDirectory =
+            Path.GetFullPath(
+                Path.GetDirectoryName(
+                    Path.GetFullPath(
+                        projectPath))
+                ?? throw new InvalidOperationException(
+                    "Projektpfad besitzt keinen gültigen Ordner."));
+
+        var resolved =
+            Path.GetFullPath(
+                Path.Combine(
+                    projectDirectory,
+                    storedPath));
+
+        var relative =
+            Path.GetRelativePath(
+                projectDirectory,
+                resolved);
+
+        if (Path.IsPathRooted(
+                relative) ||
+            relative.Equals(
+                "..",
+                StringComparison.Ordinal) ||
+            relative.StartsWith(
+                ".." +
+                Path.DirectorySeparatorChar,
+                StringComparison.Ordinal) ||
+            relative.StartsWith(
+                ".." +
+                Path.AltDirectorySeparatorChar,
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                $"Relativer Artefaktpfad verlässt den Projektordner: {storedPath}");
+        }
+
+        return resolved;
+    }
+
+    private static bool IsSha256(
+        string value)
+    {
+        if (value.Length != 64)
+            return false;
+
+        foreach (var character in value)
+        {
+            if (!Uri.IsHexDigit(
+                    character))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static void ValidateName(
