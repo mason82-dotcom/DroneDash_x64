@@ -2,6 +2,11 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Brushes = System.Windows.Media.Brushes;
+using FlowDirection = System.Windows.FlowDirection;
+using Pen = System.Windows.Media.Pen;
+using Point = System.Windows.Point;
+using Rect = System.Windows.Rect;
 
 namespace DroneDash_x64.Desktop.Thermal;
 
