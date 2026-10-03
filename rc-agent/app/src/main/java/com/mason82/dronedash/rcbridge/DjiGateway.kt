@@ -156,20 +156,84 @@ class DjiGateway {
         val heightLimit = readOptionalAltitude(payload, "heightLimitMeters")
         val goHomeHeight = readOptionalAltitude(payload, "goHomeHeightMeters")
 
-        if (heightLimit != null) {
-            setIntKey(
-                KeyTools.createKey(FlightControllerKey.KeyHeightLimit),
-                heightLimit,
-                "heightLimitMeters"
-            )
-        }
+        val heightKey =
+            KeyTools.createKey(FlightControllerKey.KeyHeightLimit)
+        val goHomeKey =
+            KeyTools.createKey(FlightControllerKey.KeyGoHomeHeight)
 
-        if (goHomeHeight != null) {
-            setIntKey(
-                KeyTools.createKey(FlightControllerKey.KeyGoHomeHeight),
-                goHomeHeight,
-                "goHomeHeightMeters"
-            )
+        if (heightLimit != null && goHomeHeight != null) {
+            val originalHeight =
+                keys.getValue(heightKey)
+                    ?: throw IllegalStateException(
+                        "Current heightLimitMeters is unavailable; refusing multi-setting update"
+                    )
+            val originalGoHome =
+                keys.getValue(goHomeKey)
+                    ?: throw IllegalStateException(
+                        "Current goHomeHeightMeters is unavailable; refusing multi-setting update"
+                    )
+
+            try {
+                setIntKey(
+                    heightKey,
+                    heightLimit,
+                    "heightLimitMeters"
+                )
+                setIntKey(
+                    goHomeKey,
+                    goHomeHeight,
+                    "goHomeHeightMeters"
+                )
+            } catch (error: Throwable) {
+                val rollbackErrors = mutableListOf<String>()
+
+                runCatching {
+                    setIntKey(
+                        goHomeKey,
+                        originalGoHome,
+                        "rollback goHomeHeightMeters"
+                    )
+                }.exceptionOrNull()?.let {
+                    rollbackErrors += it.message ?: it.javaClass.simpleName
+                }
+
+                runCatching {
+                    setIntKey(
+                        heightKey,
+                        originalHeight,
+                        "rollback heightLimitMeters"
+                    )
+                }.exceptionOrNull()?.let {
+                    rollbackErrors += it.message ?: it.javaClass.simpleName
+                }
+
+                if (rollbackErrors.isNotEmpty()) {
+                    throw IllegalStateException(
+                        (error.message ?: "DJI configuration update failed") +
+                            "; rollback incomplete: " +
+                            rollbackErrors.joinToString(" | "),
+                        error
+                    )
+                }
+
+                throw error
+            }
+        } else {
+            if (heightLimit != null) {
+                setIntKey(
+                    heightKey,
+                    heightLimit,
+                    "heightLimitMeters"
+                )
+            }
+
+            if (goHomeHeight != null) {
+                setIntKey(
+                    goHomeKey,
+                    goHomeHeight,
+                    "goHomeHeightMeters"
+                )
+            }
         }
 
         return configuration()
@@ -199,10 +263,7 @@ class DjiGateway {
                 latch.countDown()
             }
 
-            override fun onFailure(djiError: IDJIError) {
-                error.set(djiError.description())
-                latch.countDown()
-            }
+            override fun onFailure(djiError: IDJIError) {\n                error.set(\n                    "${djiError.errorCode()}: ${djiError.description()}"\n                )\n                latch.countDown()\n            }
         })
 
         if (!latch.await(10, TimeUnit.SECONDS)) {
