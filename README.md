@@ -48,7 +48,8 @@ Version 0.2 hardens the bridge and build path:
 - the media workspace includes an image viewer for aircraft and local files, fit/1:1 viewing, standard EXIF/GPS metadata, file hashes and DJI-specific XMP metadata when present;
 - DJI DNG/RAW files are supported with WIC preview when a Windows RAW codec is available and metadata-only fallback otherwise;
 - a photogrammetry summary highlights DJI XMP fields such as GPS/altitude, aircraft and gimbal attitude, RTK flag/standard deviations, calibrated focal length, optical center and dewarp calibration data;
-- optional DJI Thermal SDK v1.8 integration analyzes radiometric DJI R-JPEGs locally on Windows x64, including the full per-pixel FLOAT32 temperature matrix, min/max/average/center values, cursor temperature inspection and selectable pseudo-color rendering.
+- optional DJI Thermal SDK v1.8 integration analyzes radiometric DJI R-JPEGs locally on Windows x64, including the full per-pixel FLOAT32 temperature matrix, min/max/average/center values, P05/P50/P95 distribution statistics, standard deviation, a 64-bin histogram, cursor temperature inspection, min/max/center overlay markers and selectable pseudo-color rendering;
+- thermal analysis can export an auditable JSON summary, full per-pixel CSV matrix, histogram CSV, marked pseudo-color PNG and histogram PNG; outputs are automatically registered when a DroneDash project is open.
 
 ## Versions pinned by this project
 
