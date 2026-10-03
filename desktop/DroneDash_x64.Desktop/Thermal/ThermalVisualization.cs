@@ -100,6 +100,7 @@ public static class ThermalVisualization
                 drawing,
                 thermal,
                 thermal.P05C,
+                width,
                 plotTop,
                 plotBottom,
                 Brushes.SteelBlue);
@@ -108,6 +109,7 @@ public static class ThermalVisualization
                 drawing,
                 thermal,
                 thermal.MedianC,
+                width,
                 plotTop,
                 plotBottom,
                 Brushes.Black);
@@ -116,6 +118,7 @@ public static class ThermalVisualization
                 drawing,
                 thermal,
                 thermal.P95C,
+                width,
                 plotTop,
                 plotBottom,
                 Brushes.IndianRed);
@@ -165,6 +168,7 @@ public static class ThermalVisualization
         DrawingContext drawing,
         ThermalAnalysisResult thermal,
         float temperature,
+        int width,
         double top,
         double bottom,
         Brush brush)
@@ -180,8 +184,9 @@ public static class ThermalVisualization
                 1f);
 
         var x =
+            1d +
             normalized *
-            358d;
+            Math.Max(1d, width - 2d);
 
         var pen = new Pen(
             brush,
