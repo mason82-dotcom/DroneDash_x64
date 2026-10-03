@@ -171,7 +171,7 @@ public static class ThermalVisualization
         int width,
         double top,
         double bottom,
-        Brush brush)
+        System.Windows.Media.Brush brush)
     {
         var span = thermal.MaximumC - thermal.MinimumC;
         if (span <= 0 || !float.IsFinite(span))
