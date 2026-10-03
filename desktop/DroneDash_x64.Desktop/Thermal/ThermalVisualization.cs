@@ -204,7 +204,7 @@ public static class ThermalVisualization
         DrawingContext drawing,
         double x,
         double y,
-        Brush brush,
+        System.Windows.Media.Brush brush,
         double radius)
     {
         var outerPen = new Pen(
