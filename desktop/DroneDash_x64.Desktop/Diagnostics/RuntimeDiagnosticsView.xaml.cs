@@ -4,7 +4,7 @@ using System.Windows.Controls;
 
 namespace DroneDash_x64.Desktop.Diagnostics;
 
-public partial class RuntimeDiagnosticsView : UserControl
+public partial class RuntimeDiagnosticsView : System.Windows.Controls.UserControl
 {
     private readonly ObservableCollection<RuntimeDiagnosticItem> _items = [];
     private CancellationTokenSource? _probeCancellation;
