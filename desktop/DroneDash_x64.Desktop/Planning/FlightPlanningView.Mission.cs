@@ -45,7 +45,7 @@ public partial class FlightPlanningView
         {
             _plan = PhotogrammetryPlanner.Generate(_geometry, ReadSettings());
             RenderPlanSummary(_plan);
-            RenderMap();
+            RenderMap(fitBounds: true);
             PlanningStatusText.Text = "Flugroute berechnet.";
         }
         catch (Exception ex)

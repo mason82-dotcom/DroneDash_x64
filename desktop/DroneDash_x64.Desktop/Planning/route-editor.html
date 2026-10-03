@@ -9,64 +9,183 @@ html,body,#map{height:100%;margin:0}
 body{background:#101318;font-family:Segoe UI,Arial,sans-serif}
 #banner{position:absolute;z-index:1000;top:10px;left:50%;transform:translateX(-50%);
 background:rgba(20,24,30,.9);color:#fff;padding:7px 12px;border-radius:5px;font-size:13px;pointer-events:none}
+#metrics{position:absolute;z-index:1000;bottom:24px;left:10px;background:rgba(20,24,30,.9);color:#fff;
+padding:7px 11px;border-radius:5px;font-size:13px;line-height:1.45;pointer-events:none;display:none}
+#metrics .warn{color:#ffb347;font-weight:600}
+.vertex{background:#fff;border:2px solid #2f81f7;border-radius:50%;box-sizing:border-box;cursor:move}
+.vertex.first{border-color:#3fb950}
+.midpoint{background:rgba(255,255,255,.55);border:1px solid #2f81f7;border-radius:50%;box-sizing:border-box;cursor:copy}
 </style>
 </head>
 <body>
-<div id="map"></div><div id="banner">Karte bereit · Zeichenmodus aus</div>
+<div id="map"></div>
+<div id="banner">Karte bereit · Zeichenmodus aus</div>
+<div id="metrics"></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
+const BASEMAP_KEY='dronedash.planning.basemap';
+
+const baseLayers={
+  'OpenStreetMap':L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:20,maxNativeZoom:19,
+    attribution:'&copy; OpenStreetMap contributors'
+  }),
+  'Satellit (Esri)':L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
+    maxZoom:20,maxNativeZoom:19,
+    attribution:'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community'
+  })
+};
+const overlays={
+  'Beschriftungen (Esri)':L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{
+    maxZoom:20,maxNativeZoom:19,
+    attribution:'Labels &copy; Esri'
+  })
+};
+
+function readBasemap(){
+  try{ return localStorage.getItem(BASEMAP_KEY); }catch(_){ return null; }
+}
+function storeBasemap(name){
+  try{ localStorage.setItem(BASEMAP_KEY,name); }catch(_){}
+}
+
 const map=L.map('map',{zoomControl:true}).setView([51.1657,10.4515],6);
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
-  maxZoom:20,
-  attribution:'&copy; OpenStreetMap contributors'
-}).addTo(map);
+const initialBase=baseLayers[readBasemap()]?readBasemap():'OpenStreetMap';
+baseLayers[initialBase].addTo(map);
+L.control.layers(baseLayers,overlays,{position:'topright'}).addTo(map);
+L.control.scale({imperial:false}).addTo(map);
+map.on('baselayerchange',e=>storeBasemap(e.name));
 
 const geometryLayer=L.layerGroup().addTo(map);
 const routeLayer=L.layerGroup().addTo(map);
+const handleLayer=L.layerGroup().addTo(map);
 const banner=document.getElementById('banner');
+const metricsBox=document.getElementById('metrics');
 let drawing=false;
+let current={points:[],strip:false};
+let shape=null;
+
+const vertexIcon=(first)=>L.divIcon({className:first?'vertex first':'vertex',iconSize:[14,14]});
+const midpointIcon=L.divIcon({className:'midpoint',iconSize:[10,10]});
+
+function post(message){ chrome.webview.postMessage(message); }
 
 map.on('click', e=>{
   if(!drawing) return;
-  chrome.webview.postMessage({type:'polygonPoint',lat:e.latlng.lat,lon:e.latlng.lng});
+  post({type:'polygonPoint',lat:e.latlng.lat,lon:e.latlng.lng});
 });
 
 function setDrawing(value){
   drawing=!!value;
   banner.textContent=drawing?'Geometrie zeichnen · Klick fügt Punkt hinzu':'Zeichenmodus aus';
-  map.getContainer().style.cursor=drawing?'crosshair':'grab';
+  map.getContainer().style.cursor=drawing?'crosshair':'';
+}
+
+function closed(){ return !current.strip && current.points.length>=3; }
+
+function drawShape(points){
+  if(shape){ geometryLayer.removeLayer(shape); shape=null; }
+  if(!points.length) return;
+  if(current.strip || points.length<3){
+    shape=L.polyline(points,{weight:current.strip?5:2,opacity:.8});
+  } else {
+    shape=L.polygon(points,{weight:2,fillOpacity:.12});
+  }
+  shape.addTo(geometryLayer);
+}
+
+function midpoint(a,b){ return L.latLng((a.lat+b.lat)/2,(a.lng+b.lng)/2); }
+
+function addHandles(){
+  handleLayer.clearLayers();
+  const pts=current.points;
+
+  pts.forEach((p,i)=>{
+    const marker=L.marker(p,{draggable:true,icon:vertexIcon(i===0),keyboard:false,zIndexOffset:1000})
+      .bindTooltip('Punkt '+(i+1)+' · Rechtsklick löscht',{direction:'top',offset:[0,-8]});
+    marker.on('drag',e=>{
+      const live=pts.slice(); live[i]=e.target.getLatLng(); drawShape(live);
+    });
+    marker.on('dragend',e=>{
+      const ll=e.target.getLatLng();
+      post({type:'vertexMoved',index:i,lat:ll.lat,lon:ll.lng});
+    });
+    marker.on('contextmenu',e=>{
+      L.DomEvent.stop(e);
+      post({type:'vertexDeleted',index:i});
+    });
+    marker.addTo(handleLayer);
+  });
+
+  const edgeCount=closed()?pts.length:pts.length-1;
+  for(let i=0;i<edgeCount;i++){
+    const a=pts[i], b=pts[(i+1)%pts.length];
+    const handle=L.marker(midpoint(a,b),{draggable:true,icon:midpointIcon,keyboard:false})
+      .bindTooltip('Ziehen oder klicken fügt einen Punkt ein',{direction:'top',offset:[0,-6]});
+    handle.on('drag',e=>{
+      const live=pts.slice(); live.splice(i+1,0,e.target.getLatLng()); drawShape(live);
+    });
+    handle.on('dragend',e=>{
+      const ll=e.target.getLatLng();
+      post({type:'vertexInserted',index:i+1,lat:ll.lat,lon:ll.lng});
+    });
+    handle.on('click',e=>{
+      L.DomEvent.stop(e);
+      const ll=e.target.getLatLng();
+      post({type:'vertexInserted',index:i+1,lat:ll.lat,lon:ll.lng});
+    });
+    handle.addTo(handleLayer);
+  }
+}
+
+function fmt(value,digits){
+  return value.toLocaleString('de-DE',{minimumFractionDigits:digits,maximumFractionDigits:digits});
+}
+
+function renderMetrics(m){
+  if(!m || !m.pointCount){ metricsBox.style.display='none'; return; }
+  const lines=[];
+  if(m.strip){
+    lines.push(m.pointCount+' Trassenpunkte');
+    lines.push('Länge '+fmt(m.lengthMeters,0)+' m');
+  } else {
+    lines.push(m.pointCount+' Eckpunkte');
+    if(m.pointCount>=3){
+      lines.push('Fläche '+fmt(m.areaSquareMeters/10000,2)+' ha');
+      lines.push('Umfang '+fmt(m.perimeterMeters,0)+' m');
+    }
+    if(m.selfIntersecting) lines.push('<span class="warn">⚠ Fläche überschneidet sich selbst</span>');
+  }
+  metricsBox.innerHTML=lines.join('<br>');
+  metricsBox.style.display='block';
 }
 
 function renderPlan(data){
-  geometryLayer.clearLayers();
   routeLayer.clearLayers();
-
-  if(data.polygon && data.polygon.length){
-    const pts=data.polygon.map(p=>[p.latitude,p.longitude]);
-    if(data.geometryMode==='strip'){
-      L.polyline(pts,{weight:5,opacity:.8}).addTo(geometryLayer);
-    } else if(pts.length>=3){
-      L.polygon(pts,{weight:2,fillOpacity:.12}).addTo(geometryLayer);
-    } else {
-      L.polyline(pts,{weight:2,opacity:.8}).addTo(geometryLayer);
-    }
-    pts.forEach((p,i)=>L.circleMarker(p,{radius:4,weight:2,fillOpacity:1})
-      .bindTooltip(String(i+1),{permanent:false}).addTo(geometryLayer));
-  }
+  current={
+    points:(data.polygon||[]).map(p=>L.latLng(p.latitude,p.longitude)),
+    strip:data.geometryMode==='strip'
+  };
+  drawShape(current.points);
+  addHandles();
+  renderMetrics(data.metrics);
 
   if(data.segments){
     data.segments.forEach((s,i)=>{
       L.polyline([[s.start.latitude,s.start.longitude],[s.end.latitude,s.end.longitude]],{
-        weight:3,opacity:.85
+        weight:3,opacity:.85,color:'#f78166',interactive:true
       }).bindTooltip((s.name||'Wayline')+' · Segment '+(i+1)).addTo(routeLayer);
     });
   }
 
-  const layers=[...geometryLayer.getLayers(),...routeLayer.getLayers()];
-  if(layers.length){
-    const group=L.featureGroup(layers);
-    const bounds=group.getBounds();
-    if(bounds.isValid()) map.fitBounds(bounds.pad(.15));
+  if(data.fitBounds){
+    const layers=[...geometryLayer.getLayers(),...routeLayer.getLayers()];
+    if(layers.length){
+      const bounds=L.featureGroup(layers).getBounds();
+      if(bounds.isValid()) map.fitBounds(bounds.pad(.15));
+    }
   }
 }
 
@@ -76,7 +195,7 @@ window.chrome.webview.addEventListener('message', e=>{
   if(m.type==='render') renderPlan(m);
 });
 
-chrome.webview.postMessage({type:'ready'});
+post({type:'ready'});
 </script>
 </body>
 </html>

@@ -278,6 +278,27 @@ folders for Mapping 3D, checks Smart Oblique and real-time terrain-follow fields
 the Mapping Strip `LineString` representation.
 
 
+### Geometry editor, import and basemaps
+
+The planning map is an editor rather than a click-only sketchpad:
+
+- drag a vertex to move it, drag or click the small midpoint handle on an edge to insert a vertex,
+  and right-click a vertex to delete it; this works for survey polygons and strip centerlines;
+- area (ha) and perimeter, or the corridor length, are shown live on the map and in the side panel,
+  using the same `GeometryMetrics` calculation as the route statistics;
+- self-intersecting ("bow tie") polygons are flagged, because they produce a wrong area and grid;
+- the view only re-fits on import, project load and route calculation, not after every edit.
+
+**Importieren (KML/KMZ/GeoJSON)** loads a field boundary or corridor centerline. Polygons become a
+Mapping 2D area, lines switch the planner to Strip mode. If a file contains several geometries the
+largest polygon (otherwise the longest line) is used and the rest is reported; inner rings (holes)
+are ignored with a warning. Only WGS84 is accepted: projected data such as UTM / EPSG:25832, which
+many agricultural portals export, is rejected with a clear message instead of being placed in the
+wrong location. KML is parsed without DTD processing, and file/KMZ entry sizes are limited.
+
+The basemap can be switched between OpenStreetMap and Esri World Imagery (satellite), with an
+optional Esri label overlay; the last choice is remembered.
+
 ### Planning project files and KMZ validation
 
 Flight-planning work can be saved as a versioned DroneDash \`.ddplan\` JSON project and loaded
