@@ -343,6 +343,15 @@ into an XYZ Web Mercator pyramid from the native resolution down eight zoom leve
 saved in the `.ddplan` file. The elevation map shows the orthomosaic of the same NodeODM result
 as well.
 
+### Live aircraft position (display only)
+
+While the RC bridge is connected, *Live-Position* in **Flugplanung** shows the aircraft from the
+1 Hz status poll on the planning map: an arrow turned to the compass heading, the Home Point and
+the flown track (points closer than 1 m are skipped, at most 5000 points with the older half
+thinned). The side panel shows height above take-off, ground speed and the distance to the
+nearest planned line, and marks a position older than 5 s when the bridge is lost. Positions
+without a GPS fix (DJI reports 0/0) are ignored. This view sends nothing to the aircraft.
+
 ### Planning project files and KMZ validation
 
 Flight-planning work can be saved as a versioned DroneDash \`.ddplan\` JSON project and loaded

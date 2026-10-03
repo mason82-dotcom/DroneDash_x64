@@ -145,6 +145,19 @@
                      TextWrapping="Wrap"/>
         </GroupBox>
 
+        <GroupBox Header="Live-Position (nur Anzeige)" Margin="0,0,0,10">
+          <StackPanel Margin="10">
+            <WrapPanel>
+              <CheckBox x:Name="LiveAircraftBox" Content="Drohne auf der Karte zeigen" IsChecked="True"
+                        VerticalAlignment="Center" Margin="0,0,12,0"
+                        Checked="LiveAircraftBox_Changed" Unchecked="LiveAircraftBox_Changed"/>
+              <Button Content="Spur löschen" Click="ClearTrack_Click"/>
+            </WrapPanel>
+            <TextBlock x:Name="LiveAircraftText" Margin="4,6,0,0" TextWrapping="Wrap" FontSize="11"
+                       Text="Keine Live-Position (Bridge nicht verbunden oder kein GPS)."/>
+          </StackPanel>
+        </GroupBox>
+
         <GroupBox Header="Gelände &amp; Hindernisse (DSM)" Margin="0,0,0,10">
           <StackPanel Margin="10">
             <TextBlock TextWrapping="Wrap" Opacity="0.8" FontSize="11"

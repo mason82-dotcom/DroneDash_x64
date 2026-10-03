@@ -16,6 +16,9 @@ padding:7px 11px;border-radius:5px;font-size:13px;line-height:1.45;pointer-event
 background:rgba(20,24,30,.92);color:#fff;padding:8px 10px;border-radius:5px;font-size:12px}
 #profile svg text{fill:#ccc;font-size:11px}
 #profile .close{float:right;cursor:pointer;margin-left:12px}
+.aircraft{width:26px;height:26px}
+.aircraft svg{width:26px;height:26px;filter:drop-shadow(0 0 2px rgba(0,0,0,.8))}
+.home{background:#2f81f7;border:2px solid #fff;border-radius:50%;box-sizing:border-box;color:#fff;font:bold 10px/12px Segoe UI,Arial;text-align:center}
 .terrain-legend button{display:block;margin-top:6px;font:inherit;cursor:pointer}
 .vertex{background:#fff;border:2px solid #2f81f7;border-radius:50%;box-sizing:border-box;cursor:move}
 .vertex.first{border-color:#3fb950}
@@ -72,6 +75,8 @@ const routeLayer=L.layerGroup().addTo(map);
 const handleLayer=L.layerGroup().addTo(map);
 const terrainLayer=L.layerGroup().addTo(map);
 const startLayer=L.layerGroup().addTo(map);
+const liveLayer=L.layerGroup().addTo(map);
+let aircraftMarker=null, homeMarker=null, trackLine=null;
 const TERRAIN_COLORS={ok:'#3fb950',low:'#f0a020',collision:'#e5383b',nodata:'#8b949e'};
 let pickingStart=false;
 let orthoLayer=null, orthoUrl=null;
@@ -193,6 +198,57 @@ function profileChart(terrain){
     else profileMarker.setLatLng([best.lat,best.lon]);
   });
   return svg;
+}
+
+// Read-only live aircraft: arrow marker turned to the heading, Home Point and flown track.
+function aircraftIcon(heading){
+  const turn=heading==null?0:heading;
+  return L.divIcon({className:'aircraft',iconSize:[26,26],iconAnchor:[13,13],
+    html:`<svg viewBox="0 0 26 26" style="transform:rotate(${turn}deg)"><path d="M13 2 L22 23 L13 18 L4 23 Z" fill="#ff7b00" stroke="#fff" stroke-width="1.5"/></svg>`});
+}
+
+function aircraftTooltip(a){
+  const parts=['Drohne'];
+  if(a.altitude!=null) parts.push(fmt(a.altitude,1)+' m über Start');
+  if(a.speed!=null) parts.push(fmt(a.speed,1)+' m/s');
+  if(a.flying===false) parts.push('am Boden');
+  return parts.join(' · ');
+}
+
+function updateAircraft(a){
+  if(!a){
+    if(aircraftMarker){ liveLayer.removeLayer(aircraftMarker); aircraftMarker=null; }
+    return;
+  }
+  if(!aircraftMarker){
+    aircraftMarker=L.marker([a.lat,a.lon],{icon:aircraftIcon(a.heading),keyboard:false,interactive:true,zIndexOffset:2000})
+      .bindTooltip('',{direction:'top',offset:[0,-12]}).addTo(liveLayer);
+  } else {
+    aircraftMarker.setLatLng([a.lat,a.lon]);
+    aircraftMarker.setIcon(aircraftIcon(a.heading));
+  }
+  aircraftMarker.setTooltipContent(aircraftTooltip(a));
+
+  if(a.home){
+    if(!homeMarker){
+      homeMarker=L.marker(a.home,{icon:L.divIcon({className:'home',html:'H',iconSize:[16,16]}),keyboard:false})
+        .bindTooltip('Home Point',{direction:'top',offset:[0,-8]}).addTo(liveLayer);
+    } else homeMarker.setLatLng(a.home);
+  } else if(homeMarker){ liveLayer.removeLayer(homeMarker); homeMarker=null; }
+}
+
+function renderLive(live){
+  liveLayer.clearLayers();
+  aircraftMarker=null; homeMarker=null; trackLine=null;
+  if(!live) return;
+  trackLine=L.polyline(live.track||[],{color:'#ff7b00',weight:2,opacity:.8,dashArray:'6 4',interactive:false}).addTo(liveLayer);
+  updateAircraft(live.aircraft);
+}
+
+function onAircraftMessage(m){
+  if(!trackLine) return;  // live display switched off
+  if(m.append) trackLine.addLatLng(m.append);
+  updateAircraft(m.aircraft);
 }
 
 function renderTerrain(terrain){
@@ -317,6 +373,7 @@ function renderPlan(data){
   addHandles();
   renderMetrics(data.metrics);
   renderOrtho(data.ortho);
+  renderLive(data.live);
   renderStart(data.startPoint);
   renderTerrain(data.terrain);
 
@@ -341,6 +398,7 @@ window.chrome.webview.addEventListener('message', e=>{
   const m=e.data||{};
   if(m.type==='setDrawing') setDrawing(m.value);
   if(m.type==='pickStart') pickStart();
+  if(m.type==='aircraft') onAircraftMessage(m);
   if(m.type==='render') renderPlan(m);
 });
 

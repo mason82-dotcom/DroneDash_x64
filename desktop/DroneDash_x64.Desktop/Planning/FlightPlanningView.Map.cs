@@ -183,6 +183,7 @@ public partial class FlightPlanningView
                 : null,
             terrain = TerrainMapMessage(),
             ortho = OrthoMapMessage(),
+            live = LiveMapMessage(),
             polygon = _geometry.Select(p => new
             {
                 latitude = p.Latitude,
