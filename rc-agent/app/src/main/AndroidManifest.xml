@@ -4,6 +4,12 @@
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
   <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+  <!-- Foreground service keeps the bridge alive while other apps are in front. -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+  <!-- Prerequisite for the connectedDevice service type on Android 14+. -->
+  <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
   <uses-feature android:name="android.hardware.usb.host" android:required="false" />
   <uses-feature android:name="android.hardware.usb.accessory" android:required="false" />
@@ -17,6 +23,11 @@
     <meta-data
         android:name="com.dji.sdk.API_KEY"
         android:value="${DJI_API_KEY}" />
+
+    <service
+        android:name=".BridgeService"
+        android:exported="false"
+        android:foregroundServiceType="connectedDevice" />
 
     <activity
         android:name=".MainActivity"

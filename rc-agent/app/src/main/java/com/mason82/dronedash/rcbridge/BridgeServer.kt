@@ -12,6 +12,7 @@ import java.net.Socket
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.util.Locale
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -24,9 +25,11 @@ class BridgeServer(
     private val port: Int
 ) {
     private val running = AtomicBoolean(false)
-    private val workers = Executors.newFixedThreadPool(4)
-    private var serverSocket: ServerSocket? = null
+    // Created per start() so the server can be restarted after stop().
+    @Volatile private var workers: ExecutorService? = null
+    @Volatile private var serverSocket: ServerSocket? = null
     private var acceptThread: Thread? = null
+    private val lifecycleLock = Any()
 
     val lastError = AtomicReference<String?>(null)
 
@@ -42,7 +45,10 @@ class BridgeServer(
             return
         }
 
-        if (!running.compareAndSet(false, true)) return
+        val pool = synchronized(lifecycleLock) {
+            if (!running.compareAndSet(false, true)) return
+            Executors.newFixedThreadPool(4).also { workers = it }
+        }
 
         lastError.set(null)
         acceptThread = Thread({
@@ -51,7 +57,8 @@ class BridgeServer(
                     serverSocket = server
                     while (running.get()) {
                         val socket = runCatching { server.accept() }.getOrNull() ?: break
-                        workers.execute { handle(socket) }
+                        runCatching { pool.execute { handle(socket) } }
+                            .onFailure { runCatching { socket.close() } }
                     }
                 }
             } catch (e: Throwable) {
@@ -59,7 +66,15 @@ class BridgeServer(
                     lastError.set(e.message ?: e.javaClass.simpleName)
                 }
             } finally {
-                running.set(false)
+                pool.shutdownNow()
+                synchronized(lifecycleLock) {
+                    // After stop()+start() a newer pool owns the state; leave it alone.
+                    if (workers === pool) {
+                        workers = null
+                        serverSocket = null
+                        running.set(false)
+                    }
+                }
             }
         }, "m3e-bridge-accept").apply {
             isDaemon = true
@@ -68,9 +83,13 @@ class BridgeServer(
     }
 
     fun stop() {
-        running.set(false)
-        runCatching { serverSocket?.close() }
-        workers.shutdownNow()
+        synchronized(lifecycleLock) {
+            running.set(false)
+            runCatching { serverSocket?.close() }
+            serverSocket = null
+            workers?.shutdownNow()
+            workers = null
+        }
     }
 
     fun isRunning(): Boolean = running.get()
