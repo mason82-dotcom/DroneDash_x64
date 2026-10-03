@@ -582,6 +582,13 @@
                                Margin="0,3,0,0"
                                Text="Noch keine Thermal-Analyse."
                                TextWrapping="Wrap"/>
+                    <Image x:Name="ThermalHistogramImage"
+                           Height="86"
+                           Margin="0,6,12,0"
+                           Stretch="None"
+                           HorizontalAlignment="Left"
+                           Visibility="Collapsed"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
                   </StackPanel>
                   <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <ComboBox x:Name="ThermalPaletteBox" Width="130" SelectedIndex="2" Margin="4">
@@ -599,6 +606,14 @@
                     <Button x:Name="ThermalAnalyzeButton"
                             Content="Thermal analysieren"
                             Click="ThermalAnalyze_Click"/>
+                    <Button x:Name="ThermalOverlayButton"
+                            Content="Min/Max Overlay"
+                            IsEnabled="False"
+                            Click="ThermalOverlay_Click"/>
+                    <Button x:Name="ThermalExportButton"
+                            Content="Thermal exportieren"
+                            IsEnabled="False"
+                            Click="ThermalExport_Click"/>
                     <Button Content="Original"
                             Click="RestoreOriginalPreview_Click"/>
                   </StackPanel>
