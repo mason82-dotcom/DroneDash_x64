@@ -9,6 +9,7 @@ html,body,#map{height:100%;margin:0}
 body{background:#101318;font-family:Segoe UI,Arial,sans-serif}
 #banner{position:absolute;z-index:1000;top:10px;left:50%;transform:translateX(-50%);
 background:rgba(20,24,30,.9);color:#fff;padding:7px 12px;border-radius:5px;font-size:13px}
+.anomaly{width:12px;height:12px;transform:rotate(45deg);border:2px solid #fff;box-sizing:border-box}
 </style>
 </head>
 <body>
@@ -21,6 +22,9 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
   attribution:'&copy; OpenStreetMap contributors'
 }).addTo(map);
 const layer=L.layerGroup().addTo(map);
+const anomalyLayer=L.layerGroup().addTo(map);
+L.control.layers(null,{'Bildpositionen':layer,'Anomalie-Kandidaten (verortet)':anomalyLayer},{position:'topright'}).addTo(map);
+function fmt(v,d){ return Number(v).toLocaleString('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d}); }
 
 function esc(v){
   return String(v??'').replace(/[&<>"']/g,c=>({
@@ -51,13 +55,23 @@ function render(data){
       'Route: '+esc(p.route)
     ).addTo(layer);
   });
+  anomalyLayer.clearLayers();
+  const anomalies=(data.anomalies||[]).filter(a=>Number.isFinite(a.lat)&&Number.isFinite(a.lon));
+  anomalies.forEach(a=>{
+    // Diamond per candidate at its estimated ground position (few metres accuracy).
+    L.marker([a.lat,a.lon],{icon:L.divIcon({className:'',html:'<div class="anomaly" style="background:'+markerColor(a.severity)+'"></div>',iconSize:[12,12]}),
+      zIndexOffset:a.severity==='Critical'?1000:500})
+      .bindPopup('<b>ΔT '+fmt(a.delta,1)+' °C</b> · Spitze '+fmt(a.peak,1)+' °C<br>'+esc(a.file)+' · Kandidat '+esc(a.index)+
+        '<br><i>verortet aus Bildposition, Höhe und Gimbal; ±wenige m</i>')
+      .addTo(anomalyLayer);
+  });
   if(points.length){
     const group=L.featureGroup(layer.getLayers());
     const bounds=group.getBounds();
     if(bounds.isValid()) map.fitBounds(bounds.pad(.18));
   }
   document.getElementById('banner').textContent=
-    points.length+' georeferenzierte Thermalbilder';
+    points.length+' georeferenzierte Thermalbilder · '+anomalies.length+' verortete Kandidaten';
 }
 window.chrome.webview.addEventListener('message',e=>{
   const m=e.data||{};

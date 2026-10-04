@@ -12,6 +12,14 @@ background:rgba(20,24,30,.9);color:#fff;padding:7px 12px;border-radius:5px;font-
 #metrics{position:absolute;z-index:1000;bottom:24px;left:10px;background:rgba(20,24,30,.9);color:#fff;
 padding:7px 11px;border-radius:5px;font-size:13px;line-height:1.45;pointer-events:none;display:none}
 #metrics .warn{color:#ffb347;font-weight:600}
+#profile{position:absolute;z-index:1000;bottom:24px;left:50%;transform:translateX(-50%);display:none;
+background:rgba(20,24,30,.92);color:#fff;padding:8px 10px;border-radius:5px;font-size:12px}
+#profile svg text{fill:#ccc;font-size:11px}
+#profile .close{float:right;cursor:pointer;margin-left:12px}
+.aircraft{width:26px;height:26px}
+.aircraft svg{width:26px;height:26px;filter:drop-shadow(0 0 2px rgba(0,0,0,.8))}
+.home{background:#2f81f7;border:2px solid #fff;border-radius:50%;box-sizing:border-box;color:#fff;font:bold 10px/12px Segoe UI,Arial;text-align:center}
+.terrain-legend button{display:block;margin-top:6px;font:inherit;cursor:pointer}
 .vertex{background:#fff;border:2px solid #2f81f7;border-radius:50%;box-sizing:border-box;cursor:move}
 .vertex.first{border-color:#3fb950}
 .start{background:#3fb950;border:2px solid #fff;border-radius:3px;box-sizing:border-box;color:#fff;font:bold 11px/14px Segoe UI,Arial;text-align:center}
@@ -24,6 +32,7 @@ padding:7px 11px;border-radius:5px;font-size:13px;line-height:1.45;pointer-event
 <div id="map"></div>
 <div id="banner">Karte bereit · Zeichenmodus aus</div>
 <div id="metrics"></div>
+<div id="profile"></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const BASEMAP_KEY='dronedash.planning.basemap';
@@ -57,7 +66,7 @@ function storeBasemap(name){
 const map=L.map('map',{zoomControl:true}).setView([51.1657,10.4515],6);
 const initialBase=baseLayers[readBasemap()]?readBasemap():'OpenStreetMap';
 baseLayers[initialBase].addTo(map);
-L.control.layers(baseLayers,overlays,{position:'topright'}).addTo(map);
+
 L.control.scale({imperial:false}).addTo(map);
 map.on('baselayerchange',e=>storeBasemap(e.name));
 
@@ -66,8 +75,12 @@ const routeLayer=L.layerGroup().addTo(map);
 const handleLayer=L.layerGroup().addTo(map);
 const terrainLayer=L.layerGroup().addTo(map);
 const startLayer=L.layerGroup().addTo(map);
+const liveLayer=L.layerGroup().addTo(map);
+let aircraftMarker=null, homeMarker=null, trackLine=null;
 const TERRAIN_COLORS={ok:'#3fb950',low:'#f0a020',collision:'#e5383b',nodata:'#8b949e'};
 let pickingStart=false;
+let orthoLayer=null, orthoUrl=null;
+const layerControl=L.control.layers(baseLayers,overlays,{position:'topright'}).addTo(map);
 let terrainLegend=null;
 const banner=document.getElementById('banner');
 const metricsBox=document.getElementById('metrics');
@@ -114,8 +127,133 @@ function renderStart(point){
   }).bindTooltip('Startpunkt (Home)',{direction:'top',offset:[0,-8]}).addTo(startLayer);
 }
 
+function renderOrtho(ortho){
+  const url=ortho?ortho.url:null;
+  if(url===orthoUrl) return;
+  if(orthoLayer){ layerControl.removeLayer(orthoLayer); map.removeLayer(orthoLayer); orthoLayer=null; }
+  orthoUrl=url;
+  if(!ortho) return;
+  // Own orthomosaic between basemap and route; finer zooms upscale the native tiles.
+  orthoLayer=L.tileLayer(ortho.url,{
+    bounds:L.latLngBounds(ortho.bounds),minZoom:ortho.minZoom,maxNativeZoom:ortho.maxZoom,maxZoom:23,
+    zIndex:5,attribution:'Orthomosaik: '+(ortho.name||'eigene Befliegung')
+  }).addTo(map);
+  layerControl.addOverlay(orthoLayer,'Orthomosaik');
+}
+
+let profileMarker=null;
+const profileBox=document.getElementById('profile');
+function hideProfile(){
+  profileBox.style.display='none';
+  if(profileMarker){ map.removeLayer(profileMarker); profileMarker=null; }
+}
+
+function toggleProfile(terrain){
+  if(profileBox.style.display==='block'){ hideProfile(); return; }
+  profileBox.replaceChildren();
+  const close=document.createElement('span'); close.className='close'; close.textContent='✕';
+  close.addEventListener('click',hideProfile);
+  const title=document.createElement('b'); title.textContent='Höhenprofil entlang der Route';
+  profileBox.append(close,title,profileChart(terrain));
+  profileBox.style.display='block';
+}
+
+// Route profile: ground, highest obstacle in the buffer, flight level and the required clearance.
+function profileChart(terrain){
+  const s=terrain.profile, W=640,H=206,P={l:52,r:12,t:12,b:42};
+  const ns='http://www.w3.org/2000/svg', svg=document.createElementNS(ns,'svg');
+  svg.setAttribute('width',W); svg.setAttribute('height',H);
+  const add=(tag,attrs,text)=>{ const n=document.createElementNS(ns,tag); for(const k in attrs) n.setAttribute(k,attrs[k]); if(text!==undefined) n.textContent=text; svg.append(n); return n; };
+  const values=s.flatMap(p=>[p.ground,p.obstacle,p.flight]).filter(v=>v!==null);
+  if(!values.length){ add('text',{x:10,y:20},'Keine Höhendaten entlang der Route.'); return svg; }
+  const lo=Math.min(...values)-2, hi=Math.max(...values)+5, len=Math.max(s[s.length-1].distance,1e-6);
+  const x=d=>P.l+d/len*(W-P.l-P.r), y=z=>H-P.b-(z-lo)/(hi-lo)*(H-P.t-P.b);
+  const path=(key,offset=0)=>{ let d='',pen=false; for(const p of s){ const v=p[key]; if(v===null){pen=false;continue;}
+    d+=(pen?'L':'M')+x(p.distance).toFixed(1)+','+y(v+offset).toFixed(1); pen=true; } return d; };
+  add('rect',{x:P.l,y:P.t,width:W-P.l-P.r,height:H-P.t-P.b,fill:'rgba(255,255,255,0.04)'});
+  add('path',{d:path('obstacle'),fill:'none',stroke:'#8b949e','stroke-width':1.5});
+  // Ground as a filled area so it reads apart from the dashed clearance line.
+  const groundLine=path('ground');
+  if(groundLine){
+    const first=s.find(p=>p.ground!==null), last=[...s].reverse().find(p=>p.ground!==null);
+    add('path',{d:groundLine+'L'+x(last.distance).toFixed(1)+','+(H-P.b)+'L'+x(first.distance).toFixed(1)+','+(H-P.b)+'Z',
+      fill:'rgba(176,141,87,0.45)',stroke:'#b08d57','stroke-width':1.5});
+  }
+  add('path',{d:path('flight',-terrain.minClearance),fill:'none',stroke:TERRAIN_COLORS.low,'stroke-width':1,'stroke-dasharray':'4 3'});
+  add('path',{d:path('flight'),fill:'none',stroke:'#58a6ff','stroke-width':2});
+  add('text',{x:4,y:P.t+10},fmt(hi,0)+' m'); add('text',{x:4,y:H-P.b},fmt(lo,0)+' m');
+  add('text',{x:P.l,y:H-P.b+14},'0 m'); add('text',{x:W-P.r-70,y:H-P.b+14},fmt(len,0)+' m');
+  const legend=[['#58a6ff','Flughöhe'],[TERRAIN_COLORS.low,'Mindestabstand'],['#8b949e','Hindernis (Puffer)'],['#b08d57','Gelände']];
+  legend.forEach(([c,t],i)=>{ add('rect',{x:P.l+8+i*130,y:H-12,width:10,height:4,fill:c}); add('text',{x:P.l+22+i*130,y:H-7},t); });
+  const cursor=add('line',{x1:0,x2:0,y1:P.t,y2:H-P.b,stroke:'#fff','stroke-width':1,visibility:'hidden'});
+  const label=add('text',{x:P.l+6,y:P.t+14},'');
+  svg.addEventListener('mousemove',ev=>{
+    const rect=svg.getBoundingClientRect(), dist=(ev.clientX-rect.left-P.l)/(W-P.l-P.r)*len;
+    let best=s[0]; for(const p of s) if(Math.abs(p.distance-dist)<Math.abs(best.distance-dist)) best=p;
+    cursor.setAttribute('x1',x(best.distance)); cursor.setAttribute('x2',x(best.distance)); cursor.setAttribute('visibility','visible');
+    const clearance=best.flight!==null&&best.obstacle!==null?best.flight-best.obstacle:null;
+    label.textContent=(best.pass?best.pass+' · ':'')+fmt(best.distance,0)+' m'+
+      (clearance===null?' · keine Höhendaten':' · Abstand '+fmt(clearance,1)+' m');
+    if(!profileMarker) profileMarker=L.circleMarker([best.lat,best.lon],{radius:6,color:'#fff',fillColor:'#58a6ff',fillOpacity:1}).addTo(map);
+    else profileMarker.setLatLng([best.lat,best.lon]);
+  });
+  return svg;
+}
+
+// Read-only live aircraft: arrow marker turned to the heading, Home Point and flown track.
+function aircraftIcon(heading){
+  const turn=heading==null?0:heading;
+  return L.divIcon({className:'aircraft',iconSize:[26,26],iconAnchor:[13,13],
+    html:`<svg viewBox="0 0 26 26" style="transform:rotate(${turn}deg)"><path d="M13 2 L22 23 L13 18 L4 23 Z" fill="#ff7b00" stroke="#fff" stroke-width="1.5"/></svg>`});
+}
+
+function aircraftTooltip(a){
+  const parts=['Drohne'];
+  if(a.altitude!=null) parts.push(fmt(a.altitude,1)+' m über Start');
+  if(a.speed!=null) parts.push(fmt(a.speed,1)+' m/s');
+  if(a.flying===false) parts.push('am Boden');
+  return parts.join(' · ');
+}
+
+function updateAircraft(a){
+  if(!a){
+    if(aircraftMarker){ liveLayer.removeLayer(aircraftMarker); aircraftMarker=null; }
+    return;
+  }
+  if(!aircraftMarker){
+    aircraftMarker=L.marker([a.lat,a.lon],{icon:aircraftIcon(a.heading),keyboard:false,interactive:true,zIndexOffset:2000})
+      .bindTooltip('',{direction:'top',offset:[0,-12]}).addTo(liveLayer);
+  } else {
+    aircraftMarker.setLatLng([a.lat,a.lon]);
+    aircraftMarker.setIcon(aircraftIcon(a.heading));
+  }
+  aircraftMarker.setTooltipContent(aircraftTooltip(a));
+
+  if(a.home){
+    if(!homeMarker){
+      homeMarker=L.marker(a.home,{icon:L.divIcon({className:'home',html:'H',iconSize:[16,16]}),keyboard:false})
+        .bindTooltip('Home Point',{direction:'top',offset:[0,-8]}).addTo(liveLayer);
+    } else homeMarker.setLatLng(a.home);
+  } else if(homeMarker){ liveLayer.removeLayer(homeMarker); homeMarker=null; }
+}
+
+function renderLive(live){
+  liveLayer.clearLayers();
+  aircraftMarker=null; homeMarker=null; trackLine=null;
+  if(!live) return;
+  trackLine=L.polyline(live.track||[],{color:'#ff7b00',weight:2,opacity:.8,dashArray:'6 4',interactive:false}).addTo(liveLayer);
+  updateAircraft(live.aircraft);
+}
+
+function onAircraftMessage(m){
+  if(!trackLine) return;  // live display switched off
+  if(m.append) trackLine.addLatLng(m.append);
+  updateAircraft(m.aircraft);
+}
+
 function renderTerrain(terrain){
   terrainLayer.clearLayers();
+  hideProfile();
   if(terrainLegend){ map.removeControl(terrainLegend); terrainLegend=null; }
   if(!terrain) return;
   terrain.chunks.forEach(c=>{
@@ -135,6 +273,12 @@ function renderTerrain(terrain){
       '<i style="background:'+TERRAIN_COLORS.low+'"></i>unter Mindestabstand<br>'+
       '<i style="background:'+TERRAIN_COLORS.collision+'"></i>Kollision<br>'+
       '<i style="background:'+TERRAIN_COLORS.nodata+'"></i>ohne Höhendaten';
+    if(terrain.profile && terrain.profile.length>1){
+      const button=L.DomUtil.create('button','',div);
+      button.type='button'; button.textContent='Höhenprofil';
+      L.DomEvent.disableClickPropagation(div);
+      button.addEventListener('click',()=>toggleProfile(terrain));
+    }
     return div;
   };
   terrainLegend.addTo(map);
@@ -228,6 +372,8 @@ function renderPlan(data){
   drawShape(current.points);
   addHandles();
   renderMetrics(data.metrics);
+  renderOrtho(data.ortho);
+  renderLive(data.live);
   renderStart(data.startPoint);
   renderTerrain(data.terrain);
 
@@ -252,6 +398,7 @@ window.chrome.webview.addEventListener('message', e=>{
   const m=e.data||{};
   if(m.type==='setDrawing') setDrawing(m.value);
   if(m.type==='pickStart') pickStart();
+  if(m.type==='aircraft') onAircraftMessage(m);
   if(m.type==='render') renderPlan(m);
 });
 

@@ -163,6 +163,9 @@ public partial class FlightPlanningView
     /// </param>
     private void RenderMap(bool fitBounds = false)
     {
+        // Every edit that invalidates the plan re-renders; the terrain result then no longer applies.
+        UpdateRaiseAltitudeButton();
+
         if (!_mapReady)
             return;
 
@@ -179,6 +182,8 @@ public partial class FlightPlanningView
                 ? new { latitude = takeOff.Latitude, longitude = takeOff.Longitude }
                 : null,
             terrain = TerrainMapMessage(),
+            ortho = OrthoMapMessage(),
+            live = LiveMapMessage(),
             polygon = _geometry.Select(p => new
             {
                 latitude = p.Latitude,

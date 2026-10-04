@@ -16,6 +16,15 @@ _RAMP = (
     (1.00, (245, 245, 245)),
 )
 
+# Blue (lowered) - white (unchanged) - red (raised) for differences of two surveys.
+_DIVERGING = (
+    (0.00, (33, 102, 172)),
+    (0.25, (103, 169, 207)),
+    (0.50, (247, 247, 247)),
+    (0.75, (239, 138, 98)),
+    (1.00, (178, 24, 43)),
+)
+
 
 def web_mercator_to_lonlat(x, y):
     lon = math.degrees(x / _MERCATOR_RADIUS)
@@ -62,17 +71,18 @@ def hillshade(z, cell_x, cell_y, np, azimuth_deg=315.0, altitude_deg=45.0):
     return np.where(np.isfinite(shade), shade, 1.0)
 
 
-def colorize(z, vmin, vmax, np):
+def colorize(z, vmin, vmax, np, ramp=None):
     """RGBA uint8 colour relief; non-finite cells are fully transparent."""
+    ramp = ramp or _RAMP
     finite = np.isfinite(z)
     t = np.zeros(z.shape, dtype=np.float64)
     np.divide(z - vmin, vmax - vmin, out=t, where=finite)
     t = np.clip(t, 0.0, 1.0)
 
-    positions = np.array([stop[0] for stop in _RAMP])
+    positions = np.array([stop[0] for stop in ramp])
     rgba = np.zeros(z.shape + (4,), dtype=np.uint8)
     for channel in range(3):
-        values = np.array([stop[1][channel] for stop in _RAMP], dtype=np.float64)
+        values = np.array([stop[1][channel] for stop in ramp], dtype=np.float64)
         rgba[..., channel] = np.interp(t, positions, values).round().astype(np.uint8)
     rgba[..., 3] = np.where(finite, 255, 0).astype(np.uint8)
     return rgba
@@ -153,8 +163,18 @@ def dem_preview(args):
     ground_x = abs(gt[1]) * math.cos(center_lat)
     ground_y = abs(gt[5]) * math.cos(center_lat)
 
-    vmin, vmax = robust_range(z, np)
-    rgba = shade_relief(colorize(z, vmin, vmax, np), hillshade(z, ground_x, ground_y, np), np)
+    palette = getattr(args, "palette", None) or "terrain"
+    if palette == "diverging":
+        # Symmetric around zero so white always means "unchanged"; no hillshade on differences.
+        low, high = robust_range(z, np)
+        vmax = max(abs(low), abs(high), 0.01)
+        vmin = -vmax
+        rgba = colorize(z, vmin, vmax, np, _DIVERGING)
+    elif palette == "terrain":
+        vmin, vmax = robust_range(z, np)
+        rgba = shade_relief(colorize(z, vmin, vmax, np), hillshade(z, ground_x, ground_y, np), np)
+    else:
+        raise RuntimeError(f"unknown palette {palette}")
 
     os.makedirs(args.output_dir, exist_ok=True)
     png_path = os.path.join(args.output_dir, "dem-preview.png")
@@ -195,6 +215,7 @@ def dem_preview(args):
         "image": os.path.basename(png_path),
         "grid": os.path.basename(grid_path),
         "gridType": "float32-le",
+        "palette": palette,
     }
 
     _replace_atomic(

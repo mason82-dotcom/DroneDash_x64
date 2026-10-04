@@ -109,6 +109,15 @@ public sealed record PvImageAnalysisResult(
     IReadOnlyList<PvHotspotCandidate> Candidates,
     string? ProcessingError)
 {
+    /// <summary>Height above take-off (XMP RelativeAltitude); used to place anomalies on the ground.</summary>
+    public double? RelativeAltitudeMeters { get; init; }
+
+    /// <summary>Gimbal yaw, clockwise from north (falls back to the flight yaw).</summary>
+    public double? GimbalYawDegrees { get; init; }
+
+    /// <summary>Gimbal pitch; −90 is nadir.</summary>
+    public double? GimbalPitchDegrees { get; init; }
+
     public PvAnomalySeverity Severity =>
         Candidates.Count == 0
             ? PvAnomalySeverity.None

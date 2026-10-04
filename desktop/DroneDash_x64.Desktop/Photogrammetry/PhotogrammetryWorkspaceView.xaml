@@ -143,6 +143,10 @@
             <Button x:Name="ShowDsmButton" Content="DSM auf Karte" Click="ShowDsm_Click" IsEnabled="False"/>
             <Button x:Name="ShowDtmButton" Content="DTM auf Karte" Click="ShowDtm_Click" IsEnabled="False"/>
             <Button x:Name="ChmButton" Content="Bestandshöhe (DSM − DTM)" Click="CanopyHeight_Click" IsEnabled="False"/>
+            <Button x:Name="DeriveDtmButton" Content="DTM aus DSM ableiten" Click="DeriveDtm_Click" IsEnabled="False"
+                    ToolTip="Bodenfilter auf dem DSM (z. B. aus COLMAP): entfernt Bäume und Gebäude bis 20 m Größe und interpoliert das Gelände darunter."/>
+            <Button x:Name="CompareDsmButton" Content="DSM-Vergleich …" Click="CompareDsm_Click" IsEnabled="False"
+                    ToolTip="Aktuelles DSM minus ein älteres: Auftrag/Abtrag in m³ und eine Änderungskarte."/>
             <Button Content="Höhenmodell (GeoTIFF) öffnen …" Click="OpenElevationModel_Click"/>
             <Button x:Name="ShowPointCloudButton" Content="Punktwolke 3D" Click="ShowPointCloud_Click" IsEnabled="False"/>
             <Button Content="Punktwolke (LAS/LAZ) öffnen …" Click="OpenPointCloud_Click"/>

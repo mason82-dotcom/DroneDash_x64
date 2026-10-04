@@ -75,11 +75,14 @@ legend.onAdd=()=>{
   return div;
 };
 
+const DIVERGING_GRADIENT='linear-gradient(to right,rgb(33,102,172),rgb(103,169,207),rgb(247,247,247),rgb(239,138,98),rgb(178,24,43))';
 function renderLegend(p, opacity){
   const div=document.getElementById('legend');
+  const diverging=p.palette==='diverging';
   div.innerHTML=
     `<b id="legend-title"></b>`+
-    `<div class="bar"></div>`+
+    `<div class="bar"${diverging?` style="background:${DIVERGING_GRADIENT}"`:''}></div>`+
+    (diverging?`<div class="ends" style="opacity:.7"><span>Abtrag</span><span>unverändert</span><span>Auftrag</span></div>`:'')+
     `<div class="ends"><span>${fmt(p.displayMinimum,1)} m</span><span>${fmt(p.displayMaximum,1)} m</span></div>`+
     `<div style="margin-top:6px">Min ${fmt(p.minimum,2)} m · Max ${fmt(p.maximum,2)} m<br>`+
     `Mittel ${fmt(p.mean,2)} m · Auflösung ${fmt(p.groundPixelSizeMeters*100,0)} cm/px</div>`+
@@ -109,9 +112,11 @@ map.on('mousemove',e=>{
   if(!model) return;
   const v=sample(e.latlng);
   const pos=`${fmt(e.latlng.lat,6)}, ${fmt(e.latlng.lng,6)}`;
-  readout.textContent=v===null?`${pos} · keine Höhendaten`:`Höhe ${fmt(v,2)} m · ${pos}`;
+  readout.textContent=v===null?`${pos} · keine Höhendaten`:
+    (model.preview.palette==='diverging'?`Änderung ${v>0?'+':''}${fmt(v,2)} m · ${pos}`:`Höhe ${fmt(v,2)} m · ${pos}`);
 });
 
+let orthoLayer=null;
 async function load(m){
   errorBox.style.display='none';
   const p=m.preview;
@@ -125,6 +130,14 @@ async function load(m){
     for(let i=0;i<grid.length;i++) grid[i]=view.getFloat32(i*4,true);
 
     if(model){ map.removeLayer(model.overlay); layerControl.removeLayer(model.overlay); }
+    if(m.ortho && !orthoLayer){
+      // Own orthomosaic in the tile pane, i.e. always below the elevation overlay.
+      orthoLayer=L.tileLayer(m.ortho.url,{
+        bounds:L.latLngBounds(m.ortho.bounds),minZoom:m.ortho.minZoom,maxNativeZoom:m.ortho.maxZoom,maxZoom:23,
+        zIndex:5,attribution:'Orthomosaik: '+(m.ortho.name||'eigene Befliegung')
+      }).addTo(map);
+      layerControl.addOverlay(orthoLayer,'Orthomosaik');
+    }
     const bounds=[[p.bounds.south,p.bounds.west],[p.bounds.north,p.bounds.east]];
     const overlay=L.imageOverlay(m.imageUrl,bounds,{opacity:.85,interactive:false}).addTo(map);
     model={preview:p,grid,overlay,title:m.title};

@@ -183,10 +183,9 @@ public partial class PhotogrammetryWorkspaceView
             warnings);
 
         _odmProducts = products;
-        ShowDsmButton.IsEnabled = ColmapShowDsmButton.IsEnabled = products.DsmPath is not null;
-        ShowPointCloudButton.IsEnabled = ColmapShowPointCloudButton.IsEnabled = products.PointCloudPath is not null;
-        ShowDtmButton.IsEnabled = false;
-        ChmButton.IsEnabled = false;
+        UpdateElevationButtons();
+        ColmapShowDsmButton.IsEnabled = products.DsmPath is not null;
+        ColmapShowPointCloudButton.IsEnabled = products.PointCloudPath is not null;
 
         var lines = new List<string>();
         if (report is not null)
@@ -194,6 +193,7 @@ public partial class PhotogrammetryWorkspaceView
         lines.Add($"DSM: {products.DsmPath ?? "—"}");
         lines.Add($"Punktwolke (LAZ): {products.PointCloudPath ?? "—"}");
         lines.AddRange(warnings.Select(warning => "⚠ " + warning));
+        lines.Add("DTM ableiten, Bestandshöhe und DSM-Vergleich: Schaltflächen im Bereich „DSM / DTM / Punktwolke mit NodeODM“.");
 
         if (DroneDashProjectSession.IsOpen)
         {

@@ -327,10 +327,7 @@ public partial class PhotogrammetryWorkspaceView
         lines.AddRange(products.Warnings.Select(warning => "⚠ " + warning));
 
         _odmProducts = products;
-        ShowDsmButton.IsEnabled = products.DsmPath is not null;
-        ShowDtmButton.IsEnabled = products.DtmPath is not null;
-        ShowPointCloudButton.IsEnabled = products.PointCloudPath is not null;
-        ChmButton.IsEnabled = products.DsmPath is not null && products.DtmPath is not null;
+        UpdateElevationButtons();
 
         var registration = await RegisterOdmProductsAsync(zipPath, products);
         if (registration is not null)
