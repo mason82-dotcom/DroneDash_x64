@@ -283,35 +283,67 @@ if ($PythonCommand -and (Test-Path $CudaWorker)) {
             Write-Check WARN "Python architecture" "Could not determine Python architecture."
         }
 
-        $ProbeText = (& $PythonCommand $CudaWorker --probe 2>&1 | Out-String).Trim()
-        if ($LASTEXITCODE -eq 0) {
-            $Probe = $ProbeText | ConvertFrom-Json
+        # The worker can emit harmless dependency warnings (for example CuPy's
+        # "CUDA path could not be detected") on stderr while returning valid JSON
+        # on stdout. Windows PowerShell 5.1 can turn redirected native stderr into
+        # NativeCommandError when ErrorActionPreference is Stop, so keep the
+        # streams separate and parse stdout only.
+        $ProbeStartInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $ProbeStartInfo.FileName = $PythonCommand
+        $ProbeStartInfo.Arguments = ('"' + $CudaWorker.Replace('"', '\"') + '" --probe')
+        $ProbeStartInfo.UseShellExecute = $false
+        $ProbeStartInfo.RedirectStandardOutput = $true
+        $ProbeStartInfo.RedirectStandardError = $true
+        $ProbeStartInfo.CreateNoWindow = $true
 
-            if ($Probe.cudaAvailable -and [int]$Probe.cudaDeviceCount -gt 0) {
-                $Device = if ([string]::IsNullOrWhiteSpace([string]$Probe.cudaDeviceName)) { "$($Probe.cudaDeviceCount) CUDA device(s)" } else { [string]$Probe.cudaDeviceName }
-                Write-Check OK "OpenCV CUDA" "$Device · OpenCV $($Probe.opencv)"
+        $ProbeProcess = New-Object System.Diagnostics.Process
+        $ProbeProcess.StartInfo = $ProbeStartInfo
+
+        try {
+            [void]$ProbeProcess.Start()
+            $ProbeStdout = $ProbeProcess.StandardOutput.ReadToEnd()
+            $ProbeStderr = $ProbeProcess.StandardError.ReadToEnd()
+            $ProbeProcess.WaitForExit()
+            $ProbeText = $ProbeStdout.Trim()
+
+            if ($ProbeProcess.ExitCode -eq 0) {
+                $Probe = $ProbeText | ConvertFrom-Json
+
+                if ($Probe.cudaAvailable -and [int]$Probe.cudaDeviceCount -gt 0) {
+                    $Device = if ([string]::IsNullOrWhiteSpace([string]$Probe.cudaDeviceName)) { "$($Probe.cudaDeviceCount) CUDA device(s)" } else { [string]$Probe.cudaDeviceName }
+                    Write-Check OK "OpenCV CUDA" "$Device · OpenCV $($Probe.opencv)"
+                }
+                else {
+                    Write-Check WARN "OpenCV CUDA" "OpenCV $($Probe.opencv) is available, but no CUDA-enabled device is exposed. Registration uses CPU fallback."
+                }
+
+                if ($Probe.cupyAvailable -and [int]$Probe.cupyDeviceCount -gt 0) {
+                    $CupyDevice = if ([string]::IsNullOrWhiteSpace([string]$Probe.cupyDeviceName)) { "$($Probe.cupyDeviceCount) CUDA device(s)" } else { [string]$Probe.cupyDeviceName }
+                    Write-Check OK "CuPy CUDA" "$CupyDevice · CuPy $($Probe.cupyVersion)"
+                }
+                else {
+                    Write-Check WARN "CuPy CUDA" "CuPy does not expose a CUDA device. Local NDVI/NDRE/GNDVI use NumPy CPU fallback."
+                }
+
+                if ($Probe.gdalPythonAvailable) {
+                    Write-Check OK "GDAL Python Tile Engine" "GDAL $($Probe.gdalPythonVersion) · geospatial tiled raster processing available."
+                }
+                else {
+                    Write-Check WARN "GDAL Python Tile Engine" "Python GDAL bindings (osgeo.gdal) are unavailable. ODM field products fall back to OTB."
+                }
             }
             else {
-                Write-Check WARN "OpenCV CUDA" "OpenCV $($Probe.opencv) is available, but no CUDA-enabled device is exposed. Registration uses CPU fallback."
-            }
-
-            if ($Probe.cupyAvailable -and [int]$Probe.cupyDeviceCount -gt 0) {
-                $CupyDevice = if ([string]::IsNullOrWhiteSpace([string]$Probe.cupyDeviceName)) { "$($Probe.cupyDeviceCount) CUDA device(s)" } else { [string]$Probe.cupyDeviceName }
-                Write-Check OK "CuPy CUDA" "$CupyDevice · CuPy $($Probe.cupyVersion)"
-            }
-            else {
-                Write-Check WARN "CuPy CUDA" "CuPy does not expose a CUDA device. Local NDVI/NDRE/GNDVI use NumPy CPU fallback."
-            }
-
-            if ($Probe.gdalPythonAvailable) {
-                Write-Check OK "GDAL Python Tile Engine" "GDAL $($Probe.gdalPythonVersion) · geospatial tiled raster processing available."
-            }
-            else {
-                Write-Check WARN "GDAL Python Tile Engine" "Python GDAL bindings (osgeo.gdal) are unavailable. ODM field products fall back to OTB."
+                $ProbeError = if ([string]::IsNullOrWhiteSpace($ProbeStderr)) {
+                    "Exit code $($ProbeProcess.ExitCode)."
+                }
+                else {
+                    $ProbeStderr.Trim()
+                }
+                Write-Check WARN "OpenCV/CuPy CUDA" "Worker probe failed: $ProbeError"
             }
         }
-        else {
-            Write-Check WARN "OpenCV/CuPy CUDA" "Worker probe failed. Install Python + NumPy and optional CUDA-enabled OpenCV/CuPy packages."
+        finally {
+            $ProbeProcess.Dispose()
         }
     }
     catch {
