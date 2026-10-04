@@ -87,13 +87,42 @@ else {
     Write-Check FAIL ".NET SDK" "dotnet is not available in PATH."
 }
 
-if (Get-Command java -ErrorAction SilentlyContinue) {
-    $JavaText = (& java -version 2>&1 | Out-String).Trim()
-    if ($JavaText -match 'version "17\.' -or $JavaText -match 'openjdk version "17\.') {
-        Write-Check OK "Java" (($JavaText -split "\r?\n")[0])
+$JavaCommand = Get-Command java -ErrorAction SilentlyContinue
+if ($JavaCommand) {
+    # java -version writes its normal version banner to stderr. Windows PowerShell 5.1
+    # turns redirected native stderr into NativeCommandError when ErrorActionPreference
+    # is Stop, even when java exits successfully. Capture both streams via Process instead.
+    $JavaStartInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $JavaStartInfo.FileName = $JavaCommand.Source
+    $JavaStartInfo.Arguments = "-version"
+    $JavaStartInfo.UseShellExecute = $false
+    $JavaStartInfo.RedirectStandardOutput = $true
+    $JavaStartInfo.RedirectStandardError = $true
+    $JavaStartInfo.CreateNoWindow = $true
+
+    $JavaProcess = New-Object System.Diagnostics.Process
+    $JavaProcess.StartInfo = $JavaStartInfo
+
+    try {
+        [void]$JavaProcess.Start()
+        $JavaStdout = $JavaProcess.StandardOutput.ReadToEnd()
+        $JavaStderr = $JavaProcess.StandardError.ReadToEnd()
+        $JavaProcess.WaitForExit()
+        $JavaText = ($JavaStdout + $JavaStderr).Trim()
+
+        if ($JavaProcess.ExitCode -ne 0) {
+            Write-Check FAIL "Java" "java -version failed with exit code $($JavaProcess.ExitCode)."
+        }
+        elseif ($JavaText -match 'version "17\.' -or $JavaText -match 'openjdk version "17\.') {
+            Write-Check OK "Java" (($JavaText -split "\r?\n")[0])
+        }
+        else {
+            $JavaFirstLine = (($JavaText -split "\r?\n") | Select-Object -First 1)
+            Write-Check WARN "Java" "Java is available, but Java 17 is expected. First line: $JavaFirstLine"
+        }
     }
-    else {
-        Write-Check WARN "Java" "Java is available, but Java 17 is expected. First line: $(($JavaText -split "\r?\n")[0])"
+    finally {
+        $JavaProcess.Dispose()
     }
 }
 else {
