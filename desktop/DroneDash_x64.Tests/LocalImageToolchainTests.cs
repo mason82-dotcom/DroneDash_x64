@@ -59,15 +59,18 @@ public sealed class LocalImageToolchainTests : IDisposable
         var script = Path.Combine(_root, "tool.ps1");
         await File.WriteAllTextAsync(
             script,
-            "param([string]$Value)\nWrite-Output \"ok:$Value\"");
+            "param([string]$Value)\nWrite-Output \"ok:$Value\"",
+            TestContext.Current.CancellationToken);
 
         using var process = LocalImageToolchain.CreateProcess(
             script,
             ["hello world"]);
 
         process.Start();
-        var stdout = await process.StandardOutput.ReadToEndAsync();
-        var stderr = await process.StandardError.ReadToEndAsync();
+        var stdout = await process.StandardOutput.ReadToEndAsync(
+            TestContext.Current.CancellationToken);
+        var stderr = await process.StandardError.ReadToEndAsync(
+            TestContext.Current.CancellationToken);
         await process.WaitForExitAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(0, process.ExitCode);
