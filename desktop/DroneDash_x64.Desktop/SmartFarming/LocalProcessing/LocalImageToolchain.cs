@@ -670,6 +670,7 @@ public static partial class LocalImageToolchain
                 baseName + ".exe",
                 baseName + ".bat",
                 baseName + ".cmd",
+                baseName + ".ps1",
                 baseName
             }
             : new[] { baseName };
@@ -727,9 +728,36 @@ public static partial class LocalImageToolchain
         IReadOnlyList<string> arguments)
     {
         var extension = Path.GetExtension(program);
+        var isPowerShell = OperatingSystem.IsWindows() &&
+                           extension.Equals(".ps1", StringComparison.OrdinalIgnoreCase);
         var isBatch = OperatingSystem.IsWindows() &&
                       (extension.Equals(".bat", StringComparison.OrdinalIgnoreCase) ||
                        extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase));
+
+        if (isPowerShell)
+        {
+            var powerShellInfo = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            powerShellInfo.ArgumentList.Add("-NoLogo");
+            powerShellInfo.ArgumentList.Add("-NoProfile");
+            powerShellInfo.ArgumentList.Add("-NonInteractive");
+            powerShellInfo.ArgumentList.Add("-ExecutionPolicy");
+            powerShellInfo.ArgumentList.Add("Bypass");
+            powerShellInfo.ArgumentList.Add("-File");
+            powerShellInfo.ArgumentList.Add(program);
+
+            foreach (var argument in arguments)
+                powerShellInfo.ArgumentList.Add(argument);
+
+            return new Process { StartInfo = powerShellInfo };
+        }
 
         if (!isBatch)
         {
