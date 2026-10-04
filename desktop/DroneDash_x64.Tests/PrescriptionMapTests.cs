@@ -87,6 +87,13 @@ public sealed class PrescriptionMapTests : IDisposable
         Assert.True(File.Exists(result.Geojson));
         Assert.Equal(1.0, result.Zones.Single(z => z.Zone == 1).AreaHectares, 6);
         Assert.Equal(1.0 * 150 + 1.0 * 100, result.TotalAmount, 6);
-        Assert.Contains("\"RATE\": 150", File.ReadAllText(result.Geojson).Replace("150.0", "150"));
+        // Compare values, not text: number formatting differs between GDAL versions.
+        using var geoJson = System.Text.Json.JsonDocument.Parse(File.ReadAllText(result.Geojson));
+        var rates = geoJson.RootElement.GetProperty("features").EnumerateArray()
+            .Select(f => (f.GetProperty("properties").GetProperty("ZONE").GetInt32(),
+                          f.GetProperty("properties").GetProperty("RATE").GetDouble()))
+            .OrderBy(r => r.Item1)
+            .ToArray();
+        Assert.Equal([(1, 150.0), (3, 100.0)], rates);
     }
 }
