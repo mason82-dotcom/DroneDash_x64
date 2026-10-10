@@ -399,6 +399,58 @@
         </Grid>
       </TabItem>
 
+      <TabItem Header="Applikationskarte">
+        <StackPanel Margin="10">
+          <TextBlock Text="NDVI-Zonen → Applikationskarte (Shapefile/GeoJSON)" FontSize="16" FontWeight="SemiBold"/>
+          <TextBlock Margin="0,3,0,8" TextWrapping="Wrap"
+                     Text="Fasst die NDVI-Scouting-Zonenkarte (ndvi_scouting_zones.tif) auf das Raster der Maschine zusammen (häufigste Zone je Zelle), vergibt je Zone die eingetragene Menge und schreibt Polygone in WGS84 mit den Feldern ZONE, RATE und AREA_HA – lesbar für Terminals und Farm-Management-Software."/>
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="80"/><ColumnDefinition Width="70"/>
+              <ColumnDefinition Width="80"/><ColumnDefinition Width="70"/>
+              <ColumnDefinition Width="80"/><ColumnDefinition Width="70"/>
+              <ColumnDefinition Width="80"/><ColumnDefinition Width="70"/>
+              <ColumnDefinition Width="80"/><ColumnDefinition Width="70"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="Zone 1" VerticalAlignment="Center"/>
+            <TextBox x:Name="RateZone1Box" Grid.Column="1" Text="140"/>
+            <TextBlock Grid.Column="2" Text="  Zone 2" VerticalAlignment="Center"/>
+            <TextBox x:Name="RateZone2Box" Grid.Column="3" Text="120"/>
+            <TextBlock Grid.Column="4" Text="  Zone 3" VerticalAlignment="Center"/>
+            <TextBox x:Name="RateZone3Box" Grid.Column="5" Text="100"/>
+            <TextBlock Grid.Column="6" Text="  Zone 4" VerticalAlignment="Center"/>
+            <TextBox x:Name="RateZone4Box" Grid.Column="7" Text="80"/>
+            <TextBlock Grid.Column="8" Text="  Zone 5" VerticalAlignment="Center"/>
+            <TextBox x:Name="RateZone5Box" Grid.Column="9" Text="60"/>
+          </Grid>
+          <Grid Margin="0,6,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="80"/><ColumnDefinition Width="90"/>
+              <ColumnDefinition Width="140"/><ColumnDefinition Width="70"/>
+              <ColumnDefinition Width="80"/><ColumnDefinition Width="200"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="Einheit" VerticalAlignment="Center"/>
+            <TextBox x:Name="RateUnitBox" Grid.Column="1" Text="kg/ha"/>
+            <TextBlock Grid.Column="2" Text="  Maschinenraster [m]" VerticalAlignment="Center"
+                       ToolTip="Typisch die Arbeitsbreite bzw. Teilbreite des Geräts."/>
+            <TextBox x:Name="RateCellBox" Grid.Column="3" Text="12"/>
+            <TextBlock Grid.Column="4" Text="  Name" VerticalAlignment="Center"/>
+            <TextBox x:Name="RateNameBox" Grid.Column="5" Text="applikationskarte"/>
+          </Grid>
+          <WrapPanel Margin="0,8,0,0">
+            <Button x:Name="CreatePrescriptionButton" Content="Applikationskarte erstellen …" Click="CreatePrescription_Click"/>
+          </WrapPanel>
+          <TextBlock x:Name="PrescriptionStatusText" Margin="0,8,0,0" TextWrapping="Wrap"
+                     Text="Zonenkarte wählen; Zone 1 = niedrigster NDVI, Zone 5 = höchster NDVI."/>
+          <Border Margin="0,10,0,0" Padding="8" Background="#FFF8D8">
+            <TextBlock TextWrapping="Wrap"
+                       Text="Die Mengen je Zone sind eine agronomische Entscheidung des Betriebs. NDVI-Zonen zeigen Bestandsunterschiede, nicht deren Ursache; vor der Ausbringung Zonen im Feld prüfen und die Karte im Terminal kontrollieren (Koordinatensystem WGS84, Feld RATE)."/>
+          </Border>
+        </StackPanel>
+      </TabItem>
+
       <TabItem Header="Agrar-Workflows">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
           <UniformGrid Columns="2" Margin="10">

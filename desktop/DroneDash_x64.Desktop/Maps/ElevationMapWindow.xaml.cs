@@ -11,20 +11,24 @@ public partial class ElevationMapWindow : Window
 {
     private const string MapHost = "maps.dronedash.local";
     private const string DataHost = "dem.dronedash.local";
+    private const string OrthoHost = "ortho.dronedash.local";
 
     private readonly DemPreview _preview;
     private readonly string _previewFolder;
     private readonly string _layerTitle;
     private readonly ElevationAnalysisContext? _analysis;
+    private readonly (OrthoTileSet Tiles, string Path)? _ortho;
     private readonly CancellationTokenSource _closing = new();
 
     public ElevationMapWindow(
         DemPreview preview,
         string previewFolder,
         string layerTitle,
-        ElevationAnalysisContext? analysis = null)
+        ElevationAnalysisContext? analysis = null,
+        (OrthoTileSet Tiles, string Path)? ortho = null)
     {
         InitializeComponent();
+        _ortho = ortho;
         _preview = preview;
         _previewFolder = previewFolder;
         _layerTitle = layerTitle;
@@ -50,6 +54,11 @@ public partial class ElevationMapWindow : Window
             core.SetVirtualHostNameToFolderMapping(MapHost, mapsFolder, CoreWebView2HostResourceAccessKind.DenyCors);
             // The map page fetches the elevation grid from this second origin.
             core.SetVirtualHostNameToFolderMapping(DataHost, _previewFolder, CoreWebView2HostResourceAccessKind.Allow);
+            if (_ortho is { } ortho)
+            {
+                core.SetVirtualHostNameToFolderMapping(
+                    OrthoHost, OrthoTileService.TileFolderFor(ortho.Path), CoreWebView2HostResourceAccessKind.Allow);
+            }
 
             MapView.Source = new Uri($"https://{MapHost}/dem-map.html");
             StatusText.Text = "Karte lädt …";
@@ -133,7 +142,10 @@ public partial class ElevationMapWindow : Window
                         gridUrl = $"https://{DataHost}/{Uri.EscapeDataString(_preview.Grid)}?v={version}",
                         analysis = _analysis is null
                             ? null
-                            : new { hasBaseModel = _analysis.BaseModelPath is not null }
+                            : new { hasBaseModel = _analysis.BaseModelPath is not null },
+                        ortho = _ortho is { } ortho
+                            ? OrthoTileService.MapLayerMessage(ortho.Tiles, ortho.Path, OrthoHost, Path.GetFileName(ortho.Path))
+                            : null
                     };
                     MapView.CoreWebView2.PostWebMessageAsJson(
                         JsonSerializer.Serialize(message, new JsonSerializerOptions(JsonSerializerDefaults.Web)));

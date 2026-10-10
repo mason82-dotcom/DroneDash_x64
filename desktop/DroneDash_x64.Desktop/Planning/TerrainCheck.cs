@@ -41,6 +41,15 @@ public sealed record TerrainChunk(
     string? Pass,
     IReadOnlyList<double[]> Points);
 
+public sealed record TerrainProfileSample(
+    double Distance,
+    double? Ground,
+    double? Obstacle,
+    double? Flight,
+    double Lon,
+    double Lat,
+    string? Pass);
+
 public sealed record TerrainCheckResult(
     string Mode,
     double Altitude,
@@ -59,7 +68,8 @@ public sealed record TerrainCheckResult(
     IReadOnlyList<TerrainPassResult> Passes,
     IReadOnlyList<TerrainViolation> Violations,
     bool ViolationsTruncated,
-    IReadOnlyList<TerrainChunk> Chunks)
+    IReadOnlyList<TerrainChunk> Chunks,
+    IReadOnlyList<TerrainProfileSample>? Profile = null)
 {
     public bool HasCollision => Violations.Any(violation => violation.Collision);
 
@@ -139,10 +149,69 @@ public sealed record TerrainCheckResult(
     }
 }
 
+public sealed record TerrainAltitudeAdjustment(
+    FlightPlanResult Plan,
+    TerrainCheckResult Result,
+    int Iterations,
+    bool Satisfied);
+
 /// <summary>Checks a planned route against a surface model with the DroneDash worker (--terrain-check).</summary>
 public static class TerrainCheckService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    /// <summary>EU open category: maximum height above the closest point of the ground.</summary>
+    public const double OpenCategoryMaxAglMeters = 120;
+
+    /// <summary>Highest altitude the planner accepts.</summary>
+    public const double MaxPlanningAltitudeMeters = 500;
+
+    /// <summary>
+    /// Altitude (whole metres) at which the tightest spot keeps the minimum clearance, or null
+    /// when the route already does. Clearance grows one-to-one with the altitude in both height
+    /// modes; the route itself changes with the altitude (line spacing), so the caller re-checks.
+    /// </summary>
+    public static double? RequiredAltitude(TerrainCheckResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        if (result.Minimum is not { } minimum)
+            return null;
+
+        var deficit = result.MinClearance - minimum.Clearance;
+        return deficit <= 0 ? null : Math.Ceiling(result.Altitude + deficit - 1e-6);
+    }
+
+    /// <summary>
+    /// Raises the altitude until the re-planned route keeps the minimum clearance everywhere,
+    /// re-checking after each step because a new altitude changes line spacing and turns.
+    /// </summary>
+    public static async Task<TerrainAltitudeAdjustment> RaiseAltitudeAsync(
+        FlightPlanResult plan,
+        TerrainCheckResult result,
+        Func<double, FlightPlanResult> replan,
+        Func<FlightPlanResult, Task<TerrainCheckResult>> check,
+        int maxIterations = 4)
+    {
+        ArgumentNullException.ThrowIfNull(replan);
+        ArgumentNullException.ThrowIfNull(check);
+
+        var iterations = 0;
+        while (RequiredAltitude(result) is { } altitude && iterations < maxIterations)
+        {
+            if (altitude > MaxPlanningAltitudeMeters)
+            {
+                throw new InvalidOperationException(
+                    $"Für den Mindestabstand wären {altitude:F0} m nötig; die Planung erlaubt höchstens {MaxPlanningAltitudeMeters:F0} m.");
+            }
+
+            plan = replan(altitude);
+            result = await check(plan);
+            iterations++;
+        }
+
+        return new TerrainAltitudeAdjustment(plan, result, iterations, RequiredAltitude(result) is null);
+    }
 
     /// <summary>
     /// The worker request: each pass as one polyline through its segments in flight order, so

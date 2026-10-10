@@ -214,6 +214,7 @@ public partial class MainWindow : Window
 
             RenderStatus(s);
             LogStatusChanges(s);
+            FlightPlanningWorkspace.UpdateLiveAircraft(s);
             _lastPollError = null;
             SetConnected(true, s.ProductConnected ? "Aircraft verbunden" : $"RC-Agent · {s.SdkPhase}");
         }
@@ -221,6 +222,7 @@ public partial class MainWindow : Window
         {
             SetConnected(false, "Statusfehler");
             FooterText.Text = ex.Message;
+            FlightPlanningWorkspace.UpdateLiveAircraft(null);
             if (!string.Equals(_lastPollError, ex.Message, StringComparison.Ordinal))
             {
                 AddEvent("ERROR", "Telemetry", ex.Message);

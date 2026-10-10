@@ -194,6 +194,10 @@ only on loopback.
 `.github/workflows/ci.yml` verifies both sides of the project:
 
 - Windows: restore and Release-build `DroneDash_x64.slnx` (desktop, mock RC, smoke tools and tests) with a NuGet cache, run Planning/PV/Smart-Farming/Project smoke coverage, execute ThermalSmoke in SDK-optional mode, run xUnit metadata/core tests and verify the Smart Farming Python worker;
+- Windows GIS worker: a conda-forge environment with GDAL, NumPy and `laspy[lazrs]` runs the full pytest suite
+  and the xUnit end-to-end tests against the real worker (DSM preview, profile/volume/canopy height, point cloud
+  preview, COLMAP georeferencing and DSM, terrain check). `DRONEDASH_REQUIRE_GIS=1` and
+  `DRONEDASH_TEST_PYTHON_REQUIRED=1` turn skipped GIS tests into failures there, so a broken environment cannot pass;
 - Android: Java 17 + Gradle 8.12 + Android API 36, then `:app:assembleDebug`; pull requests use CI-only placeholders,
   while trusted push/manual runs consume `DJI_API_KEY` and `BRIDGE_TOKEN` repository secrets when configured.
 
@@ -207,6 +211,14 @@ dotnet test desktop/DroneDash_x64.Tests/DroneDash_x64.Tests.csproj -c Release
 python tests/python/verify_opencv_m3m_worker.py
 python -m pip install numpy pytest
 python -m pytest tests/python
+```
+
+With a GDAL Python (OSGeo4W or conda) the end-to-end tests run as well instead of being skipped:
+
+```powershell
+$env:DRONEDASH_TEST_PYTHON = "C:\path\to\python.exe"   # with osgeo.gdal and laspy[lazrs]
+& $env:DRONEDASH_TEST_PYTHON -m pytest tests/python
+dotnet test desktop/DroneDash_x64.Tests/DroneDash_x64.Tests.csproj -c Release
 ```
 
 The xUnit suite covers flight-plan validation and GSD/overlap math, route-to-image matching,
@@ -337,6 +349,25 @@ wrong location. KML is parsed without DTD processing, and file/KMZ entry sizes a
 The basemap can be switched between OpenStreetMap and Esri World Imagery (satellite), with an
 optional Esri label overlay; the last choice is remembered.
 
+### Orthomosaic as map background
+
+*Orthomosaik als Hintergrund …* in **Flugplanung** shows an own orthomosaic (8-bit GeoTIFF, e.g.
+`odm_orthophoto.tif`) as a map layer below the route, the current state of the field instead of
+months-old satellite imagery. The worker (`--ortho-tiles`) cuts it once with GDAL's `gdal2tiles`
+into an XYZ Web Mercator pyramid from the native resolution down eight zoom levels, written to
+`<image>.tiles/` next to the image and replaced as a whole when the image changes. The path is
+saved in the `.ddplan` file. The elevation map shows the orthomosaic of the same NodeODM result
+as well.
+
+### Live aircraft position (display only)
+
+While the RC bridge is connected, *Live-Position* in **Flugplanung** shows the aircraft from the
+1 Hz status poll on the planning map: an arrow turned to the compass heading, the Home Point and
+the flown track (points closer than 1 m are skipped, at most 5000 points with the older half
+thinned). The side panel shows height above take-off, ground speed and the distance to the
+nearest planned line, and marks a position older than 5 s when the bridge is lost. Positions
+without a GPS fix (DJI reports 0/0) are ignored. This view sends nothing to the aircraft.
+
 ### Planning project files and KMZ validation
 
 Flight-planning work can be saved as a versioned DroneDash \`.ddplan\` JSON project and loaded
@@ -406,6 +437,8 @@ GeoTIFF) opens the model on a Leaflet map over OpenStreetMap or Esri satellite i
   the elevation under the mouse cursor;
 - previews are reused until the model changes; rendering needs Python with GDAL bindings and NumPy
   (set `DRONEDASH_PYTHON`, e.g. OSGeo4W or conda).
+- when the NodeODM result contains an orthomosaic, it is shown as an extra tile layer below the
+  elevation model (see *Orthomosaic as map background*).
 
 **Punktwolke 3D** (or *Punktwolke (LAS/LAZ) öffnen …*) shows the georeferenced point cloud in a
 three.js viewer inside the app:
@@ -434,6 +467,22 @@ configured Python has GDAL:
   opens it on the map, where the polygon tool with a fixed base of 0 gives e.g. the mean crop
   height of a field.
 
+### Ground model from a DSM and change between surveys
+
+Two more actions work on any DSM in the photogrammetry workspace, including the COLMAP result:
+
+- **DTM aus DSM ableiten** — `--dtm-from-dsm` resamples the DSM with the cell minimum (0.5 m by
+  default) and runs a progressive morphological filter (Zhang et al. 2003): openings with windows
+  growing up to the largest object (20 m) remove trees, vehicles and buildings, a slope-dependent
+  threshold (15 %) keeps hills and banks as ground, and the object cells are interpolated from
+  the ground around them. The result `<dsm>-ground.tif` enables *Bestandshöhe (DSM − DTM)*;
+  objects larger than the window (large halls) stay in the model.
+- **DSM-Vergleich …** — `--dem-diff` subtracts an older model (warped onto the current grid) from
+  the current one and reports raised and lowered volume and area above a 10 cm threshold, the
+  mean and P05/P95 of the change, and warns when the whole model is shifted (different height
+  references). The difference raster opens on the map with a blue–white–red scale symmetric
+  around zero and an *Änderung* readout.
+
 ### Terrain and obstacle check in flight planning
 
 *Gelände & Hindernisse (DSM)* in **Flugplanung** checks a computed route against a surface model
@@ -447,6 +496,10 @@ clearance, every stretch below the required clearance (default 30 m) and collisi
 colours the route green / orange / red / grey (no model data) and marks the critical spots. With
 *Terrain Follow* the check approximates a constant height above the model. Power lines and other
 thin objects are usually missing from surface models; the check does not replace a site survey.
+**Höhenprofil** in the map legend opens the route profile of the check (thinned to ~1500 points
+while keeping the tightest spot of every stretch): ground, highest obstacle in the buffer, flight
+level and the required clearance; the cursor position is mirrored on the map. **Höhe anpassen**
+raises the altitude to the value the tightest spot needs, re-plans the route and checks again.
 The model path, take-off point and height, clearance and buffer are saved in the `.ddplan` file
 (optional `terrain` block; older plans load unchanged).
 
@@ -478,6 +531,14 @@ can be linked to a \`.ddplan\` flight plan. Export creates:
 - \`pv-analysis.json\` with the complete structured analysis;
 - \`pv-images.csv\` with per-image thermal/GPS/RTK/route context;
 - \`pv-anomaly-candidates.csv\` with one row per detected thermal cluster.
+
+Anomaly candidates are also placed on the ground: the ray through each cluster centroid is
+intersected with a flat ground plane at take-off height using the image position, RelativeAltitude
+and gimbal yaw/pitch (M3T thermal camera, 61° diagonal field of view). The PV map shows them as
+diamonds next to the image positions, and the export writes `pv-anomalies.geojson` and
+`pv-anomalies.kml` for field crews. The position is good to a few metres (GPS, yaw, uneven roofs or
+terrain) — enough to find the module row, not a single cell; oblique rays flatter than about 15°
+are not placed.
 
 The PV CI smoke test uses a synthetic temperature matrix with a known connected hotspot and verifies
 the local-contrast detector, cluster severity and JSON/CSV export without requiring proprietary DJI
@@ -562,6 +623,15 @@ five-class NDVI scouting-zone GeoTIFF. When Python GDAL bindings are available, 
 uses adaptive GDAL tiles with CUDA/CuPy or NumPy; otherwise the existing OTB implementation remains
 the fallback. The defaults are 0.20 / 0.40 / 0.60 / 0.80, and the UI explicitly treats these as
 scouting classes rather than agronomic diagnosis or machine-ready application rates.
+
+### Application map from scouting zones
+
+The **Applikationskarte** tab turns the NDVI scouting zone map (`ndvi_scouting_zones.tif`) into a
+machine-ready application map: the worker (`--prescription`) aggregates the zones to the
+machine grid (most frequent zone per cell, e.g. the working width), merges adjacent cells of one
+zone into polygons, attaches the operator's rate per zone and writes ESRI Shapefile and GeoJSON in
+WGS84 with the fields `ZONE`, `RATE` and `AREA_HA`, plus area and total amount per zone. The rates
+are the farm's agronomic decision; the zones show differences in the crop, not their cause.
 
 ## Unified DroneDash project workspace
 

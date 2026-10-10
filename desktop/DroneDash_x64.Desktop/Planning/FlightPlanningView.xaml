@@ -52,6 +52,12 @@
               <Button Content="Löschen" Click="ClearPlan_Click"/>
               <Button Content="Importieren (KML/KMZ/GeoJSON)" Click="ImportGeometry_Click"/>
             </WrapPanel>
+            <WrapPanel Margin="0,4,0,0">
+              <Button Content="Orthomosaik als Hintergrund …" Click="SelectOrthophoto_Click"
+                      ToolTip="Eigenes Orthomosaik (z. B. aus NodeODM) als Kartenebene unter der Route; wird beim ersten Mal gekachelt."/>
+              <Button Content="Hintergrund entfernen" Click="ClearOrthophoto_Click"/>
+            </WrapPanel>
+            <TextBlock x:Name="OrthophotoText" Margin="4,2,0,0" Text="Kein Orthomosaik" TextWrapping="Wrap" FontSize="11"/>
             <TextBlock x:Name="PolygonInfoText" Margin="4,7,0,0" Text="0 Punkte" TextWrapping="Wrap"/>
             <TextBlock Margin="4,4,0,0" TextWrapping="Wrap" Opacity="0.7" FontSize="11"
                        Text="Eckpunkte auf der Karte ziehen zum Verschieben · Mittelpunkt-Griff ziehen fügt einen Punkt ein · Rechtsklick auf einen Eckpunkt löscht ihn. Hintergrundkarte oben rechts umschalten."/>
@@ -139,6 +145,19 @@
                      TextWrapping="Wrap"/>
         </GroupBox>
 
+        <GroupBox Header="Live-Position (nur Anzeige)" Margin="0,0,0,10">
+          <StackPanel Margin="10">
+            <WrapPanel>
+              <CheckBox x:Name="LiveAircraftBox" Content="Drohne auf der Karte zeigen" IsChecked="True"
+                        VerticalAlignment="Center" Margin="0,0,12,0"
+                        Checked="LiveAircraftBox_Changed" Unchecked="LiveAircraftBox_Changed"/>
+              <Button Content="Spur löschen" Click="ClearTrack_Click"/>
+            </WrapPanel>
+            <TextBlock x:Name="LiveAircraftText" Margin="4,6,0,0" TextWrapping="Wrap" FontSize="11"
+                       Text="Keine Live-Position (Bridge nicht verbunden oder kein GPS)."/>
+          </StackPanel>
+        </GroupBox>
+
         <GroupBox Header="Gelände &amp; Hindernisse (DSM)" Margin="0,0,0,10">
           <StackPanel Margin="10">
             <TextBlock TextWrapping="Wrap" Opacity="0.8" FontSize="11"
@@ -168,6 +187,8 @@
             </Grid>
             <WrapPanel Margin="0,6,0,0">
               <Button x:Name="CheckTerrainButton" Content="Route prüfen" Click="CheckTerrain_Click"/>
+              <Button x:Name="RaiseAltitudeButton" Content="Höhe anpassen" Click="RaiseAltitude_Click" IsEnabled="False"
+                      ToolTip="Hebt die Flughöhe an, bis die Route überall den Mindestabstand einhält, und berechnet Route und Prüfung neu."/>
             </WrapPanel>
             <TextBlock x:Name="TerrainResultText" Margin="4,6,0,0" Text="Noch nicht geprüft." TextWrapping="Wrap"/>
           </StackPanel>

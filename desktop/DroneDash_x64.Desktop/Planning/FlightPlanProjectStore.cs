@@ -14,6 +14,9 @@ public sealed record FlightPlanProject(
 
     /// <summary>Terrain check inputs; optional, absent in plans saved before the terrain check existed.</summary>
     public FlightPlanTerrainSettings? Terrain { get; init; }
+
+    /// <summary>Orthomosaic shown as map background; optional.</summary>
+    public string? OrthophotoPath { get; init; }
 }
 
 public sealed record FlightPlanTerrainSettings(
@@ -59,7 +62,8 @@ public static class FlightPlanProjectStore
         string path,
         FlightPlanSettings settings,
         IReadOnlyList<GeoPoint> geometry,
-        FlightPlanTerrainSettings? terrain = null)
+        FlightPlanTerrainSettings? terrain = null,
+        string? orthophotoPath = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
@@ -75,7 +79,8 @@ public static class FlightPlanProjectStore
                 settings,
                 geometry.ToArray())
             {
-                Terrain = terrain
+                Terrain = terrain,
+                OrthophotoPath = string.IsNullOrWhiteSpace(orthophotoPath) ? null : orthophotoPath
             };
 
         var json =

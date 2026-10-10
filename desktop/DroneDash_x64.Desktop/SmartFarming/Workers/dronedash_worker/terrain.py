@@ -15,6 +15,7 @@ _MAX_GRID_CELLS = 25_000_000
 _MAX_SAMPLES = 200_000
 _MAX_MAP_POINTS = 6000
 _MAX_VIOLATIONS = 200
+_MAX_PROFILE_POINTS = 1500
 
 
 def nan_max_filter(grid, radius, np):
@@ -57,6 +58,23 @@ def runs(status, np):
 
 
 _STATUS_NAMES = ("ok", "low", "collision", "nodata")
+
+
+def profile_indices(clearance, budget, np):
+    """About `budget` sample indices: per bucket the tightest one, so no narrow spot is lost,
+    plus the first and last sample so the profile spans the whole line."""
+    count = len(clearance)
+    if count <= budget:
+        return np.arange(count)
+    edges = np.linspace(0, count, budget + 1).astype(int)
+    picked = []
+    for start, end in zip(edges[:-1], edges[1:]):
+        if end <= start:
+            continue
+        window = clearance[start:end]
+        finite = np.isfinite(window)
+        picked.append(start + (int(np.argmin(np.where(finite, window, np.inf))) if finite.any() else 0))
+    return np.unique(np.array([0, *picked, count - 1]))
 
 
 def _sample_nearest(grid, gt, xs, ys, np):
@@ -147,7 +165,15 @@ def terrain_check(args):
     step = max(cell, total_length / _MAX_SAMPLES)
     flight_elevation = start_elevation + altitude
 
-    pass_results, violations, chunks = [], [], []
+    pass_results, violations, chunks, profile = [], [], [], []
+    profile_offset = 0.0
+    # Exact sample count of densify() per pass, so the profile budget is split without overshoot.
+    pass_samples = [
+        1 + sum(max(1, int(math.ceil(math.hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]) / step)))
+                for i in range(1, len(xs)))
+        for _, xs, ys in projected
+    ]
+    total_samples = sum(pass_samples)
     overall_min = None
     sample_count = 0
     nodata_count = 0
@@ -184,6 +210,21 @@ def terrain_check(args):
             }
             if overall_min is None or pass_min["clearance"] < overall_min["clearance"]:
                 overall_min = pass_min
+
+        # Profile along the whole route (passes one after another), thinned to a chart-sized list.
+        budget = max(2, _MAX_PROFILE_POINTS * len(sx) // total_samples)
+        for k in profile_indices(clearance, budget, np):
+            k = int(k)
+            profile.append({
+                "distance": round(profile_offset + float(distance[k]), 1),
+                "ground": None if not math.isfinite(ground[k]) else round(float(ground[k]), 2),
+                "obstacle": None if not math.isfinite(obstacle[k]) else round(float(obstacle[k]), 2),
+                "flight": None if not math.isfinite(flight[k]) else round(float(flight[k]), 2),
+                "lon": coords[k][0],
+                "lat": coords[k][1],
+                "pass": flight_pass.get("name"),
+            })
+        profile_offset += float(distance[-1])
 
         pass_results.append({
             "id": flight_pass.get("id"),
@@ -242,5 +283,6 @@ def terrain_check(args):
         "violations": violations,
         "violationsTruncated": len(violations) >= _MAX_VIOLATIONS,
         "chunks": chunks,
+        "profile": profile,
     }
     print(json.dumps(result))

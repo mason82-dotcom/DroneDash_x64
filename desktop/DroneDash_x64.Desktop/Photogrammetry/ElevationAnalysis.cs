@@ -48,6 +48,29 @@ public sealed record CanopyHeightResult(
     double? Maximum,
     double NegativeClippedFraction);
 
+public sealed record DtmFromDsmResult(
+    string Output,
+    double CellMeters,
+    double MaxObjectMeters,
+    long ValidCells,
+    long GroundCells,
+    double GroundFraction);
+
+public sealed record DemDifferenceResult(
+    string Output,
+    double PixelSizeMeters,
+    long ValidPixels,
+    double Threshold,
+    double Mean,
+    double? Minimum,
+    double? Maximum,
+    double? P05,
+    double? P95,
+    double? RaisedAreaSquareMeters,
+    double? LoweredAreaSquareMeters,
+    double? RaisedCubicMeters,
+    double? LoweredCubicMeters);
+
 /// <summary>Where an elevation model can be analysed: interpreter, worker and optional base DTM.</summary>
 public sealed record ElevationAnalysisContext(
     string PythonExecutable,
@@ -164,5 +187,84 @@ public static class ElevationAnalysisService
 
         return JsonSerializer.Deserialize<CanopyHeightResult>(json, JsonOptions)
             ?? throw new InvalidDataException("Leeres CHM-Ergebnis.");
+    }
+
+    /// <summary>Derived ground model next to the DSM, e.g. odm_dem/dsm-ground.tif.</summary>
+    public static string DerivedDtmPathFor(string dsmPath) =>
+        Path.Combine(
+            Path.GetDirectoryName(Path.GetFullPath(dsmPath)) ?? ".",
+            Path.GetFileNameWithoutExtension(dsmPath) + "-ground.tif");
+
+    /// <summary>Difference raster next to the newer model, named after both surveys.</summary>
+    public static string DifferencePathFor(string newerPath, string olderPath) =>
+        Path.Combine(
+            Path.GetDirectoryName(Path.GetFullPath(newerPath)) ?? ".",
+            $"{Path.GetFileNameWithoutExtension(newerPath)}-minus-{SafeStem(olderPath)}.tif");
+
+    public static async Task<DtmFromDsmResult> DtmFromDsmAsync(
+        string pythonExecutable,
+        string workerPath,
+        string dsmPath,
+        double cellMeters = 0.5,
+        double maxObjectMeters = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (!double.IsFinite(cellMeters) || cellMeters <= 0 || !double.IsFinite(maxObjectMeters) || maxObjectMeters < 1)
+            throw new ArgumentOutOfRangeException(nameof(cellMeters), "Zellgröße > 0 und Objektgröße ≥ 1 m erforderlich.");
+
+        var json = await WorkerJsonRunner.RunAsync(
+            pythonExecutable,
+            workerPath,
+            [
+                "--dtm-from-dsm",
+                "--source", Path.GetFullPath(dsmPath),
+                "--output", DerivedDtmPathFor(dsmPath),
+                "--cell", cellMeters.ToString("R", CultureInfo.InvariantCulture),
+                "--max-object", maxObjectMeters.ToString("R", CultureInfo.InvariantCulture)
+            ],
+            "Geländemodell (DTM) aus DSM fehlgeschlagen",
+            cancellationToken);
+
+        return JsonSerializer.Deserialize<DtmFromDsmResult>(json, JsonOptions)
+            ?? throw new InvalidDataException("Leeres DTM-Ergebnis.");
+    }
+
+    public static async Task<DemDifferenceResult> DifferenceAsync(
+        string pythonExecutable,
+        string workerPath,
+        string newerPath,
+        string olderPath,
+        double thresholdMeters = 0.1,
+        CancellationToken cancellationToken = default)
+    {
+        if (WorkerJsonRunner.SameFile(newerPath, olderPath))
+            throw new ArgumentException("Für den Vergleich werden zwei verschiedene Höhenmodelle benötigt.", nameof(olderPath));
+        if (!double.IsFinite(thresholdMeters) || thresholdMeters < 0)
+            throw new ArgumentOutOfRangeException(nameof(thresholdMeters), "Die Schwelle muss ≥ 0 m sein.");
+
+        var json = await WorkerJsonRunner.RunAsync(
+            pythonExecutable,
+            workerPath,
+            [
+                "--dem-diff",
+                "--source", Path.GetFullPath(newerPath),
+                "--reference", Path.GetFullPath(olderPath),
+                "--output", DifferencePathFor(newerPath, olderPath),
+                "--threshold", thresholdMeters.ToString("R", CultureInfo.InvariantCulture)
+            ],
+            "DSM-Vergleich fehlgeschlagen",
+            cancellationToken);
+
+        return JsonSerializer.Deserialize<DemDifferenceResult>(json, JsonOptions)
+            ?? throw new InvalidDataException("Leeres Vergleichsergebnis.");
+    }
+
+    private static string SafeStem(string path)
+    {
+        var stem = Path.GetFileNameWithoutExtension(path);
+        var parent = Path.GetFileName(Path.GetDirectoryName(Path.GetFullPath(path)) ?? "");
+        // "dsm" alone says little; include the folder (e.g. the survey date) when the name is generic.
+        var name = stem.Length <= 4 && parent.Length > 0 ? $"{parent}-{stem}" : stem;
+        return new string(name.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '_').ToArray());
     }
 }
